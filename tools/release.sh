@@ -8,8 +8,7 @@
 #   tools/release.sh --version 2.1   # stamp a version into the artifact names
 #
 # Produces, in dist/:
-#   ChromiumStack-<ver>-macOS.dmg      drag-to-Applications, single .app
-#   ChromiumStack-<ver>-macOS.zip      the same .app, zipped
+#   ChromiumStack-<ver>-macOS.zip      a single self-contained .app, zipped
 #   ChromiumStack-<ver>-Windows.zip    ChromiumStack.exe + hidden app/ scripts
 #   ChromiumStack-<ver>-Linux.tar.gz   ./ChromiumStack launcher + scripts
 #   SHA256SUMS.txt                     checksums for every artifact above
@@ -39,8 +38,13 @@ for arg in "$@"; do
   PREV="$arg"
 done
 if [ -z "$VERSION" ]; then
-  VERSION="$(sed -n 's/.*CFBundleShortVersionString<\/key>[^<]*<string>\([^<]*\)<.*/\1/p' \
-             "$ROOT/ChromiumStack.app/Contents/Info.plist" 2>/dev/null | head -1)"
+  # Prefer the latest git tag (strip a leading v) so the artifact version matches
+  # the release being cut; fall back to Info.plist, then "dev".
+  VERSION="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
+  if [ -z "$VERSION" ]; then
+    VERSION="$(sed -n 's/.*CFBundleShortVersionString<\/key>[^<]*<string>\([^<]*\)<.*/\1/p' \
+               "$ROOT/ChromiumStack.app/Contents/Info.plist" 2>/dev/null | head -1)"
+  fi
   VERSION="${VERSION:-dev}"
 fi
 
@@ -111,10 +115,10 @@ step "ChromiumStack release  (version $VERSION, obfuscate=$OBFUSCATE ps-heavy=$P
 rm -rf "$DIST"; mkdir -p "$DIST"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
-# ---- macOS: self-contained .app -> .dmg + .zip ---------------------------- #
+# ---- macOS: self-contained .app -> .zip ----------------------------------- #
 build_macos() {
   [ "$(uname -s)" = "Darwin" ] || { say "skip macOS (not on Darwin)"; return; }
-  step "macOS  (.app -> .dmg + .zip)"
+  step "macOS  (.app -> .zip)"
   local app="$WORK/ChromiumStack.app"
   # Copy the built bundle skeleton (launcher + Info.plist + icon), then fill
   # Contents/Resources with the runtime tree so the .app stands alone.
@@ -127,13 +131,6 @@ build_macos() {
 
   ( cd "$WORK" && zip -qr -X "$DIST/ChromiumStack-$VERSION-macOS.zip" ChromiumStack.app )
   say "wrote ChromiumStack-$VERSION-macOS.zip"
-
-  local dmgdir="$WORK/dmg"; mkdir -p "$dmgdir"
-  cp -R "$app" "$dmgdir/"
-  ln -s /Applications "$dmgdir/Applications"       # drag-to-install target
-  hdiutil create -quiet -volname "ChromiumStack" -srcfolder "$dmgdir" \
-    -ov -format UDZO "$DIST/ChromiumStack-$VERSION-macOS.dmg"
-  say "wrote ChromiumStack-$VERSION-macOS.dmg"
 }
 
 # ---- Windows: exe + hidden app/ scripts ----------------------------------- #

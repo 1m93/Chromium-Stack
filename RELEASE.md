@@ -14,8 +14,7 @@ tools/release.sh --ps-heavy      # heavy-obfuscate PowerShell too (see below)
 
 | File | What it is | How the user opens it |
 |---|---|---|
-| `ChromiumStack-<ver>-macOS.dmg` | A single `ChromiumStack.app`, everything sealed inside it | Open the DMG, drag the app to **Applications**, double-click |
-| `ChromiumStack-<ver>-macOS.zip` | The same `.app`, zipped | Unzip, double-click |
+| `ChromiumStack-<ver>-macOS.zip` | A single self-contained `ChromiumStack.app`, everything sealed inside it | Unzip, double-click (optionally drag to **Applications**) |
 | `ChromiumStack-<ver>-Windows.zip` | `ChromiumStack.exe` + a readable `.bat`, with the real scripts tucked into `app\` | Unzip, double-click the `.exe` |
 | `ChromiumStack-<ver>-Linux.tar.gz` | A `chromium-stack/` folder with a `./ChromiumStack` launcher | Extract, run `./ChromiumStack` |
 | `SHA256SUMS.txt` | Checksums for every file above | `shasum -c SHA256SUMS.txt` |
@@ -50,7 +49,7 @@ Upload the whole `dist/` folder to a GitHub Release so people get one link:
 ```bash
 gh release create v2.0 dist/ChromiumStack-* dist/SHA256SUMS.txt \
   --title "ChromiumStack 2.0" \
-  --notes "macOS (.dmg/.zip), Windows (.zip), Linux (.tar.gz). Verify with SHA256SUMS.txt."
+  --notes "macOS (.zip), Windows (.zip), Linux (.tar.gz). Verify with SHA256SUMS.txt."
 ```
 
 ## Rebuilding the launchers
