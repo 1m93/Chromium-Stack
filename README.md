@@ -1,4 +1,8 @@
-# ChromiumStack
+<p align="center">
+  <img src="assets/icon-512.png" alt="ChromiumStack" width="128" height="128">
+</p>
+
+<h1 align="center">ChromiumStack</h1>
 
 Run an **old browser engine** on a modern machine, as an ordinary desktop browser you
 can click around in.
@@ -22,6 +26,29 @@ other build in the Chromium snapshot archive works too.
 
 An unsupported CSS declaration in an old engine is **dropped, not degraded**, so layouts
 break in ways that never show up in a current browser.
+
+## Download
+
+Grab the latest build for your platform from the [**Releases** page][releases]. Each
+download is **self-contained** — the launcher finds everything it needs inside the
+package, so there is nothing else to install and no loose folder of files to keep
+together.
+
+| Platform | File | How to open it |
+|---|---|---|
+| **macOS** | `ChromiumStack-<ver>-macOS.zip` | Unzip, then double-click **`ChromiumStack.app`** (optionally drag it to Applications) |
+| **Windows** | `ChromiumStack-<ver>-Windows.zip` | Unzip, then double-click **`ChromiumStack.exe`** |
+| **Linux** | `ChromiumStack-<ver>-Linux.tar.gz` | Extract, then run **`./ChromiumStack`** |
+
+Optionally verify the download against the published checksums:
+
+```bash
+shasum -c SHA256SUMS.txt
+```
+
+Prefer to build the packages yourself? See [RELEASE.md](RELEASE.md).
+
+[releases]: https://github.com/1m93/Chromium-Stack/releases/latest
 
 ## Quick start
 
@@ -496,7 +523,3 @@ Built by [@1m93](https://github.com/1m93).
 Chromium builds come from the [Chromium snapshot
 archive](https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html);
 this project only downloads and launches them.
-
-> **Renamed.** This was called *browsers-emu*. An existing `~/.browsers-emu` directory is
-> moved to `~/.chromium-stack` on first run — same layout, nothing re-downloaded — and
-> `BROWSERS_EMU_HOME` still works as a fallback for `CHROMIUM_STACK_HOME`.
