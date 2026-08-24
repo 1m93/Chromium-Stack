@@ -8,8 +8,15 @@
  * shows the user a prompt. With a compiled executable the app has an identity of
  * its own, so macOS asks once and remembers the answer.
  *
- * All it does is chdir to the folder containing the .app and hand over to
- * gui.sh; every real decision still lives in the shell scripts.
+ * It works in two layouts, trying them in order:
+ *   1. Self-contained release - every script lives inside the bundle at
+ *      Contents/Resources, so the .app is a single draggable thing.
+ *   2. Development / sibling  - the scripts sit next to ChromiumStack.app in the
+ *      project folder, which is how the repo is laid out.
+ * Whichever one has a runnable gui.sh wins.
+ *
+ * All it does is chdir to that folder and hand over to gui.sh; every real
+ * decision still lives in the shell scripts.
  *
  * Build with tools/build-app.sh.
  */
@@ -40,27 +47,72 @@ static void alert(const char *message)
     }
 }
 
-/* Contents/MacOS/ChromiumStack -> the folder holding ChromiumStack.app */
-static int project_dir(char *out, size_t out_size)
+/* The resolved path of this executable:
+ *   <bundle>/ChromiumStack.app/Contents/MacOS/ChromiumStack   */
+static int executable_path(char *out, size_t out_size)
 {
     char raw[PATH_MAX];
     uint32_t size = sizeof(raw);
     if (_NSGetExecutablePath(raw, &size) != 0)
         return -1;
-
-    char resolved[PATH_MAX];
-    if (realpath(raw, resolved) == NULL)
+    if (realpath(raw, out) == NULL)
         return -1;
+    if (strlen(out) >= out_size)
+        return -1;
+    return 0;
+}
 
-    for (int level = 0; level < 4; level++) {
-        char *slash = strrchr(resolved, '/');
+/* Strip `levels` trailing path components from `path`, in place. */
+static int strip_levels(char *path, int levels)
+{
+    for (int level = 0; level < levels; level++) {
+        char *slash = strrchr(path, '/');
         if (slash == NULL)
             return -1;
         *slash = '\0';
     }
-    if (strlen(resolved) + 1 > out_size)
+    return 0;
+}
+
+/* True if `dir/gui.sh` exists and is executable. */
+static int has_launcher(const char *dir)
+{
+    char probe[PATH_MAX];
+    if ((size_t)snprintf(probe, sizeof(probe), "%s/gui.sh", dir) >= sizeof(probe))
+        return 0;
+    return access(probe, X_OK) == 0;
+}
+
+/* Pick the folder that holds gui.sh: the bundle's own Resources first (a
+ * self-contained release), then the folder next to the .app (the repo). */
+static int project_dir(char *out, size_t out_size)
+{
+    char exe[PATH_MAX];
+    if (executable_path(exe, sizeof(exe)) != 0)
         return -1;
-    strcpy(out, resolved);
+
+    /* Contents/MacOS/ChromiumStack -> Contents/Resources */
+    char resources[PATH_MAX];
+    if ((size_t)snprintf(resources, sizeof(resources), "%s", exe) < sizeof(resources) &&
+        strip_levels(resources, 2) == 0) {
+        char joined[PATH_MAX];
+        if ((size_t)snprintf(joined, sizeof(joined), "%s/Resources", resources) < sizeof(joined) &&
+            has_launcher(joined)) {
+            if (strlen(joined) + 1 > out_size)
+                return -1;
+            strcpy(out, joined);
+            return 0;
+        }
+    }
+
+    /* Contents/MacOS/ChromiumStack -> the folder holding ChromiumStack.app */
+    char sibling[PATH_MAX];
+    if ((size_t)snprintf(sibling, sizeof(sibling), "%s", exe) >= sizeof(sibling) ||
+        strip_levels(sibling, 4) != 0)
+        return -1;
+    if (strlen(sibling) + 1 > out_size)
+        return -1;
+    strcpy(out, sibling);
     return 0;
 }
 
@@ -102,14 +154,15 @@ int main(void)
         /* The usual cause is macOS withholding access to the enclosing folder. */
         alert("macOS is blocking access to the folder this app is in.\n\n"
               "Open System Settings > Privacy & Security > Files and Folders "
-              "and allow chromium-stack, then open it again.\n\n"
+              "and allow ChromiumStack, then open it again.\n\n"
               "Or run ./gui.sh from Terminal instead.");
         return 1;
     }
 
     if (access("gui.sh", X_OK) != 0) {
-        alert("gui.sh is missing next to the app.\n\n"
-              "Keep ChromiumStack.app inside the chromium-stack folder.");
+        alert("gui.sh is missing.\n\n"
+              "Keep ChromiumStack.app inside the chromium-stack folder, "
+              "or use the packaged release.");
         return 1;
     }
 
