@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=chromium-stack
+Comment=Install, launch and manage old Chromium engines
+Exec=bash -c 'cd "$(dirname "%k")" && ./gui.sh'
+Icon=chromium-stack
+Terminal=true
+Categories=Development;WebBrowser;

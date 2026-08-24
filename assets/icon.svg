@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<!-- ChromiumStack app icon, full detail. Three stacked browser windows: the
+     silhouette says "browser", the stack says "more than one version".
+     Used for 64px and up. Below that the stack turns to mush, so
+     icon-small.svg takes over. Raster forms: tools/make-icons.sh. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#4b83ff"/><stop offset="1" stop-color="#1f46c8"/>
+    </linearGradient>
+    <clipPath id="c"><rect x="168" y="330" width="688" height="452" rx="52"/></clipPath>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect x="330" y="196" width="404" height="300" rx="42" fill="#ffffff" opacity="0.22"/>
+  <rect x="268" y="262" width="528" height="330" rx="46" fill="#ffffff" opacity="0.38"/>
+  <g clip-path="url(#c)">
+    <rect x="168" y="330" width="688" height="452" fill="#ffffff"/>
+    <rect x="168" y="330" width="688" height="104" fill="#2b3444"/>
+    <circle cx="228" cy="382" r="17" fill="#ffffff" opacity="0.9"/>
+    <circle cx="286" cy="382" r="17" fill="#ffffff" opacity="0.6"/>
+    <circle cx="344" cy="382" r="17" fill="#ffffff" opacity="0.35"/>
+    <rect x="424" y="364" width="372" height="36" rx="18" fill="#ffffff" opacity="0.22"/>
+    <rect x="228" y="500" width="404" height="34" rx="17" fill="#7d8ba3" opacity="0.6"/>
+    <rect x="228" y="574" width="536" height="34" rx="17" fill="#7d8ba3" opacity="0.42"/>
+    <rect x="228" y="648" width="300" height="34" rx="17" fill="#7d8ba3" opacity="0.3"/>
+  </g>
+</svg>

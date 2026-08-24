@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>              <string>ChromiumStack</string>
+  <key>CFBundleDisplayName</key>       <string>ChromiumStack</string>
+  <key>CFBundleIdentifier</key>        <string>local.chromiumstack.manager</string>
+  <key>CFBundleVersion</key>           <string>2.0</string>
+  <key>CFBundleShortVersionString</key><string>2.0</string>
+  <key>CFBundlePackageType</key>       <string>APPL</string>
+  <key>CFBundleExecutable</key>        <string>ChromiumStack</string>
+  <key>CFBundleIconFile</key>          <string>AppIcon</string>
+  <key>NSHighResolutionCapable</key>   <true/>
+  <key>LSMinimumSystemVersion</key>    <string>10.13</string>
+  <!-- Shown in the macOS permission prompt when the app lives under ~/Documents,
+       ~/Desktop or ~/Downloads, which are TCC-protected. -->
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>ChromiumStack reads its own launcher scripts and catalog from the folder it is in.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>ChromiumStack reads its own launcher scripts and catalog from the folder it is in.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>ChromiumStack reads its own launcher scripts and catalog from the folder it is in.</string>
+</dict>
+</plist>

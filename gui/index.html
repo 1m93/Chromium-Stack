@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChromiumStack</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="dot" aria-hidden="true"></span>
+    <h1>ChromiumStack</h1>
+  </div>
+  <div class="host" id="host"></div>
+  <div class="spacer"></div>
+  <div class="disk" id="disk" title="Disk used by downloaded browsers and their profiles"></div>
+  <button class="btn ghost" id="doctor-btn">System check</button>
+  <button class="btn ghost" id="add-btn">Add by revision</button>
+</header>
+
+<section class="controls">
+  <label class="field grow">
+    <span>Open URL <em>(optional)</em></span>
+    <input type="text" id="url" placeholder="localhost:4173" autocomplete="off" spellcheck="false">
+  </label>
+  <label class="field">
+    <span>Window size</span>
+    <input type="text" id="size" placeholder="auto" autocomplete="off" spellcheck="false">
+  </label>
+  <label class="field">
+    <span>Graphics</span>
+    <select id="gpu">
+      <option value="auto">Auto</option>
+      <option value="on">Force GPU on</option>
+      <option value="off">Force GPU off</option>
+    </select>
+  </label>
+  <label class="check">
+    <input type="checkbox" id="only-installed">
+    <span>Installed only</span>
+  </label>
+</section>
+
+<!-- Only rendered when something is missing, or when asked for from the header. -->
+<section id="doctor" class="doctor" hidden></section>
+
+<main id="list" class="list" aria-busy="true">
+  <p class="empty">Loading…</p>
+</main>
+
+<footer class="foot">
+  <span id="foot-note"></span>
+  <span class="foot-by">
+    ChromiumStack — built by
+    <a href="https://github.com/1m93" target="_blank" rel="noopener noreferrer">@1m93</a>
+  </span>
+</footer>
+
+<!-- Job output drawer -->
+<aside class="drawer" id="drawer" hidden>
+  <div class="drawer-head">
+    <strong id="drawer-title">Working…</strong>
+    <span class="drawer-status" id="drawer-status"></span>
+    <button class="btn ghost small" id="drawer-close">Close</button>
+  </div>
+  <pre id="drawer-log" class="drawer-log"></pre>
+</aside>
+
+<!-- Add-by-revision dialog -->
+<dialog id="add-dialog">
+  <form method="dialog" class="dialog-body">
+    <h2>Add a build by revision</h2>
+    <p class="muted">
+      Any position in the Chromium snapshot archive that has a build for this
+      platform. Not every position is archived — if it is missing, try one a few
+      commits later.
+    </p>
+    <label class="field">
+      <span>Revision</span>
+      <input type="text" id="add-revision" inputmode="numeric" placeholder="638880" autocomplete="off">
+    </label>
+    <p class="muted small">
+      Look one up at
+      <span class="mono">chromiumdash.appspot.com/fetch_milestones?mstone=NN</span>
+    </p>
+    <menu class="dialog-actions">
+      <button class="btn ghost" value="cancel">Cancel</button>
+      <button class="btn primary" id="add-confirm" value="ok">Install</button>
+    </menu>
+  </form>
+</dialog>
+
+<template id="row-template">
+  <article class="card">
+    <div class="card-main">
+      <div class="card-head">
+        <span class="state" data-state></span>
+        <h3 data-title></h3>
+        <span class="rev mono" data-rev></span>
+        <span class="badge" data-platform></span>
+      </div>
+      <p class="note" data-note></p>
+      <p class="meta" data-meta></p>
+    </div>
+    <div class="card-actions" data-actions></div>
+  </article>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
