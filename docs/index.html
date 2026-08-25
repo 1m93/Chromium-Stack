@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChromiumStack — a shelf of real browsers, eight years deep</title>
+<meta name="description" content="Pick a Chromium version from 60 to 130, press Launch, and it opens as an ordinary desktop browser — tabs, bookmarks, DevTools and all. No account, no build step, nothing to configure.">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-512.png">
+<link rel="canonical" href="https://1m93.github.io/Chromium-Stack/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="ChromiumStack — a shelf of real browsers, eight years deep">
+<meta property="og:description" content="Sixteen Chromium milestones from 2017 to 2024, one click away. macOS, Windows and Linux, self-contained.">
+<meta property="og:url" content="https://1m93.github.io/Chromium-Stack/">
+<meta property="og:image" content="https://1m93.github.io/Chromium-Stack/assets/screenshot-manager.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+:root{
+  --bg:#0f1115;--panel:#171a21;--panel-2:#1c2029;--line:#272c36;
+  --ink:#e8ebf0;--ink-2:#a3adbd;--ink-3:#6e7889;
+  --accent:#5c8dff;--accent-2:#2f6df6;--ok:#3fbd7d;--warn:#e0a03c;--danger:#f0665f;
+  --shadow:0 24px 60px -24px rgba(0,0,0,.75);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+}
+html[data-theme="light"]{
+  --bg:#f6f7f9;--panel:#ffffff;--panel-2:#fbfbfd;--line:#e2e5ea;
+  --ink:#12141a;--ink-2:#5b6472;--ink-3:#8a94a3;
+  --accent:#2f6df6;--accent-2:#1f46c8;--ok:#1d9a5a;--warn:#c2790a;--danger:#cf3b3b;
+  --shadow:0 24px 60px -28px rgba(18,20,26,.22);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:76px}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+img{max-width:100%}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--ink);text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+summary::-webkit-details-marker{display:none}
+[data-reveal]{opacity:0;transform:translateY(22px);transition:opacity .75s cubic-bezier(.2,.7,.2,1),transform .75s cubic-bezier(.2,.7,.2,1)}
+[data-reveal="in"]{opacity:1;transform:none}
+details[open] [data-chev]{transform:rotate(45deg)}
+
+/* interaction states lifted out of the design's style-hover attributes */
+.hv-theme:hover{border-color:var(--accent);color:var(--ink)}
+.hv-ghost:hover{border-color:var(--accent);text-decoration:none;color:var(--ink)}
+.hv-pill:hover{transform:translateY(-1px);box-shadow:0 10px 24px -10px var(--accent);color:#fff;text-decoration:none}
+.hv-cta:hover{transform:translateY(-2px);color:#fff;text-decoration:none}
+.hv-sm:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--line));transform:translateY(-3px)}
+.hv-card:hover{transform:translateY(-4px);border-color:color-mix(in srgb,var(--accent) 50%,var(--line));box-shadow:var(--shadow)}
+.hv-link:hover{transform:translateY(-4px);border-color:color-mix(in srgb,var(--accent) 55%,var(--line));box-shadow:var(--shadow);text-decoration:none;color:var(--ink)}
+
+@keyframes floatA{0%,100%{transform:translate3d(0,0,0) rotate(-3.5deg)}50%{transform:translate3d(0,-14px,0) rotate(-3deg)}}
+@keyframes floatB{0%,100%{transform:translate3d(0,0,0) rotate(1.5deg)}50%{transform:translate3d(0,-9px,0) rotate(2deg)}}
+@keyframes floatC{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-5px,0)}}
+@keyframes caret{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes pulse{50%{opacity:.3}}
+@keyframes glowdrift{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(4%,-3%) scale(1.08)}}
+@media (max-width:980px){
+  [data-r="hero"],[data-r="two"]{grid-template-columns:minmax(0,1fr)!important;gap:40px!important}
+  [data-r="stack"]{height:340px!important;order:-1}
+  [data-r="nav"]{display:none!important}
+  [data-lp] section,[data-lp] section>div{padding-top:56px!important;padding-bottom:56px!important}
+}
+@media (max-width:680px){
+  [data-lp] header{padding-left:18px!important;padding-right:18px!important;gap:10px}
+  [data-lp] section,[data-lp] section>div,[data-lp] footer>div{padding-left:18px!important;padding-right:18px!important}
+  [data-lp] [data-r="stack"]{height:270px!important}
+  [data-lp] [data-r="ticks"] span{font-size:9px}
+  [data-lp] [data-r="stats"]{gap:20px!important}
+  [data-lp] [data-r="term"]{min-height:210px!important;font-size:11.5px!important}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  [data-reveal]{opacity:1!important;transform:none!important}
+  *{animation:none!important}
+}
+</style>
+<noscript><style>[data-reveal]{opacity:1!important;transform:none!important}</style></noscript>
+</head>
+<body>
+
+<div data-lp style="position:relative;overflow:hidden">
+
+<div style="position:absolute;top:-260px;left:50%;width:1200px;height:620px;margin-left:-600px;background:radial-gradient(closest-side,var(--accent),transparent);opacity:.14;filter:blur(20px);pointer-events:none;animation:glowdrift 18s ease-in-out infinite"></div>
+
+<header style="position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;padding:13px 28px;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)">
+  <div style="display:flex;align-items:center;gap:9px">
+    <span style="width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)"></span>
+    <span style="font-size:15px;font-weight:650;letter-spacing:-.01em">ChromiumStack</span>
+  </div>
+  <span style="flex:1"></span>
+  <nav data-r="nav" style="display:flex;align-items:center;gap:22px;font-size:13.5px;color:var(--ink-2)">
+    <a href="#why" style="color:inherit">Why</a>
+    <a href="#start" style="color:inherit">Quick start</a>
+    <a href="#shelf" style="color:inherit">Versions</a>
+    <a href="#cli" style="color:inherit">CLI</a>
+    <a href="#faq" style="color:inherit">Good to know</a>
+    <a href="#contact" style="color:inherit">Contact</a>
+  </nav>
+  <button id="themeBtn" type="button" title="Switch theme" aria-label="Switch colour theme" style="display:flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;padding:6px 11px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink-2);cursor:pointer;transition:border-color .2s,color .2s" class="hv-theme"><span id="themeLabel">Light</span></button>
+  <a href="#download" style="font-size:13px;font-weight:600;padding:7px 15px;border-radius:999px;background:var(--accent);color:#fff;transition:transform .18s,box-shadow .18s" class="hv-pill">Download</a>
+</header>
+
+<section data-r="hero" style="display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:56px;align-items:center;max-width:1160px;margin:0 auto;padding:96px 28px 88px">
+  <div>
+    <h1 data-reveal style="margin:0;font-size:clamp(40px,5.2vw,64px);line-height:1.02;letter-spacing:-.035em;font-weight:680;text-wrap:balance">A shelf of real browsers,<br><span style="color:var(--accent)">eight years deep.</span></h1>
+    <p data-reveal style="margin:24px 0 0;max-width:46ch;font-size:18px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">Pick a Chromium version, press Launch, and it opens as an ordinary desktop browser — tabs, bookmarks, DevTools and all. No account, no build step, nothing to configure.</p>
+    <div data-reveal style="display:flex;flex-wrap:wrap;gap:12px;margin-top:34px">
+      <a href="#download" style="display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600;padding:13px 22px;border-radius:11px;background:var(--accent);color:#fff;box-shadow:0 14px 30px -14px var(--accent);transition:transform .18s" class="hv-cta">Download for your platform</a>
+    </div>
+    <div data-reveal data-stats data-r="stats" style="display:flex;flex-wrap:wrap;gap:34px;margin-top:44px;padding-top:28px;border-top:1px solid var(--line)">
+      <div><div style="font-size:26px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums"><span id="statM">0</span></div><div style="margin-top:3px;font-size:12.5px;color:var(--ink-3)">milestones catalogued</div></div>
+      <div><div style="font-size:26px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums"><span id="statY">0</span></div><div style="margin-top:3px;font-size:12.5px;color:var(--ink-3)">years of engines</div></div>
+      <div><div style="font-size:26px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums"><span id="statV">0</span></div><div style="margin-top:3px;font-size:12.5px;color:var(--ink-3)">newest milestone</div></div>
+    </div>
+  </div>
+
+  <div data-r="stack" style="position:relative;height:420px">
+    <div style="position:absolute;top:8px;right:34px;width:82%;height:212px;border-radius:16px;border:1px solid var(--line);background:var(--panel-2);opacity:.55;animation:floatA 9s ease-in-out infinite">
+      <div style="display:flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-bottom:1px solid var(--line)">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ink-3);opacity:.6"></span>
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ink-3);opacity:.4"></span>
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ink-3);opacity:.25"></span>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">60</span>
+      </div>
+    </div>
+    <div style="position:absolute;top:66px;right:14px;width:90%;height:250px;border-radius:16px;border:1px solid var(--line);background:var(--panel-2);opacity:.8;animation:floatB 7.5s ease-in-out infinite">
+      <div style="display:flex;align-items:center;gap:7px;height:38px;padding:0 14px;border-bottom:1px solid var(--line)">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ink-3);opacity:.6"></span>
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ink-3);opacity:.4"></span>
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ink-3);opacity:.25"></span>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">95</span>
+      </div>
+    </div>
+    <div style="position:absolute;bottom:0;left:0;width:96%;border-radius:18px;border:1px solid var(--line);background:var(--panel);box-shadow:var(--shadow);overflow:hidden;animation:floatC 6.5s ease-in-out infinite">
+      <div style="display:flex;align-items:center;gap:8px;padding:0 15px;height:42px;background:#2b3444;border-bottom:1px solid rgba(255,255,255,.06)">
+        <span style="width:9px;height:9px;border-radius:50%;background:#fff;opacity:.9"></span>
+        <span style="width:9px;height:9px;border-radius:50%;background:#fff;opacity:.55"></span>
+        <span style="width:9px;height:9px;border-radius:50%;background:#fff;opacity:.32"></span>
+        <span style="flex:1;height:22px;margin-left:10px;border-radius:11px;background:rgba(255,255,255,.14);display:flex;align-items:center;padding:0 11px;font-family:var(--mono);font-size:11px;color:rgba(255,255,255,.62)">localhost:4173</span>
+        <span style="font-family:var(--mono);font-size:11px;color:rgba(255,255,255,.6)">Chromium 130</span>
+      </div>
+      <div style="padding:22px 24px 26px;display:flex;flex-direction:column;gap:11px">
+        <div style="height:11px;width:62%;border-radius:6px;background:var(--ink-3);opacity:.55"></div>
+        <div style="height:11px;width:84%;border-radius:6px;background:var(--ink-3);opacity:.38"></div>
+        <div style="height:11px;width:44%;border-radius:6px;background:var(--ink-3);opacity:.26"></div>
+        <div style="display:flex;gap:10px;margin-top:8px">
+          <div style="height:56px;flex:1;border-radius:9px;border:1px solid var(--line);background:var(--panel-2)"></div>
+          <div style="height:56px;flex:1;border-radius:9px;border:1px solid var(--line);background:var(--panel-2)"></div>
+          <div style="height:56px;flex:1;border-radius:9px;border:1px solid var(--line);background:var(--panel-2)"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="why" style="max-width:1160px;margin:0 auto;padding:76px 28px">
+  <div data-reveal style="font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">Why people keep one of these around</div>
+  <h2 data-reveal style="margin:14px 0 0;max-width:30ch;font-size:clamp(28px,3.4vw,40px);line-height:1.12;letter-spacing:-.028em;font-weight:660;text-wrap:balance">Modern browsers are excellent liars.</h2>
+  <p data-reveal style="margin:18px 0 0;max-width:62ch;font-size:16.5px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">They quietly polyfill, gracefully degrade and make your site look finished — right up until it meets an engine from 2019, where an unsupported CSS declaration is <strong style="color:var(--ink);font-weight:600">dropped, not degraded</strong>, and a layout falls apart in a way nothing on your machine will ever show you.</p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:16px;margin-top:44px">
+    <div data-reveal style="padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-card">
+      <div style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)">Kiosks &amp; devices</div>
+      <p style="margin:12px 0 0;font-size:14.5px;line-height:1.6;color:var(--ink-2)">POS terminals, scanners and industrial tablets ship a System WebView years behind the OS. It is the <em>engine</em> that decides whether your CSS survives.</p>
+      <p style="margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line);font-size:14.5px;line-height:1.6;color:var(--ink)">The same engine on your desk, in a window you can click around in.</p>
+    </div>
+    <div data-reveal style="padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-card">
+      <div style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)">The support ticket</div>
+      <p style="margin:12px 0 0;font-size:14.5px;line-height:1.6;color:var(--ink-2)">A customer on a locked-down browser reports a bug you cannot reproduce anywhere.</p>
+      <p style="margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line);font-size:14.5px;line-height:1.6;color:var(--ink)">Open their engine, load the page, see it happen.</p>
+    </div>
+    <div data-reveal style="padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-card">
+      <div style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)">The browserslist claim</div>
+      <p style="margin:12px 0 0;font-size:14.5px;line-height:1.6;color:var(--ink-2)">Your config promises support for an old floor. Nobody has ever checked.</p>
+      <p style="margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line);font-size:14.5px;line-height:1.6;color:var(--ink)">Two minutes to find out whether the promise is true.</p>
+    </div>
+    <div data-reveal style="padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-card">
+      <div style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)">The regression hunt</div>
+      <p style="margin:12px 0 0;font-size:14.5px;line-height:1.6;color:var(--ink-2)">Something broke <em>somewhere</em> between two releases.</p>
+      <p style="margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line);font-size:14.5px;line-height:1.6;color:var(--ink)">90, 105 and 120 open side by side, bisected by eye.</p>
+    </div>
+  </div>
+</section>
+
+<section id="start" style="max-width:1160px;margin:0 auto;padding:76px 28px">
+  <div data-reveal style="font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">Sixty seconds to your first old browser</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:26px;margin-top:32px">
+    <div data-reveal>
+      <div style="display:flex;align-items:center;gap:10px"><span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:12.5px;font-weight:600">1</span><h3 style="margin:0;font-size:17px;font-weight:620;letter-spacing:-.01em">Open it</h3></div>
+      <p style="margin:14px 0 0;font-size:15px;line-height:1.62;color:var(--ink-2);text-wrap:pretty">Double-click the launcher. The <strong style="color:var(--ink);font-weight:600">manager</strong> opens in your normal browser: every version, what is installed, what each one costs in disk.</p>
+    </div>
+    <div data-reveal>
+      <div style="display:flex;align-items:center;gap:10px"><span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:12.5px;font-weight:600">2</span><h3 style="margin:0;font-size:17px;font-weight:620;letter-spacing:-.01em">Pick a version</h3></div>
+      <p style="margin:14px 0 0;font-size:15px;line-height:1.62;color:var(--ink-2);text-wrap:pretty">Press <strong style="color:var(--ink);font-weight:600">Launch</strong> on any row. The first launch of a version downloads it — 90–300 MB, a few minutes, once. Every launch after that is instant.</p>
+    </div>
+    <div data-reveal>
+      <div style="display:flex;align-items:center;gap:10px"><span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:12.5px;font-weight:600">3</span><h3 style="margin:0;font-size:17px;font-weight:620;letter-spacing:-.01em">Use it</h3></div>
+      <p style="margin:14px 0 0;font-size:15px;line-height:1.62;color:var(--ink-2);text-wrap:pretty">A real browser window opens. Type a URL, open DevTools, log in, keep the profile. Close the launcher window when you are done.</p>
+    </div>
+  </div>
+
+  <figure data-reveal style="margin:52px 0 0">
+    <div style="border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
+      <img src="assets/screenshot-manager.png" alt="The ChromiumStack manager: every catalogued Chromium milestone on one page, each with an Install &amp; launch button" style="display:block;width:100%;height:auto" />
+    </div>
+    <figcaption style="margin-top:14px;font-size:13px;line-height:1.6;color:var(--ink-3);max-width:80ch;text-wrap:pretty">Every catalogued milestone on one page — which are installed, which run natively, which go through Rosetta, what each is costing you in disk, and one button to open any of them.</figcaption>
+  </figure>
+
+  <div data-reveal style="display:flex;gap:14px;margin-top:26px;padding:18px 20px;border:1px solid color-mix(in srgb,var(--ok) 40%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--ok) 7%,var(--panel))">
+    <span style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ok);padding-top:2px">Tip</span>
+    <p style="margin:0;font-size:14.5px;line-height:1.62;color:var(--ink-2)">Type a URL in the box at the top of the manager and <strong style="color:var(--ink);font-weight:600">every</strong> version you launch opens straight to it. <code style="font-family:var(--mono);font-size:13px;color:var(--ink)">localhost:4173</code> is fine — it is the fastest way to compare four engines on the same page.</p>
+  </div>
+</section>
+
+<section id="shelf" style="border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--panel-2)">
+  <div style="max-width:1160px;margin:0 auto;padding:76px 28px">
+    <div data-reveal style="font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">The version shelf</div>
+    <h2 data-reveal style="margin:14px 0 0;max-width:34ch;font-size:clamp(26px,3.2vw,38px);line-height:1.14;letter-spacing:-.028em;font-weight:660;text-wrap:balance">Sixteen milestones, verified against the live archive.</h2>
+    <p data-reveal style="margin:16px 0 0;max-width:58ch;font-size:16px;line-height:1.65;color:var(--ink-2)">And any other snapshot revision works too. Drag the scrubber, or click a year.</p>
+
+    <div data-reveal style="margin-top:46px">
+      <div id="track" tabindex="0" role="slider" aria-label="Chromium milestone" aria-valuemin="0" aria-valuemax="15" aria-valuenow="3" aria-valuetext="Chromium 74" style="position:relative;height:64px;cursor:ew-resize;touch-action:none;user-select:none">
+        <div style="position:absolute;left:0;right:0;top:20px;height:2px;background:var(--line)"></div>
+        <div id="progress" style="position:absolute;left:0;top:20px;height:2px;background:var(--accent);transition:width .35s cubic-bezier(.2,.7,.2,1);width:20%"></div>
+        <div style="position:absolute;left:0;right:0;top:14px;display:flex;justify-content:space-between;align-items:center;pointer-events:none">
+          <span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span><span style="width:2px;height:14px;background:var(--line)"></span>
+        </div>
+        <div id="cursor" style="position:absolute;top:11px;width:20px;height:20px;margin-left:-10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 22%,transparent);transition:left .35s cubic-bezier(.2,.7,.2,1);pointer-events:none;left:20%"></div>
+        <div data-r="ticks" style="position:absolute;left:0;right:0;top:44px;display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--ink-3);pointer-events:none">
+          <span>60</span><span>65</span><span>70</span><span>74</span><span>76</span><span>80</span><span>85</span><span>90</span><span>95</span><span>100</span><span>105</span><span>110</span><span>115</span><span>120</span><span>125</span><span>130</span>
+        </div>
+      </div>
+
+      <div data-r="two" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:30px;align-items:start;margin-top:34px;padding:28px;border:1px solid var(--line);border-radius:16px;background:var(--panel);box-shadow:var(--shadow)">
+        <div>
+          <div style="font-size:clamp(38px,4.6vw,56px);line-height:1;letter-spacing:-.04em;font-weight:680;font-variant-numeric:tabular-nums">Chromium <span id="mVer">74</span></div>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;font-family:var(--mono);font-size:12.5px;color:var(--ink-3)">
+            <span id="mFull">74.0.3729.0</span>
+            <span>·</span>
+            <span>r<span id="mRev">638880</span></span>
+            <span style="padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--ink-3) 15%,transparent);color:var(--ink-2);font-size:11px" id="mPlat">x86_64 · Rosetta</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)" id="mYear">2019</div>
+          <p style="margin:12px 0 0;font-size:17px;line-height:1.55;color:var(--ink);text-wrap:pretty" id="mNote">No flexbox `gap` (84), `aspect-ratio`/`:is()` (88), optional chaining (80).</p>
+          <div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--ink-2)">./chromium-stack.sh run <span id="mCmd">74</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:12px;margin-top:26px">
+      <div data-reveal style="padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);transition:border-color .22s,transform .22s" class="hv-sm">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">2017–2018</div>
+        <div style="margin-top:8px;font-family:var(--mono);font-size:14px;color:var(--accent)">60 · 65 · 70</div>
+        <p style="margin:10px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2)">Hard floors for very old WebViews.</p>
+      </div>
+      <div data-reveal style="padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);transition:border-color .22s,transform .22s" class="hv-sm">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">2019–2020</div>
+        <div style="margin-top:8px;font-family:var(--mono);font-size:14px;color:var(--accent)">74 · 76 · 80</div>
+        <p style="margin:10px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2)">No flexbox <code style="font-family:var(--mono)">gap</code>; optional chaining arrives in 80.</p>
+      </div>
+      <div data-reveal style="padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);transition:border-color .22s,transform .22s" class="hv-sm">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">2020–2021</div>
+        <div style="margin-top:8px;font-family:var(--mono);font-size:14px;color:var(--accent)">85 · 90</div>
+        <p style="margin:10px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2)">Flexbox <code style="font-family:var(--mono)">gap</code>, <code style="font-family:var(--mono)">aspect-ratio</code>, <code style="font-family:var(--mono)">:is()</code>.</p>
+      </div>
+      <div data-reveal style="padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);transition:border-color .22s,transform .22s" class="hv-sm">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">2021–2022</div>
+        <div style="margin-top:8px;font-family:var(--mono);font-size:14px;color:var(--accent)">95 · 100 · 105</div>
+        <p style="margin:10px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2)">Container queries and <code style="font-family:var(--mono)">:has()</code> arrive in 105.</p>
+      </div>
+      <div data-reveal style="padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);transition:border-color .22s,transform .22s" class="hv-sm">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">2023</div>
+        <div style="margin-top:8px;font-family:var(--mono);font-size:14px;color:var(--accent)">110 · 115 · 120</div>
+        <p style="margin:10px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2)"><code style="font-family:var(--mono)">dvh</code>, CSS nesting, view transitions, <code style="font-family:var(--mono)">subgrid</code>.</p>
+      </div>
+      <div data-reveal style="padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);transition:border-color .22s,transform .22s" class="hv-sm">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">2024</div>
+        <div style="margin-top:8px;font-family:var(--mono);font-size:14px;color:var(--accent)">125 · 130</div>
+        <p style="margin:10px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2)">Near-current — the control when you are bisecting.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="cli" style="max-width:1160px;margin:0 auto;padding:84px 28px">
+  <div data-r="two" style="display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:52px;align-items:center">
+    <div>
+      <div data-reveal style="font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">For terminal people</div>
+      <h2 data-reveal style="margin:14px 0 0;font-size:clamp(26px,3.2vw,38px);line-height:1.14;letter-spacing:-.028em;font-weight:660;text-wrap:balance">The manager is a front end for the CLI.</h2>
+      <p data-reveal style="margin:16px 0 0;font-size:16px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">Both do the same things, so they cannot drift apart. Flags for <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">run</code>: <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">--size 1280x800</code>, <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">--gpu</code> / <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">--no-gpu</code>, <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">--no-restart</code>, and anything after <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">--</code> goes straight to Chromium.</p>
+      <p data-reveal style="margin:16px 0 0;font-size:16px;line-height:1.65;color:var(--ink-2)">Windows runs the same commands through <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">.\chromium-stack.ps1</code>.</p>
+    </div>
+
+    <div data-reveal style="border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
+      <div style="display:flex;align-items:center;gap:8px;padding:0 14px;height:38px;border-bottom:1px solid var(--line);background:var(--panel-2)">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--danger);opacity:.75"></span>
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--warn);opacity:.75"></span>
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--ok);opacity:.75"></span>
+        <span style="margin-left:8px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3)">zsh — Chromium-Stack</span>
+      </div>
+      <div data-r="term" style="padding:20px 20px 24px;min-height:290px;font-family:var(--mono);font-size:13px;line-height:1.75">
+        <div id="hist"></div>
+        <div><span style="color:var(--accent)">$</span> <span style="color:var(--ink)"><span id="typed"></span></span><span style="display:inline-block;width:8px;height:15px;margin-left:2px;vertical-align:-2px;background:var(--accent);animation:caret 1.05s step-end infinite"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="border-top:1px solid var(--line);background:var(--panel-2)">
+  <div data-r="two" style="max-width:1160px;margin:0 auto;padding:76px 28px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:52px">
+    <div>
+      <div data-reveal style="font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">Docker edition</div>
+      <h2 data-reveal style="margin:14px 0 0;font-size:clamp(24px,2.7vw,32px);line-height:1.16;letter-spacing:-.026em;font-weight:660;text-wrap:balance">The Linux build in a container, shown in a browser tab.</h2>
+      <p data-reveal style="margin:16px 0 0;font-size:15.5px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">Runs the Linux x86_64 build in a container and shows its desktop in a tab of your normal browser, over noVNC. It never touches Rosetta, so on Apple Silicon it sidesteps the stack-profiler crash.</p>
+      <p data-reveal style="margin:16px 0 0;font-size:15.5px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">Each version gets its own image, container, profile volume and port, so several can run side by side. <strong style="color:var(--ink);font-weight:600">Docker is optional</strong>, and the native launcher is what most people should use.</p>
+    </div>
+    <div data-reveal style="padding:22px;border:1px solid var(--line);border-radius:14px;background:var(--panel);font-family:var(--mono);font-size:13px;line-height:2.1;color:var(--ink-2)">
+      <div><span style="color:var(--ink-3)">./chromium-stack-docker.sh</span> <span style="color:var(--ink)">start 74</span></div>
+      <div><span style="color:var(--ink-3)">./chromium-stack-docker.sh</span> <span style="color:var(--ink)">stop 74</span></div>
+      <div><span style="color:var(--ink-3)">./chromium-stack-docker.sh</span> <span style="color:var(--ink)">logs 74</span></div>
+      <div><span style="color:var(--ink-3)">./chromium-stack-docker.sh</span> <span style="color:var(--ink)">rebuild 74</span></div>
+      <div><span style="color:var(--ink-3)">./chromium-stack-docker.sh</span> <span style="color:var(--ink)">list</span></div>
+      <div><span style="color:var(--ink-3)">./chromium-stack-docker.sh</span> <span style="color:var(--ink)">purge 74</span></div>
+      <p style="margin:16px 0 0;padding-top:16px;border-top:1px solid var(--line);font-family:var(--sans);font-size:13.5px;line-height:1.6;color:var(--ink-3)">Inside the container, <code style="font-family:var(--mono)">localhost</code> is the container. Use <code style="font-family:var(--mono);color:var(--ink-2)">http://host.docker.internal:4173</code> to reach a server running on your own machine.</p>
+    </div>
+  </div>
+</section>
+
+<section id="download" style="max-width:1160px;margin:0 auto;padding:88px 28px">
+  <div data-reveal style="font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">Download</div>
+  <h2 data-reveal style="margin:14px 0 0;max-width:32ch;font-size:clamp(28px,3.4vw,40px);line-height:1.12;letter-spacing:-.028em;font-weight:660;text-wrap:balance">Every download is self-contained.</h2>
+  <p data-reveal style="margin:16px 0 0;max-width:60ch;font-size:16.5px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">The launcher finds everything it needs inside the package. Nothing to install, nothing to keep together, no loose folder of files to lose.</p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:16px;margin-top:40px">
+    <a data-reveal href="https://github.com/1m93/Chromium-Stack/releases/latest" target="_blank" rel="noopener noreferrer" style="display:block;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-link">
+      <div style="font-size:18px;font-weight:640;letter-spacing:-.015em">macOS</div>
+      <div style="margin-top:10px;font-family:var(--mono);font-size:12.5px;color:var(--accent)">ChromiumStack-&lt;ver&gt;-macOS.zip</div>
+      <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:var(--ink-2)">Unzip → double-click <strong style="color:var(--ink);font-weight:600">ChromiumStack.app</strong> (drag it to Applications if you like)</p>
+    </a>
+    <a data-reveal href="https://github.com/1m93/Chromium-Stack/releases/latest" target="_blank" rel="noopener noreferrer" style="display:block;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-link">
+      <div style="font-size:18px;font-weight:640;letter-spacing:-.015em">Windows</div>
+      <div style="margin-top:10px;font-family:var(--mono);font-size:12.5px;color:var(--accent)">ChromiumStack-&lt;ver&gt;-Windows.zip</div>
+      <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:var(--ink-2)">Unzip → double-click <strong style="color:var(--ink);font-weight:600">ChromiumStack.exe</strong></p>
+    </a>
+    <a data-reveal href="https://github.com/1m93/Chromium-Stack/releases/latest" target="_blank" rel="noopener noreferrer" style="display:block;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-link">
+      <div style="font-size:18px;font-weight:640;letter-spacing:-.015em">Linux</div>
+      <div style="margin-top:10px;font-family:var(--mono);font-size:12.5px;color:var(--accent)">ChromiumStack-&lt;ver&gt;-Linux.tar.gz</div>
+      <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:var(--ink-2)">Extract → run <strong style="color:var(--ink);font-weight:600">./ChromiumStack</strong></p>
+    </a>
+  </div>
+
+  <div data-reveal style="margin-top:26px;padding:20px 22px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)">
+    <p style="margin:0;font-size:13.5px;line-height:1.7;color:var(--ink-2);text-wrap:pretty"><strong style="color:var(--ink);font-weight:600">Runs on</strong> — macOS 10.13+ on Intel and 11+ on Apple Silicon · Windows 10/11, using the PowerShell 5.1 that ships with them · Linux x86_64. The manager wants Python 3 on macOS and Linux; the command line does not.</p>
+    <p style="margin:10px 0 0;font-size:13.5px;line-height:1.7;color:var(--ink-3)">Paranoid, sensibly so? <code style="font-family:var(--mono);color:var(--ink-2)">shasum -c SHA256SUMS.txt</code> verifies the download against the published checksums.</p>
+  </div>
+</section>
+
+<section id="faq" style="border-top:1px solid var(--line);background:var(--panel-2)">
+  <div style="max-width:900px;margin:0 auto;padding:76px 28px">
+    <div data-reveal style="font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">Good to know</div>
+    <h2 data-reveal style="margin:14px 0 34px;font-size:clamp(26px,3.2vw,36px);line-height:1.14;letter-spacing:-.028em;font-weight:660">The honest caveats.</h2>
+
+    <details data-reveal style="border-top:1px solid var(--line);padding:20px 0">
+      <summary style="display:flex;align-items:center;gap:14px;cursor:pointer;list-style:none;font-size:17px;font-weight:600;letter-spacing:-.012em">
+        <span data-chev style="flex:none;display:inline-block;width:11px;height:11px;border-right:1.5px solid var(--accent);border-bottom:1.5px solid var(--accent);transform:rotate(-45deg);transition:transform .25s"></span>
+        It really is a browser
+      </summary>
+      <div style="padding:14px 0 0 25px">
+        <p style="margin:0;font-size:15px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">Address bar, tabs, bookmarks, history, downloads, DevTools — all there, and each version keeps its own profile between launches. Do bear in mind that the old ones really are old. Sites built for a modern engine may refuse to load, render strangely, or nag you to upgrade. That is the browser being honest, not the tool misbehaving.</p>
+      </div>
+    </details>
+
+    <details data-reveal style="border-top:1px solid var(--line);padding:20px 0">
+      <summary style="display:flex;align-items:center;gap:14px;cursor:pointer;list-style:none;font-size:17px;font-weight:600;letter-spacing:-.012em">
+        <span data-chev style="flex:none;display:inline-block;width:11px;height:11px;border-right:1.5px solid var(--accent);border-bottom:1.5px solid var(--accent);transform:rotate(-45deg);transition:transform .25s"></span>
+        Point it at a production build, not your dev server
+      </summary>
+      <div style="padding:14px 0 0 25px">
+        <p style="margin:0;font-size:15px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">Vite, Next.js and friends ship your source untranspiled and skip the CSS-fallback step, so an old engine chokes on the dev server even when your shipped build is perfectly fine. A blank page on <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">localhost:3000</code> usually means <em>"the dev server is modern"</em>, not <em>"my code is broken"</em>. Build the site the way you deploy it, serve the output, and open that.</p>
+      </div>
+    </details>
+
+    <details data-reveal style="border-top:1px solid var(--line);padding:20px 0">
+      <summary style="display:flex;align-items:center;gap:14px;cursor:pointer;list-style:none;font-size:17px;font-weight:600;letter-spacing:-.012em">
+        <span data-chev style="flex:none;display:inline-block;width:11px;height:11px;border-right:1.5px solid var(--accent);border-bottom:1.5px solid var(--accent);transform:rotate(-45deg);transition:transform .25s"></span>
+        Stability on Apple Silicon
+      </summary>
+      <div style="padding:14px 0 0 25px">
+        <p style="margin:0;font-size:15px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">Chromium publishes native arm64 macOS builds from roughly M92 on, so <strong style="color:var(--ink);font-weight:600">95 and later run natively</strong>. 60 through 90 have no arm64 build, so they run through Rosetta. Those builds run with <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">--disable-gpu</code> by default, which removes the GPU-process crash completely.</p>
+        <p style="margin:12px 0 0;font-size:15px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">Chromium's stack sampling profiler occasionally segfaults under Rosetta and there is no switch to turn it off, so the launcher relaunches the browser and lets Chromium restore your tabs, up to 5 times. Use <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">--no-restart</code> if you would rather it stop and show the log.</p>
+      </div>
+    </details>
+
+    <details data-reveal style="border-top:1px solid var(--line);padding:20px 0">
+      <summary style="display:flex;align-items:center;gap:14px;cursor:pointer;list-style:none;font-size:17px;font-weight:600;letter-spacing:-.012em">
+        <span data-chev style="flex:none;display:inline-block;width:11px;height:11px;border-right:1.5px solid var(--accent);border-bottom:1.5px solid var(--accent);transform:rotate(-45deg);transition:transform .25s"></span>
+        Nothing listens outside your machine
+      </summary>
+      <div style="padding:14px 0 0 25px">
+        <p style="margin:0;font-size:15px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">The server binds to <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">127.0.0.1</code> and every request must carry a token generated for that run, so a web page you happen to have open cannot drive your browser installs. Closing the launcher window stops the manager; browsers it opened keep running.</p>
+      </div>
+    </details>
+
+    <details data-reveal style="border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:20px 0">
+      <summary style="display:flex;align-items:center;gap:14px;cursor:pointer;list-style:none;font-size:17px;font-weight:600;letter-spacing:-.012em">
+        <span data-chev style="flex:none;display:inline-block;width:11px;height:11px;border-right:1.5px solid var(--accent);border-bottom:1.5px solid var(--accent);transform:rotate(-45deg);transition:transform .25s"></span>
+        Keeping disk under control
+      </summary>
+      <div style="padding:14px 0 0 25px">
+        <p style="margin:0;font-size:15px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">Each version is a separate 90–300 MB download. The <code style="font-family:var(--mono);font-size:14px;color:var(--ink)">···</code> menu on any installed row can reset the profile, delete the browser but keep the profile, or delete both. A running total across every browser and profile sits at the top of the manager, so it is obvious when to clear something out.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section id="contact" style="max-width:1160px;margin:0 auto;padding:84px 28px">
+  <div data-reveal style="font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">Contact</div>
+  <h2 data-reveal style="margin:14px 0 0;max-width:30ch;font-size:clamp(26px,3.2vw,38px);line-height:1.14;letter-spacing:-.028em;font-weight:660;text-wrap:balance">Found something? Say so.</h2>
+  <p data-reveal style="margin:16px 0 0;max-width:58ch;font-size:16.5px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">Windows reports especially welcome — nothing on the Windows side has been run on Windows yet.</p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:38px">
+    <a data-reveal href="mailto:1m93.contact@gmail.com" style="display:block;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-link">
+      <div style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)">Email</div>
+      <div style="margin-top:12px;font-family:var(--mono);font-size:15.5px;letter-spacing:-.01em">1m93.contact@gmail.com</div>
+      <p style="margin:12px 0 0;font-size:14px;line-height:1.6;color:var(--ink-2)">For anything that does not belong in a public issue.</p>
+    </a>
+    <a data-reveal href="https://github.com/1m93" target="_blank" rel="noopener noreferrer" style="display:block;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-link">
+      <div style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)">GitHub</div>
+      <div style="margin-top:12px;font-family:var(--mono);font-size:15.5px;letter-spacing:-.01em">github.com/1m93</div>
+      <p style="margin:12px 0 0;font-size:14px;line-height:1.6;color:var(--ink-2)">Issues, releases and the source, all in one place.</p>
+    </a>
+  </div>
+</section>
+
+<footer style="border-top:1px solid var(--line)">
+  <div style="max-width:1160px;margin:0 auto;padding:56px 28px;display:flex;flex-wrap:wrap;align-items:center;gap:20px">
+    <img src="assets/icon-512.png" alt="" width="44" height="44" style="border-radius:11px" />
+    <div style="flex:1;min-width:220px">
+      <div style="font-size:14.5px;font-weight:620">ChromiumStack</div>
+      <p style="margin:6px 0 0;font-size:13px;line-height:1.6;color:var(--ink-3);max-width:64ch;text-wrap:pretty">Built by <a href="https://github.com/1m93" target="_blank" rel="noopener noreferrer">@1m93</a>. Chromium builds come from the <a href="https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html" target="_blank" rel="noopener noreferrer">Chromium snapshot archive</a>; this project only downloads and launches them.</p>
+    </div>
+    <a href="https://github.com/1m93/Chromium-Stack" target="_blank" rel="noopener noreferrer" style="font-size:13.5px;font-weight:600;padding:10px 18px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);transition:border-color .2s" class="hv-ghost">View on GitHub</a>
+  </div>
+</footer>
+
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const MS = [
+    {v:'60', full:'60.0.3112.0', rev:'474901', plat:'x86_64 · Rosetta', year:'2017', note:'Pre-Grid-everywhere era; a hard floor for very old WebViews.'},
+    {v:'65', full:'65.0.3325.0', rev:'530377', plat:'x86_64 · Rosetta', year:'2018', note:'Before flexbox `gap`, before optional chaining.'},
+    {v:'70', full:'70.0.3538.0', rev:'587811', plat:'x86_64 · Rosetta', year:'2018', note:'Common floor for Android 9-era System WebView.'},
+    {v:'74', full:'74.0.3729.0', rev:'638880', plat:'x86_64 · Rosetta', year:'2019', note:'No flexbox `gap` (84), `aspect-ratio`/`:is()` (88), optional chaining (80).'},
+    {v:'76', full:'76.0.3809.0', rev:'665002', plat:'x86_64 · Rosetta', year:'2019', note:'Adds prefers-color-scheme; still no flexbox `gap`.'},
+    {v:'80', full:'80.0.3987.0', rev:'722274', plat:'x86_64 · Rosetta', year:'2020', note:'Optional chaining and nullish coalescing land here.'},
+    {v:'85', full:'85.0.4183.0', rev:'782801', plat:'x86_64 · Rosetta', year:'2020', note:'First catalogued build with flexbox `gap` (landed in 84).'},
+    {v:'90', full:'90.0.4430.0', rev:'857950', plat:'x86_64 · Rosetta', year:'2021', note:'`aspect-ratio` and `:is()` (88) available.'},
+    {v:'95', full:'95.0.4638.0', rev:'920022', plat:'native arm64', year:'2021', note:'First catalogued milestone with native Apple Silicon builds.'},
+    {v:'100', full:'100.0.4896.0', rev:'972785', plat:'native arm64', year:'2022', note:'Three-digit UA string — useful for UA-parsing regressions.'},
+    {v:'105', full:'105.0.5195.0', rev:'1027019', plat:'native arm64', year:'2022', note:'Container queries and `:has()` land here.'},
+    {v:'110', full:'110.0.5481.0', rev:'1084032', plat:'native arm64', year:'2023', note:'`dvh`/`svh` viewport units (108) available.'},
+    {v:'115', full:'115.0.5790.0', rev:'1148146', plat:'native arm64', year:'2023', note:'CSS nesting (112) and view transitions (111) available.'},
+    {v:'120', full:'120.0.6099.0', rev:'1217378', plat:'native arm64', year:'2023', note:'`subgrid` (117) and `text-wrap: balance` (114) available.'},
+    {v:'125', full:'125.0.6422.0', rev:'1287551', plat:'native arm64', year:'2024', note:'Recent baseline for comparison against the old builds.'},
+    {v:'130', full:'130.0.6723.0', rev:'1356025', plat:'native arm64', year:'2024', note:'Near-current engine — use it as the control when bisecting a bug.'}
+  ];
+
+  const CLI = [
+    {cmd:'./chromium-stack.sh catalog', out:'16 milestones available for darwin/arm64'},
+    {cmd:'./chromium-stack.sh run 74', out:'Downloading r638880 — 142 MB\nLaunching Chromium 74'},
+    {cmd:'./chromium-stack.sh run 120 localhost:4173', out:'Launching Chromium 120 → localhost:4173'},
+    {cmd:'./chromium-stack.sh list', out:'74   r638880    142 MB  +18 MB profile\n120  r1217378   168 MB   +6 MB profile'},
+    {cmd:'./chromium-stack.sh doctor', out:'curl ok · unzip ok · python3 ok · rosetta ok'}
+  ];
+
+  const $ = id => document.getElementById(id);
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- theme ---------- */
+  const root = document.documentElement;
+  const label = $('themeLabel');
+  const setTheme = t => {
+    root.dataset.theme = t;
+    if (label) label.textContent = t === 'dark' ? 'Light' : 'Dark';
+    try { localStorage.setItem('cs-theme', t); } catch {}
+  };
+  let stored = null;
+  try { stored = localStorage.getItem('cs-theme'); } catch {}
+  setTheme(stored || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
+  $('themeBtn').addEventListener('click', () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+  /* ---------- reveal on scroll ---------- */
+  const targets = document.querySelectorAll('[data-reveal]');
+  if (reduced || !('IntersectionObserver' in window)) {
+    targets.forEach(el => el.setAttribute('data-reveal', 'in'));
+    runStats();
+  } else {
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (!e.isIntersecting) return;
+        e.target.setAttribute('data-reveal', 'in');
+        io.unobserve(e.target);
+        if (e.target.hasAttribute('data-stats')) runStats();
+      });
+    }, {rootMargin: '0px 0px -6% 0px'});
+    targets.forEach(el => io.observe(el));
+  }
+
+  /* ---------- hero counters ---------- */
+  let statsRan = false;
+  function runStats() {
+    if (statsRan) return;
+    statsRan = true;
+    const els = {statM: $('statM'), statY: $('statY'), statV: $('statV')};
+    const to = {statM: 16, statY: 8, statV: 130};
+    if (reduced) {
+      Object.keys(to).forEach(k => els[k] && (els[k].textContent = to[k]));
+      return;
+    }
+    const start = performance.now(), dur = 1100;
+    const step = () => {
+      const p = Math.min(1, (performance.now() - start) / dur);
+      const e = 1 - Math.pow(1 - p, 3);
+      Object.keys(to).forEach(k => els[k] && (els[k].textContent = Math.round(to[k] * e)));
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  /* ---------- version scrubber ---------- */
+  const track = $('track'), cursor = $('cursor'), progress = $('progress');
+  let idx = 3, dragging = false;
+
+  function render() {
+    const m = MS[idx];
+    const pct = (idx / (MS.length - 1)) * 100 + '%';
+    cursor.style.left = pct;
+    progress.style.width = pct;
+    $('mVer').textContent = m.v;
+    $('mCmd').textContent = m.v;
+    $('mFull').textContent = m.full;
+    $('mRev').textContent = m.rev;
+    $('mPlat').textContent = m.plat;
+    $('mYear').textContent = m.year;
+    $('mNote').textContent = m.note;
+    track.setAttribute('aria-valuenow', String(idx));
+    track.setAttribute('aria-valuetext', 'Chromium ' + m.v);
+  }
+
+  function setFromX(clientX) {
+    const r = track.getBoundingClientRect();
+    const p = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    idx = Math.round(p * (MS.length - 1));
+    render();
+  }
+
+  track.addEventListener('pointerdown', e => {
+    dragging = true;
+    track.setPointerCapture?.(e.pointerId);
+    setFromX(e.clientX);
+  });
+  track.addEventListener('pointermove', e => { if (dragging) setFromX(e.clientX); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev =>
+    track.addEventListener(ev, () => { dragging = false; }));
+  track.addEventListener('keydown', e => {
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1
+            : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    idx = Math.min(MS.length - 1, Math.max(0, idx + d));
+    render();
+  });
+
+  render();
+
+  if (!reduced) {
+    setInterval(() => {
+      if (dragging || document.hidden) return;
+      idx = (idx + 1) % MS.length;
+      render();
+    }, 2300);
+  }
+
+  /* ---------- terminal typing ---------- */
+  const histEl = $('hist'), typedEl = $('typed');
+  let hist = [], typed = '', ci = 0, paused = false;
+
+  function drawHist() {
+    histEl.textContent = '';
+    hist.forEach(line => {
+      const wrap = document.createElement('div');
+      wrap.style.marginBottom = '14px';
+      const cmd = document.createElement('div');
+      cmd.innerHTML = '<span style="color:var(--accent)">$</span> <span style="color:var(--ink)"></span>';
+      cmd.lastElementChild.textContent = line.cmd;
+      const out = document.createElement('div');
+      out.style.whiteSpace = 'pre-line';
+      out.style.color = 'var(--ink-3)';
+      out.textContent = line.out;
+      wrap.append(cmd, out);
+      histEl.appendChild(wrap);
+    });
+  }
+
+  if (reduced) {
+    typedEl.textContent = CLI[1].cmd;
+  } else {
+    setInterval(() => {
+      if (paused) return;
+      const cur = CLI[ci];
+      if (typed.length < cur.cmd.length) {
+        typed = cur.cmd.slice(0, typed.length + 1);
+        typedEl.textContent = typed;
+        return;
+      }
+      paused = true;
+      setTimeout(() => {
+        hist = hist.concat([{cmd: cur.cmd, out: cur.out}]).slice(-2);
+        drawHist();
+        typed = '';
+        typedEl.textContent = '';
+        ci = (ci + 1) % CLI.length;
+        paused = false;
+      }, 1000);
+    }, 40);
+  }
+})();
+</script>
+</body>
+</html>
