@@ -3,18 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ChromiumStack — a shelf of real browsers, eight years deep</title>
-<meta name="description" content="Pick a Chromium version from 60 to 130, press Launch, and it opens as an ordinary desktop browser — tabs, bookmarks, DevTools and all. No account, no build step, nothing to configure.">
+<title>ChromiumStack — run old Chromium versions, 60 to 130</title>
+<meta name="description" content="Launch any Chromium milestone from 60 (2017) to 130 (2024) as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux.">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="author" content="1m93">
+<meta name="application-name" content="ChromiumStack">
+<meta name="generator" content="hand-written static HTML">
 <meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<link rel="canonical" href="https://1m93.github.io/Chromium-Stack/">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icon-512.png">
-<link rel="canonical" href="https://1m93.github.io/Chromium-Stack/">
+<link rel="sitemap" type="application/xml" href="sitemap.xml">
+
 <meta property="og:type" content="website">
-<meta property="og:title" content="ChromiumStack — a shelf of real browsers, eight years deep">
-<meta property="og:description" content="Sixteen Chromium milestones from 2017 to 2024, one click away. macOS, Windows and Linux, self-contained.">
+<meta property="og:site_name" content="ChromiumStack">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="ChromiumStack — run old Chromium versions, 60 to 130">
+<meta property="og:description" content="Launch any Chromium milestone from 60 (2017) to 130 (2024) as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux.">
 <meta property="og:url" content="https://1m93.github.io/Chromium-Stack/">
-<meta property="og:image" content="https://1m93.github.io/Chromium-Stack/assets/screenshot-manager.png">
+<meta property="og:image" content="https://1m93.github.io/Chromium-Stack/assets/og-image.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="ChromiumStack — a shelf of real browsers, every Chromium, one click away. Chromium 60 to 130 on macOS, Windows and Linux.">
+
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ChromiumStack — run old Chromium versions, 60 to 130">
+<meta name="twitter:description" content="Launch any Chromium milestone from 60 (2017) to 130 (2024) as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux.">
+<meta name="twitter:image" content="https://1m93.github.io/Chromium-Stack/assets/og-image.png">
+<meta name="twitter:image:alt" content="ChromiumStack — Chromium 60 to 130 on macOS, Windows and Linux.">
 <style>
 :root{
   --bg:#0f1115;--panel:#171a21;--panel-2:#1c2029;--line:#272c36;
@@ -38,6 +57,8 @@ a{color:var(--accent);text-decoration:none}
 a:hover{color:var(--ink);text-decoration:underline}
 :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
 summary::-webkit-details-marker{display:none}
+.skip{position:absolute;left:-9999px;top:0;z-index:50;padding:10px 16px;border-radius:0 0 10px 0;background:var(--accent);color:#fff;font-size:14px;font-weight:600}
+.skip:focus{left:0;color:#fff;text-decoration:none}
 [data-reveal]{opacity:0;transform:translateY(22px);transition:opacity .75s cubic-bezier(.2,.7,.2,1),transform .75s cubic-bezier(.2,.7,.2,1)}
 [data-reveal="in"]{opacity:1;transform:none}
 details[open] [data-chev]{transform:rotate(45deg)}
@@ -78,10 +99,139 @@ details[open] [data-chev]{transform:rotate(45deg)}
 }
 </style>
 <noscript><style>[data-reveal]{opacity:1!important;transform:none!important}</style></noscript>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://1m93.github.io/Chromium-Stack/#app",
+      "name": "ChromiumStack",
+      "url": "https://1m93.github.io/Chromium-Stack/",
+      "description": "A version manager for Chromium. Downloads and launches any catalogued Chromium milestone from 60 (2017) to 130 (2024) as an ordinary desktop browser, with tabs, bookmarks, DevTools and a persistent profile per version — for testing sites against old engines, legacy System WebViews and browserslist floors.",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "Cross-browser testing",
+      "operatingSystem": "macOS 10.13+, Windows 10, Windows 11, Linux x86_64",
+      "downloadUrl": "https://github.com/1m93/Chromium-Stack/releases/latest",
+      "installUrl": "https://github.com/1m93/Chromium-Stack/releases/latest",
+      "softwareHelp": "https://1m93.github.io/Chromium-Stack/#start",
+      "screenshot": "https://1m93.github.io/Chromium-Stack/assets/screenshot-manager.png",
+      "image": "https://1m93.github.io/Chromium-Stack/assets/og-image.png",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "availability": "https://schema.org/InStock"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "1m93",
+        "url": "https://github.com/1m93"
+      },
+      "maintainer": {
+        "@type": "Person",
+        "name": "1m93",
+        "url": "https://github.com/1m93"
+      },
+      "sameAs": [
+        "https://github.com/1m93/Chromium-Stack"
+      ],
+      "featureList": [
+        "16 catalogued Chromium milestones from 60 to 130, plus any other snapshot revision",
+        "Launches a real desktop browser window with DevTools and a per-version profile",
+        "Self-contained launcher for macOS, Windows and Linux — nothing to install",
+        "Native arm64 builds from Chromium 95; older builds run under Rosetta",
+        "Command line interface mirroring every manager action",
+        "Optional Docker edition running the Linux build over noVNC"
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://1m93.github.io/Chromium-Stack/#website",
+      "url": "https://1m93.github.io/Chromium-Stack/",
+      "name": "ChromiumStack",
+      "description": "Launch any Chromium milestone from 60 (2017) to 130 (2024) as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux.",
+      "inLanguage": "en",
+      "publisher": {
+        "@type": "Person",
+        "name": "1m93",
+        "url": "https://github.com/1m93"
+      },
+      "about": {
+        "@id": "https://1m93.github.io/Chromium-Stack/#app"
+      }
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://1m93.github.io/Chromium-Stack/#webpage",
+      "url": "https://1m93.github.io/Chromium-Stack/",
+      "name": "ChromiumStack — run old Chromium versions, 60 to 130",
+      "description": "Launch any Chromium milestone from 60 (2017) to 130 (2024) as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux.",
+      "isPartOf": {
+        "@id": "https://1m93.github.io/Chromium-Stack/#website"
+      },
+      "primaryImageOfPage": "https://1m93.github.io/Chromium-Stack/assets/og-image.png",
+      "inLanguage": "en"
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://1m93.github.io/Chromium-Stack/#faq",
+      "isPartOf": {
+        "@id": "https://1m93.github.io/Chromium-Stack/#webpage"
+      },
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "It really is a browser",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Address bar, tabs, bookmarks, history, downloads, DevTools — all there, and each version keeps its own profile between launches. Do bear in mind that the old ones really are old. Sites built for a modern engine may refuse to load, render strangely, or nag you to upgrade. That is the browser being honest, not the tool misbehaving."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Point it at a production build, not your dev server",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Vite, Next.js and friends ship your source untranspiled and skip the CSS-fallback step, so an old engine chokes on the dev server even when your shipped build is perfectly fine. A blank page on localhost:3000 usually means \"the dev server is modern\", not \"my code is broken\". Build the site the way you deploy it, serve the output, and open that."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Stability on Apple Silicon",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Chromium publishes native arm64 macOS builds from roughly M92 on, so 95 and later run natively. 60 through 90 have no arm64 build, so they run through Rosetta. Those builds run with --disable-gpu by default, which removes the GPU-process crash completely. Chromium's stack sampling profiler occasionally segfaults under Rosetta and there is no switch to turn it off, so the launcher relaunches the browser and lets Chromium restore your tabs, up to 5 times. Use --no-restart if you would rather it stop and show the log."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Nothing listens outside your machine",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "The server binds to 127.0.0.1 and every request must carry a token generated for that run, so a web page you happen to have open cannot drive your browser installs. Closing the launcher window stops the manager; browsers it opened keep running."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Keeping disk under control",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Each version is a separate 90–300 MB download. The ··· menu on any installed row can reset the profile, delete the browser but keep the profile, or delete both. A running total across every browser and profile sits at the top of the manager, so it is obvious when to clear something out."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
 </head>
 <body>
 
 <div data-lp style="position:relative;overflow:hidden">
+
+<a href="#content" class="skip">Skip to content</a>
 
 <div style="position:absolute;top:-260px;left:50%;width:1200px;height:620px;margin-left:-600px;background:radial-gradient(closest-side,var(--accent),transparent);opacity:.14;filter:blur(20px);pointer-events:none;animation:glowdrift 18s ease-in-out infinite"></div>
 
@@ -91,7 +241,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
     <span style="font-size:15px;font-weight:650;letter-spacing:-.01em">ChromiumStack</span>
   </div>
   <span style="flex:1"></span>
-  <nav data-r="nav" style="display:flex;align-items:center;gap:22px;font-size:13.5px;color:var(--ink-2)">
+  <nav data-r="nav" aria-label="Primary" style="display:flex;align-items:center;gap:22px;font-size:13.5px;color:var(--ink-2)">
     <a href="#why" style="color:inherit">Why</a>
     <a href="#start" style="color:inherit">Quick start</a>
     <a href="#shelf" style="color:inherit">Versions</a>
@@ -103,9 +253,11 @@ details[open] [data-chev]{transform:rotate(45deg)}
   <a href="#download" style="font-size:13px;font-weight:600;padding:7px 15px;border-radius:999px;background:var(--accent);color:#fff;transition:transform .18s,box-shadow .18s" class="hv-pill">Download</a>
 </header>
 
+<main id="content">
+
 <section data-r="hero" style="display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:56px;align-items:center;max-width:1160px;margin:0 auto;padding:96px 28px 88px">
   <div>
-    <h1 data-reveal style="margin:0;font-size:clamp(40px,5.2vw,64px);line-height:1.02;letter-spacing:-.035em;font-weight:680;text-wrap:balance">A shelf of real browsers,<br><span style="color:var(--accent)">eight years deep.</span></h1>
+    <h1 data-reveal style="margin:0;font-size:clamp(40px,5.2vw,64px);line-height:1.02;letter-spacing:-.035em;font-weight:680;text-wrap:balance">A shelf of real browsers,<br><span style="color:var(--accent)">Every Chromium, one click away.</span></h1>
     <p data-reveal style="margin:24px 0 0;max-width:46ch;font-size:18px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">Pick a Chromium version, press Launch, and it opens as an ordinary desktop browser — tabs, bookmarks, DevTools and all. No account, no build step, nothing to configure.</p>
     <div data-reveal style="display:flex;flex-wrap:wrap;gap:12px;margin-top:34px">
       <a href="#download" style="display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600;padding:13px 22px;border-radius:11px;background:var(--accent);color:#fff;box-shadow:0 14px 30px -14px var(--accent);transition:transform .18s" class="hv-cta">Download for your platform</a>
@@ -186,7 +338,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
 </section>
 
 <section id="start" style="max-width:1160px;margin:0 auto;padding:76px 28px">
-  <div data-reveal style="font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">Sixty seconds to your first old browser</div>
+  <h2 data-reveal style="margin:0;font-family:var(--mono);font-size:11.5px;font-weight:400;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">Sixty seconds to your first old browser</h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:26px;margin-top:32px">
     <div data-reveal>
       <div style="display:flex;align-items:center;gap:10px"><span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:12.5px;font-weight:600">1</span><h3 style="margin:0;font-size:17px;font-weight:620;letter-spacing:-.01em">Open it</h3></div>
@@ -204,7 +356,10 @@ details[open] [data-chev]{transform:rotate(45deg)}
 
   <figure data-reveal style="margin:52px 0 0">
     <div style="border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
-      <img src="assets/screenshot-manager.png" alt="The ChromiumStack manager: every catalogued Chromium milestone on one page, each with an Install &amp; launch button" style="display:block;width:100%;height:auto" />
+      <picture>
+        <source srcset="assets/screenshot-manager.webp" type="image/webp">
+        <img src="assets/screenshot-manager.png" width="2000" height="772" loading="lazy" decoding="async" alt="The ChromiumStack manager: every catalogued Chromium milestone from 60 to 130 on one page, each row showing its revision, disk usage and an Install &amp; launch button" style="display:block;width:100%;height:auto" />
+      </picture>
     </div>
     <figcaption style="margin-top:14px;font-size:13px;line-height:1.6;color:var(--ink-3);max-width:80ch;text-wrap:pretty">Every catalogued milestone on one page — which are installed, which run natively, which go through Rosetta, what each is costing you in disk, and one button to open any of them.</figcaption>
   </figure>
@@ -437,9 +592,11 @@ details[open] [data-chev]{transform:rotate(45deg)}
   </div>
 </section>
 
+</main>
+
 <footer style="border-top:1px solid var(--line)">
   <div style="max-width:1160px;margin:0 auto;padding:56px 28px;display:flex;flex-wrap:wrap;align-items:center;gap:20px">
-    <img src="assets/icon-512.png" alt="" width="44" height="44" style="border-radius:11px" />
+    <img src="assets/icon-512.png" alt="" width="44" height="44" loading="lazy" decoding="async" style="border-radius:11px" />
     <div style="flex:1;min-width:220px">
       <div style="font-size:14.5px;font-weight:620">ChromiumStack</div>
       <p style="margin:6px 0 0;font-size:13px;line-height:1.6;color:var(--ink-3);max-width:64ch;text-wrap:pretty">Built by <a href="https://github.com/1m93" target="_blank" rel="noopener noreferrer">@1m93</a>. Chromium builds come from the <a href="https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html" target="_blank" rel="noopener noreferrer">Chromium snapshot archive</a>; this project only downloads and launches them.</p>
