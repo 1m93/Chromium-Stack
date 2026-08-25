@@ -61,6 +61,7 @@ a:hover{color:var(--ink);text-decoration:underline}
 summary::-webkit-details-marker{display:none}
 .ic{width:1em;height:1em;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;overflow:visible}
 .ic-lg{width:1.15em;height:1.15em}
+.ic-tux{width:1.35em;height:1.35em}
 .skip{position:absolute;left:-9999px;top:0;z-index:50;padding:10px 16px;border-radius:0 0 10px 0;background:var(--accent);color:#fff;font-size:14px;font-weight:600}
 .skip:focus{left:0;color:#fff;text-decoration:none}
 [data-lp] header{transition:box-shadow .25s,background-color .25s}
@@ -71,6 +72,15 @@ details[open] [data-chev]{transform:rotate(45deg)}
 
 /* interaction states lifted out of the design's style-hover attributes */
 .hv-theme:hover{border-color:var(--accent);color:var(--ink)}
+
+.nav-toggle{display:none}
+#mobileNav{position:absolute;top:100%;left:0;right:0;flex-direction:column;padding:6px 22px 20px;background:var(--bg);border-bottom:1px solid var(--line);box-shadow:0 24px 40px -26px rgba(0,0,0,.8)}
+#mobileNav[hidden]{display:none}
+@media (max-width:980px){.nav-toggle{display:inline-flex}#mobileNav{display:flex}}
+@media (max-width:680px){.nav-gh,.nav-dl{display:none!important}#mobileNav{padding-left:18px;padding-right:18px}}
+.hv-other span{border-bottom:1px solid color-mix(in srgb,var(--ink-3) 55%,transparent);padding-bottom:2px;transition:border-color .2s}
+.hv-other:hover{color:var(--accent);text-decoration:none}
+.hv-other:hover span{border-bottom-color:var(--accent)}
 .hv-ghost:hover{border-color:var(--accent);text-decoration:none;color:var(--ink)}
 .hv-pill:hover{transform:translateY(-1px);box-shadow:0 10px 24px -10px var(--accent);color:#fff;text-decoration:none}
 .hv-cta:hover{transform:translateY(-2px);color:#fff;text-decoration:none}
@@ -255,6 +265,11 @@ details[open] [data-chev]{transform:rotate(45deg)}
 <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.2 21 7.8l-9 4.6-9-4.6z"/><path d="M3.3 12.4 12 16.9l8.7-4.5"/><path d="M3.3 16.6 12 21.1l8.7-4.5"/></symbol>
 <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13.2 2.5 5 13.6h6.1l-1.3 7.9 8.2-11.1h-6.1z"/></symbol>
 <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8"/><path d="M9.6 9.5a2.5 2.5 0 0 1 4.9.6c0 1.7-2.5 2.1-2.5 3.8"/><path d="M12 17.3v.01"/></symbol>
+<symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+<symbol id="i-linux" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><path d="M9.1 19.4c-.7 1-1.7 1.7-2.9 2.1.4.6 1.6.9 2.8.5 1-.3 1.6-1 1.6-1.7 0-.5-.5-.9-1.5-.9z"/><path d="M14.9 19.4c.7 1 1.7 1.7 2.9 2.1-.4.6-1.6.9-2.8.5-1-.3-1.6-1-1.6-1.7 0-.5.5-.9 1.5-.9z"/><path fill-rule="evenodd" d="M12 2.2c-2.1 0-3.4 1.6-3.4 3.6v1.8c0 1.4-.6 2.4-1.6 3.6C5.9 12.6 5 14 5 15.9c0 2.7 2.9 4.5 7 4.5s7-1.8 7-4.5c0-1.9-.9-3.3-2-4.7-1-1.2-1.6-2.2-1.6-3.6V5.8c0-2-1.3-3.6-3.4-3.6zm-1.55 2.6a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6zm3.1 0a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6zM12 7.15l1.75 1.1L12 9.35l-1.75-1.1zM12 11.6c-1.9 0-3.2 1.8-3.2 4 0 1.7 1.4 2.8 3.2 2.8s3.2-1.1 3.2-2.8c0-2.2-1.3-4-3.2-4z"/></g></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></symbol>
+<symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.6 3.3H20a.7.7 0 0 1 .7.7v7.4a2 2 0 0 1-.6 1.4l-7 7a2 2 0 0 1-2.8 0l-6.2-6.2a2 2 0 0 1 0-2.8l7-7a2 2 0 0 1 1.5-.5z"/><circle cx="16.6" cy="7.4" r="1.3"/></symbol>
 </defs></svg>
 
 
@@ -263,8 +278,8 @@ details[open] [data-chev]{transform:rotate(45deg)}
 </div>
 
 <header style="position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;padding:13px 28px;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)">
-  <div style="display:flex;align-items:center;gap:9px">
-    <span style="width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)"></span>
+  <div style="display:flex;align-items:center;gap:10px">
+    <img src="assets/icon-small.svg" alt="" width="24" height="24" style="display:block;border-radius:7px">
     <span style="font-size:15px;font-weight:650;letter-spacing:-.01em">ChromiumStack</span>
   </div>
   <span style="flex:1"></span>
@@ -277,7 +292,19 @@ details[open] [data-chev]{transform:rotate(45deg)}
     <a href="#contact" style="color:inherit">Contact</a>
   </nav>
   <button id="themeBtn" type="button" title="Switch theme" aria-label="Switch colour theme" style="display:flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;padding:6px 11px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink-2);cursor:pointer;transition:border-color .2s,color .2s" class="hv-theme"><span id="themeLabel">Light</span></button>
-  <a href="#download" style="display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;padding:7px 15px;border-radius:999px;background:var(--accent);color:#fff;transition:transform .18s,box-shadow .18s" class="hv-pill"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Download</span></a>
+  <a class="nav-gh hv-theme" href="https://github.com/1m93/Chromium-Stack" target="_blank" rel="noopener noreferrer" aria-label="ChromiumStack on GitHub" title="View the repository on GitHub" style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;flex:none;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink-2);transition:border-color .2s,color .2s"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-github"/></svg></a>
+  <a class="nav-dl hv-pill" href="#download" style="display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;padding:7px 15px;border-radius:999px;background:var(--accent);color:#fff;transition:transform .18s,box-shadow .18s"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Download</span></a>
+  <button id="navToggle" class="nav-toggle hv-theme" type="button" aria-expanded="false" aria-controls="mobileNav" aria-label="Open menu" style="align-items:center;justify-content:center;width:34px;height:34px;flex:none;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink-2);cursor:pointer;transition:border-color .2s,color .2s"><svg class="ic ic-lg" id="navToggleIcon" aria-hidden="true"><use href="#i-menu"/></svg></button>
+  <div id="mobileNav" hidden>
+    <a href="#why" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Why</a>
+    <a href="#start" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Quick start</a>
+    <a href="#shelf" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Versions</a>
+    <a href="#cli" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">CLI</a>
+    <a href="#faq" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Good to know</a>
+    <a href="#contact" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Contact</a>
+    <a href="https://github.com/1m93/Chromium-Stack" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:9px;padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-github"/></svg><span>GitHub repository</span></a>
+    <a href="#download" style="display:inline-flex;align-items:center;justify-content:center;gap:9px;margin-top:14px;padding:13px;border-radius:11px;background:var(--accent);color:#fff;font-size:15px;font-weight:600"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-download"/></svg><span>Download</span></a>
+  </div>
 </header>
 
 <main id="content">
@@ -288,6 +315,9 @@ details[open] [data-chev]{transform:rotate(45deg)}
     <p data-reveal style="margin:24px 0 0;max-width:46ch;font-size:18px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">Pick a Chromium version, press Launch, and it opens as an ordinary desktop browser — tabs, bookmarks, DevTools and all. No account, no build step, nothing to configure.</p>
     <div data-reveal style="display:flex;flex-wrap:wrap;gap:12px;margin-top:34px">
       <a id="heroBtn" href="#download" style="display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600;padding:13px 22px;border-radius:11px;background:var(--accent);color:#fff;box-shadow:0 14px 30px -14px var(--accent);transition:transform .18s" class="hv-cta"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-download"/></svg><span id="heroBtnText">Download for your platform</span></a>
+    </div>
+    <div data-reveal style="margin-top:14px">
+      <a href="#download" class="hv-other" style="display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:500;color:var(--ink-2);transition:color .2s"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-layers"/></svg><span>Other platforms</span></a>
     </div>
     <div data-reveal data-stats data-r="stats" style="display:flex;flex-wrap:wrap;gap:34px;margin-top:44px;padding-top:28px;border-top:1px solid var(--line)">
       <div><div style="font-size:26px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums"><span id="statM">0</span></div><div style="margin-top:3px;font-size:12.5px;color:var(--ink-3)">milestones catalogued</div></div>
@@ -532,19 +562,25 @@ details[open] [data-chev]{transform:rotate(45deg)}
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:16px;margin-top:18px">
     <a data-os="mac" data-reveal href="https://github.com/1m93/Chromium-Stack/releases/latest" target="_blank" rel="noopener noreferrer" style="display:block;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-link">
       <div style="display:flex;align-items:center;gap:11px;font-size:18px;font-weight:640;letter-spacing:-.015em"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-mac"/></svg><span>macOS</span><span class="dl-badge" hidden style="margin-left:auto;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;font-weight:600">Your platform</span></div>
-      <div class="dl-file" style="margin-top:10px;font-family:var(--mono);font-size:12.5px;color:var(--accent);word-break:break-all">ChromiumStack-&lt;ver&gt;-macOS.zip</div>
-      <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:var(--ink-2)">Unzip → double-click <strong style="color:var(--ink);font-weight:600">ChromiumStack.app</strong> (drag it to Applications if you like)</p>
+      <div class="dl-file" style="margin-top:10px;font-family:var(--mono);font-size:12.5px;color:var(--accent);overflow-wrap:anywhere">Latest release</div>
+      <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:var(--ink-2)">Unzip → double-click <strong style="color:var(--ink);font-weight:600">ChromiumStack.app</strong></p>
     </a>
     <a data-os="win" data-reveal href="https://github.com/1m93/Chromium-Stack/releases/latest" target="_blank" rel="noopener noreferrer" style="display:block;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-link">
       <div style="display:flex;align-items:center;gap:11px;font-size:18px;font-weight:640;letter-spacing:-.015em"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-windows"/></svg><span>Windows</span><span class="dl-badge" hidden style="margin-left:auto;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;font-weight:600">Your platform</span></div>
-      <div class="dl-file" style="margin-top:10px;font-family:var(--mono);font-size:12.5px;color:var(--accent);word-break:break-all">ChromiumStack-&lt;ver&gt;-Windows.zip</div>
+      <div class="dl-file" style="margin-top:10px;font-family:var(--mono);font-size:12.5px;color:var(--accent);overflow-wrap:anywhere">Latest release</div>
       <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:var(--ink-2)">Unzip → double-click <strong style="color:var(--ink);font-weight:600">ChromiumStack.exe</strong></p>
     </a>
     <a data-os="linux" data-reveal href="https://github.com/1m93/Chromium-Stack/releases/latest" target="_blank" rel="noopener noreferrer" style="display:block;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);transition:transform .25s,border-color .25s,box-shadow .25s" class="hv-link">
-      <div style="display:flex;align-items:center;gap:11px;font-size:18px;font-weight:640;letter-spacing:-.015em"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-terminal"/></svg><span>Linux</span><span class="dl-badge" hidden style="margin-left:auto;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;font-weight:600">Your platform</span></div>
-      <div class="dl-file" style="margin-top:10px;font-family:var(--mono);font-size:12.5px;color:var(--accent);word-break:break-all">ChromiumStack-&lt;ver&gt;-Linux.tar.gz</div>
+      <div style="display:flex;align-items:center;gap:11px;font-size:18px;font-weight:640;letter-spacing:-.015em"><svg class="ic ic-tux" aria-hidden="true"><use href="#i-linux"/></svg><span>Linux</span><span class="dl-badge" hidden style="margin-left:auto;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;font-weight:600">Your platform</span></div>
+      <div class="dl-file" style="margin-top:10px;font-family:var(--mono);font-size:12.5px;color:var(--accent);overflow-wrap:anywhere">Latest release</div>
       <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:var(--ink-2)">Extract → run <strong style="color:var(--ink);font-weight:600">./ChromiumStack</strong></p>
     </a>
+  </div>
+
+  <div data-reveal style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:20px;padding:16px 20px;border:1px solid var(--line);border-radius:12px;background:var(--panel)">
+    <svg class="ic ic-lg" aria-hidden="true" style="color:var(--ink-3)"><use href="#i-tag"/></svg>
+    <div style="flex:1;min-width:230px;font-size:14px;line-height:1.55;color:var(--ink-2)">Need an older build, the changelog or the checksums? <span style="color:var(--ink-3)">Every version ChromiumStack has shipped stays available.</span></div>
+    <a class="hv-ghost" href="https://github.com/1m93/Chromium-Stack/releases" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;padding:10px 16px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);transition:border-color .2s"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg><span>All releases</span></a>
   </div>
 
   <div data-reveal style="margin-top:26px;padding:20px 22px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)">
@@ -785,6 +821,24 @@ details[open] [data-chev]{transform:rotate(45deg)}
   }
 
 
+
+  /* ---------- mobile menu ---------- */
+  const navToggle = $('navToggle'), mobileNav = $('mobileNav'), navToggleIcon = $('navToggleIcon');
+  const setMenu = open => {
+    mobileNav.hidden = !open;
+    navToggle.setAttribute('aria-expanded', String(open));
+    navToggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    navToggleIcon.firstElementChild.setAttribute('href', open ? '#i-close' : '#i-menu');
+  };
+  navToggle.addEventListener('click', () => setMenu(mobileNav.hidden));
+  mobileNav.addEventListener('click', e => { if (e.target.closest('a')) setMenu(false); });
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !mobileNav.hidden) { setMenu(false); navToggle.focus(); } });
+  addEventListener('click', e => {
+    if (!mobileNav.hidden && !e.target.closest('#mobileNav') && !e.target.closest('#navToggle')) setMenu(false);
+  });
+  const wide = matchMedia('(min-width:981px)');
+  wide.addEventListener('change', e => { if (e.matches) setMenu(false); });
+
   /* ---------- sticky header shadow ---------- */
   const header = document.querySelector('[data-lp] header');
   const onScroll = () => {
@@ -834,7 +888,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
     cards[os].style.borderColor = 'color-mix(in srgb,var(--accent) 45%,var(--line))';
   }
 
-  const fmt = b => b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';
+  const fmt = b => b >= 1048576 ? (b / 1048576).toFixed(1) + '\u00a0MB' : Math.round(b / 1024) + '\u00a0KB';
 
   function applyRelease(rel) {
     const tag = rel.tag_name || '';
@@ -856,9 +910,9 @@ details[open] [data-chev]{transform:rotate(45deg)}
       if (a) {
         cards[k].href = a.browser_download_url;
         cards[k].removeAttribute('target');
-        if (file) file.textContent = a.size ? a.name + ' · ' + fmt(a.size) : a.name;
+        if (file) file.textContent = a.size ? tag + ' · ' + fmt(a.size) : tag;
       } else if (file && tag) {
-        file.textContent = file.textContent.replace('<ver>', tag);
+        file.textContent = tag;
       }
     });
 
@@ -867,8 +921,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
       dlBtn.href = mine.browser_download_url;
       dlBtn.removeAttribute('target');
       dlBtn.setAttribute('download', '');
-      dlMeta.textContent = mine.size ? mine.name + ' · ' + fmt(mine.size) + ' · ' + tag
-                                     : mine.name + ' · ' + tag;
+      dlMeta.textContent = mine.size ? tag + ' · ' + fmt(mine.size) : tag;
       if (heroBtn) {                       // hero button downloads straight away
         heroBtn.href = mine.browser_download_url;
         heroBtn.setAttribute('download', '');
