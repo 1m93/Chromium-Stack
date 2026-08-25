@@ -54,6 +54,8 @@ install, nothing to keep together, no loose folder of files to lose.
 | **Windows** | `ChromiumStack-<ver>-Windows.zip` | Unzip → double-click **`ChromiumStack.exe`** |
 | **Linux** | `ChromiumStack-<ver>-Linux.tar.gz` | Extract → run **`./ChromiumStack`** |
 
+<sub>**Runs on** — macOS 10.13+ on Intel and 11+ on Apple Silicon · Windows 10/11, using the PowerShell 5.1 that ships with them · Linux x86_64. The manager wants Python 3 on macOS and Linux; the command line does not.</sub>
+
 <sub>Paranoid, sensibly so? `shasum -c SHA256SUMS.txt` verifies the download against the published checksums. Prefer to build the packages yourself — see [RELEASE.md](RELEASE.md).</sub>
 
 <sub>**Running from a clone instead?** Same launchers, plus `./gui.sh` (or the `chromium-stack.desktop` entry) on Linux. Keep the launcher inside the project folder — it finds everything else relative to itself.</sub>
@@ -548,11 +550,13 @@ tools/build-exe.sh    # ChromiumStack.exe, cross-compiled: brew install mingw-w6
 
 ## Where the project stands
 
-**Verified end to end on macOS 15 (Apple Silicon):** catalog generation against the live
+**Verified end to end on macOS 26 (Apple Silicon):** catalog generation against the live
 archive, the manager (install, launch, delete, reset, disk accounting, token auth),
 downloading and launching a native arm64 build, per-version profile isolation, adoption of an
 existing `~/.chrome74` install, and the macOS app bundle launching from a TCC-protected
-folder.
+folder. The app bundle is a universal binary with an explicit floor per slice — macOS 10.13
+on Intel, 11.0 on Apple Silicon — so it loads on older systems, but nothing older than the
+development machine has actually been booted and clicked through.
 
 **Nothing on the Windows side has been run on Windows.** `ChromiumStack.exe` is
 cross-compiled from macOS with mingw-w64, and its embedded icon and version resources were
