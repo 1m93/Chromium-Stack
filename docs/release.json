@@ -1,0 +1,27 @@
+{
+  "tag_name": "1.0.1",
+  "body": "",
+  "published_at": "2026-08-25T07:19:38Z",
+  "assets": [
+    {
+      "name": "ChromiumStack-1.0.1-Linux.tar.gz",
+      "size": 123135,
+      "browser_download_url": "https://github.com/1m93/Chromium-Stack/releases/download/1.0.1/ChromiumStack-1.0.1-Linux.tar.gz"
+    },
+    {
+      "name": "ChromiumStack-1.0.1-macOS.zip",
+      "size": 885974,
+      "browser_download_url": "https://github.com/1m93/Chromium-Stack/releases/download/1.0.1/ChromiumStack-1.0.1-macOS.zip"
+    },
+    {
+      "name": "ChromiumStack-1.0.1-Windows.zip",
+      "size": 90114,
+      "browser_download_url": "https://github.com/1m93/Chromium-Stack/releases/download/1.0.1/ChromiumStack-1.0.1-Windows.zip"
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 293,
+      "browser_download_url": "https://github.com/1m93/Chromium-Stack/releases/download/1.0.1/SHA256SUMS.txt"
+    }
+  ]
+}

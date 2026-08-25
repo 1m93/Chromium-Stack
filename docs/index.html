@@ -287,7 +287,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
     <h1 data-reveal style="margin:0;font-size:clamp(40px,5.2vw,64px);line-height:1.02;letter-spacing:-.035em;font-weight:680;text-wrap:balance">A shelf of real browsers,<br><span style="color:var(--accent)">Every Chromium, one click away.</span></h1>
     <p data-reveal style="margin:24px 0 0;max-width:46ch;font-size:18px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">Pick a Chromium version, press Launch, and it opens as an ordinary desktop browser — tabs, bookmarks, DevTools and all. No account, no build step, nothing to configure.</p>
     <div data-reveal style="display:flex;flex-wrap:wrap;gap:12px;margin-top:34px">
-      <a href="#download" style="display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600;padding:13px 22px;border-radius:11px;background:var(--accent);color:#fff;box-shadow:0 14px 30px -14px var(--accent);transition:transform .18s" class="hv-cta"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-download"/></svg><span>Download for your platform</span></a>
+      <a id="heroBtn" href="#download" style="display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600;padding:13px 22px;border-radius:11px;background:var(--accent);color:#fff;box-shadow:0 14px 30px -14px var(--accent);transition:transform .18s" class="hv-cta"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-download"/></svg><span id="heroBtnText">Download for your platform</span></a>
     </div>
     <div data-reveal data-stats data-r="stats" style="display:flex;flex-wrap:wrap;gap:34px;margin-top:44px;padding-top:28px;border-top:1px solid var(--line)">
       <div><div style="font-size:26px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums"><span id="statM">0</span></div><div style="margin-top:3px;font-size:12.5px;color:var(--ink-3)">milestones catalogued</div></div>
@@ -798,7 +798,12 @@ details[open] [data-chev]{transform:rotate(45deg)}
   const REPO = '1m93/Chromium-Stack';
   const RELEASES = 'https://github.com/' + REPO + '/releases/latest';
   const OS_NAME = {mac: 'macOS', win: 'Windows', linux: 'Linux'};
-  const ASSET = {mac: /macos\.zip$/i, win: /windows\.zip$/i, linux: /linux\.tar\.gz$/i};
+  const PLATFORM = {
+    mac:   {kw: /mac|darwin|osx/i,   ext: /\.(zip|dmg|pkg|tar\.gz)$/i},
+    win:   {kw: /win/i,              ext: /\.(zip|exe|msi)$/i},
+    linux: {kw: /linux/i,            ext: /\.(tar\.gz|tgz|appimage|deb|zip)$/i}
+  };
+  const matches = (name, k) => PLATFORM[k].kw.test(name) && PLATFORM[k].ext.test(name);
 
   function detectOS() {
     const ua = navigator.userAgent;
@@ -816,9 +821,12 @@ details[open] [data-chev]{transform:rotate(45deg)}
   const cards = {};
   document.querySelectorAll('a[data-os]').forEach(a => { cards[a.dataset.os] = a; });
 
+  const heroBtn = $('heroBtn'), heroBtnText = $('heroBtnText');
+
   if (os && cards[os]) {
     dlName.textContent = 'ChromiumStack for ' + OS_NAME[os];
     dlBtnText.textContent = 'Download for ' + OS_NAME[os];
+    if (heroBtnText) heroBtnText.textContent = 'Download for ' + OS_NAME[os];
     dlMeta.textContent = 'Checking the latest release…';
     const badge = cards[os].querySelector('.dl-badge');
     if (badge) badge.hidden = false;
@@ -831,7 +839,15 @@ details[open] [data-chev]{transform:rotate(45deg)}
   function applyRelease(rel) {
     const tag = rel.tag_name || '';
     const assets = rel.assets || [];
-    const find = k => assets.find(a => ASSET[k].test(a.name));
+
+    // Files dragged into the release description land on github.com/user-attachments
+    // instead of the asset list, so fall back to parsing the body for them.
+    const fromBody = [];
+    const md = /\[([^\]]+)\]\((https:\/\/github\.com\/[^)\s]+)\)/g;
+    let m;
+    while ((m = md.exec(rel.body || ''))) fromBody.push({name: m[1], browser_download_url: m[2]});
+
+    const find = k => assets.find(a => matches(a.name, k)) || fromBody.find(a => matches(a.name, k));
 
     // per-platform cards: direct asset link + real file name and size
     Object.keys(cards).forEach(k => {
@@ -840,7 +856,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
       if (a) {
         cards[k].href = a.browser_download_url;
         cards[k].removeAttribute('target');
-        if (file) file.textContent = a.name + ' · ' + fmt(a.size);
+        if (file) file.textContent = a.size ? a.name + ' · ' + fmt(a.size) : a.name;
       } else if (file && tag) {
         file.textContent = file.textContent.replace('<ver>', tag);
       }
@@ -851,7 +867,14 @@ details[open] [data-chev]{transform:rotate(45deg)}
       dlBtn.href = mine.browser_download_url;
       dlBtn.removeAttribute('target');
       dlBtn.setAttribute('download', '');
-      dlMeta.textContent = mine.name + ' · ' + fmt(mine.size) + ' · ' + tag;
+      dlMeta.textContent = mine.size ? mine.name + ' · ' + fmt(mine.size) + ' · ' + tag
+                                     : mine.name + ' · ' + tag;
+      if (heroBtn) {                       // hero button downloads straight away
+        heroBtn.href = mine.browser_download_url;
+        heroBtn.setAttribute('download', '');
+        heroBtnText.textContent = 'Download for ' + OS_NAME[os]
+          + (mine.size ? ' · ' + fmt(mine.size) : '');
+      }
     } else if (tag) {
       // release exists but carries no build for this platform — say so, do not fake a link
       dlMeta.textContent = os
@@ -861,21 +884,32 @@ details[open] [data-chev]{transform:rotate(45deg)}
     }
   }
 
+  async function loadRelease() {
+    // release.json is rewritten by CI whenever a release is published — same origin,
+    // so it costs nothing and is never rate limited. The API is the fallback.
+    try {
+      const r = await fetch('release.json', {cache: 'no-cache'});
+      if (r.ok) return await r.json();
+    } catch {}
+    const r = await fetch('https://api.github.com/repos/' + REPO + '/releases/latest',
+                          {headers: {Accept: 'application/vnd.github+json'}});
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  }
+
   (async () => {
     if (!dlBtn) return;
+    const TTL = 30 * 60 * 1000;          // a long-lived tab should still see a new release
     try {
-      const cached = sessionStorage.getItem('cs-release');
-      if (cached) { applyRelease(JSON.parse(cached)); return; }
+      const cached = JSON.parse(sessionStorage.getItem('cs-release-v2') || 'null');
+      if (cached && Date.now() - cached.at < TTL) { applyRelease(cached); return; }
     } catch {}
     try {
-      const r = await fetch('https://api.github.com/repos/' + REPO + '/releases/latest',
-                            {headers: {Accept: 'application/vnd.github+json'}});
-      if (!r.ok) throw new Error(r.status);
-      const rel = await r.json();
-      const slim = {tag_name: rel.tag_name,
+      const rel = await loadRelease();
+      const slim = {tag_name: rel.tag_name, body: rel.body || '', at: Date.now(),
                     assets: (rel.assets || []).map(a => ({name: a.name, size: a.size,
                                                           browser_download_url: a.browser_download_url}))};
-      try { sessionStorage.setItem('cs-release', JSON.stringify(slim)); } catch {}
+      try { sessionStorage.setItem('cs-release-v2', JSON.stringify(slim)); } catch {}
       applyRelease(slim);
     } catch {
       // offline, rate-limited or blocked: the static links to the releases page still work
