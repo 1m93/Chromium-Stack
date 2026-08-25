@@ -1,17 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-
+<!-- ChromiumStack app icon, reduced. One window, two tones, no detail that can
+     blur together - this is what a 16px browser tab and a Finder list actually
+     render. Used for 48px and below; icon.svg covers larger sizes. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
-      <stop offset="0" stop-color="#4b83ff"></stop><stop offset="1" stop-color="#1f46c8"></stop>
+      <stop offset="0" stop-color="#4b83ff"/><stop offset="1" stop-color="#1f46c8"/>
     </linearGradient>
-    <clipPath id="c"><rect x="150" y="286" width="724" height="470" rx="66"></rect></clipPath>
+    <clipPath id="c"><rect x="150" y="286" width="724" height="470" rx="66"/></clipPath>
   </defs>
-  <rect width="1024" height="1024" rx="228" fill="url(#bg)"></rect>
-  <rect x="286" y="180" width="452" height="230" rx="56" fill="#ffffff" opacity="0.4"></rect>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect x="286" y="180" width="452" height="230" rx="56" fill="#ffffff" opacity="0.4"/>
   <g clip-path="url(#c)">
-    <rect x="150" y="286" width="724" height="470" fill="#ffffff"></rect>
-    <rect x="150" y="286" width="724" height="150" fill="#2b3444"></rect>
-    <circle cx="228" cy="361" r="30" fill="#ffffff" opacity="0.92"></circle>
-    <circle cx="322" cy="361" r="30" fill="#ffffff" opacity="0.55"></circle>
+    <rect x="150" y="286" width="724" height="470" fill="#ffffff"/>
+    <rect x="150" y="286" width="724" height="150" fill="#2b3444"/>
+    <circle cx="228" cy="361" r="30" fill="#ffffff" opacity="0.92"/>
+    <circle cx="322" cy="361" r="30" fill="#ffffff" opacity="0.55"/>
   </g>
 </svg>

@@ -1,68 +1,71 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" width="1200" height="380" role="img" aria-label="ChromiumStack — every Chromium from 2017 to 2024, one click away">
-
+<!-- README hero. Brand colours match the app icon and the manager UI. -->
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0d1424"></stop>
-      <stop offset="0.55" stop-color="#101a30"></stop>
-      <stop offset="1" stop-color="#0a1020"></stop>
+      <stop offset="0" stop-color="#0d1424"/>
+      <stop offset="0.55" stop-color="#101a30"/>
+      <stop offset="1" stop-color="#0a1020"/>
     </linearGradient>
     <radialGradient id="glow" cx="0.78" cy="0.28" r="0.62">
-      <stop offset="0" stop-color="#4b83ff" stop-opacity="0.34"></stop>
-      <stop offset="1" stop-color="#4b83ff" stop-opacity="0"></stop>
+      <stop offset="0" stop-color="#4b83ff" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#4b83ff" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#4b83ff" stop-opacity="0.9"></stop>
-      <stop offset="1" stop-color="#4b83ff" stop-opacity="0"></stop>
+      <stop offset="0" stop-color="#4b83ff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#4b83ff" stop-opacity="0"/>
     </linearGradient>
-    <clipPath id="win"><rect x="700" y="146" width="360" height="214" rx="16"></rect></clipPath>
-    
+    <clipPath id="win"><rect x="700" y="146" width="360" height="214" rx="16"/></clipPath>
+    <style>
+      .f { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif; }
+      .m { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    </style>
   </defs>
 
-  <rect width="1200" height="380" rx="18" fill="url(#sky)"></rect>
-  <rect width="1200" height="380" rx="18" fill="url(#glow)"></rect>
+  <rect width="1200" height="380" rx="18" fill="url(#sky)"/>
+  <rect width="1200" height="380" rx="18" fill="url(#glow)"/>
 
-  
+  <!-- stacked windows: the silhouette says browser, the stack says more than one version -->
   <g opacity="0.9">
-    <rect x="792" y="48" width="308" height="188" rx="15" fill="#ffffff" opacity="0.10"></rect>
-    <rect x="792" y="48" width="308" height="34" rx="15" fill="#ffffff" opacity="0.06"></rect>
+    <rect x="792" y="48" width="308" height="188" rx="15" fill="#ffffff" opacity="0.10"/>
+    <rect x="792" y="48" width="308" height="34" rx="15" fill="#ffffff" opacity="0.06"/>
     <text x="1070" y="72" text-anchor="end" class="m" font-size="15" fill="#ffffff" opacity="0.35">130</text>
 
-    <rect x="748" y="97" width="332" height="200" rx="15" fill="#ffffff" opacity="0.16"></rect>
-    <rect x="748" y="97" width="332" height="36" rx="15" fill="#ffffff" opacity="0.10"></rect>
+    <rect x="748" y="97" width="332" height="200" rx="15" fill="#ffffff" opacity="0.16"/>
+    <rect x="748" y="97" width="332" height="36" rx="15" fill="#ffffff" opacity="0.10"/>
     <text x="1052" y="122" text-anchor="end" class="m" font-size="15" fill="#ffffff" opacity="0.5">100</text>
 
     <g clip-path="url(#win)">
-      <rect x="700" y="146" width="360" height="214" fill="#f7f8fa"></rect>
-      <rect x="700" y="146" width="360" height="46" fill="#2b3444"></rect>
-      <circle cx="726" cy="169" r="6.5" fill="#ffffff" opacity="0.85"></circle>
-      <circle cx="748" cy="169" r="6.5" fill="#ffffff" opacity="0.55"></circle>
-      <circle cx="770" cy="169" r="6.5" fill="#ffffff" opacity="0.32"></circle>
-      <rect x="792" y="157" width="244" height="24" rx="12" fill="#ffffff" opacity="0.16"></rect>
+      <rect x="700" y="146" width="360" height="214" fill="#f7f8fa"/>
+      <rect x="700" y="146" width="360" height="46" fill="#2b3444"/>
+      <circle cx="726" cy="169" r="6.5" fill="#ffffff" opacity="0.85"/>
+      <circle cx="748" cy="169" r="6.5" fill="#ffffff" opacity="0.55"/>
+      <circle cx="770" cy="169" r="6.5" fill="#ffffff" opacity="0.32"/>
+      <rect x="792" y="157" width="244" height="24" rx="12" fill="#ffffff" opacity="0.16"/>
       <text x="806" y="174" class="m" font-size="13" fill="#ffffff" opacity="0.72">chromium 74 · 2019</text>
-      <rect x="726" y="222" width="196" height="16" rx="8" fill="#7d8ba3" opacity="0.55"></rect>
-      <rect x="726" y="256" width="272" height="16" rx="8" fill="#7d8ba3" opacity="0.38"></rect>
-      <rect x="726" y="290" width="150" height="16" rx="8" fill="#7d8ba3" opacity="0.26"></rect>
-      <rect x="726" y="324" width="222" height="16" rx="8" fill="#7d8ba3" opacity="0.18"></rect>
+      <rect x="726" y="222" width="196" height="16" rx="8" fill="#7d8ba3" opacity="0.55"/>
+      <rect x="726" y="256" width="272" height="16" rx="8" fill="#7d8ba3" opacity="0.38"/>
+      <rect x="726" y="290" width="150" height="16" rx="8" fill="#7d8ba3" opacity="0.26"/>
+      <rect x="726" y="324" width="222" height="16" rx="8" fill="#7d8ba3" opacity="0.18"/>
     </g>
   </g>
 
-  
+  <!-- wordmark -->
   <text x="72" y="120" class="f" font-size="14" font-weight="600" letter-spacing="4.2" fill="#5c8dff">CHROMIUM VERSION MANAGER</text>
   <text x="72" y="196" class="f" font-size="66" font-weight="700" fill="#ffffff" letter-spacing="-1.4">ChromiumStack</text>
-  <rect x="74" y="216" width="300" height="2" rx="1" fill="url(#rule)"></rect>
+  <rect x="74" y="216" width="300" height="2" rx="1" fill="url(#rule)"/>
   <text x="72" y="256" class="f" font-size="21" fill="#aab4c4">Every Chromium from 2017 to 2024,</text>
   <text x="72" y="286" class="f" font-size="21" fill="#aab4c4">one click away.</text>
 
-  
+  <!-- version shelf -->
   <g class="m" font-size="14" fill="#8f9bb0">
-    <rect x="72" y="312" width="46" height="30" rx="8" fill="#ffffff" opacity="0.07"></rect><text x="95" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">60</text>
-    <rect x="126" y="312" width="46" height="30" rx="8" fill="#ffffff" opacity="0.07"></rect><text x="149" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">70</text>
-    <rect x="180" y="312" width="46" height="30" rx="8" fill="#ffffff" opacity="0.07"></rect><text x="203" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">80</text>
-    <rect x="234" y="312" width="46" height="30" rx="8" fill="#ffffff" opacity="0.07"></rect><text x="257" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">90</text>
-    <rect x="288" y="312" width="52" height="30" rx="8" fill="#ffffff" opacity="0.07"></rect><text x="314" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">100</text>
-    <rect x="348" y="312" width="52" height="30" rx="8" fill="#ffffff" opacity="0.07"></rect><text x="374" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">110</text>
-    <rect x="408" y="312" width="52" height="30" rx="8" fill="#4b83ff" opacity="0.22"></rect><text x="434" y="332" text-anchor="middle" class="m" font-size="14" fill="#c9d8ff">120</text>
-    <rect x="468" y="312" width="52" height="30" rx="8" fill="#4b83ff" opacity="0.22"></rect><text x="494" y="332" text-anchor="middle" class="m" font-size="14" fill="#c9d8ff">130</text>
+    <rect x="72"  y="312" width="46" height="30" rx="8" fill="#ffffff" opacity="0.07"/><text x="95"  y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">60</text>
+    <rect x="126" y="312" width="46" height="30" rx="8" fill="#ffffff" opacity="0.07"/><text x="149" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">70</text>
+    <rect x="180" y="312" width="46" height="30" rx="8" fill="#ffffff" opacity="0.07"/><text x="203" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">80</text>
+    <rect x="234" y="312" width="46" height="30" rx="8" fill="#ffffff" opacity="0.07"/><text x="257" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">90</text>
+    <rect x="288" y="312" width="52" height="30" rx="8" fill="#ffffff" opacity="0.07"/><text x="314" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">100</text>
+    <rect x="348" y="312" width="52" height="30" rx="8" fill="#ffffff" opacity="0.07"/><text x="374" y="332" text-anchor="middle" class="m" font-size="14" fill="#9aa6bb">110</text>
+    <rect x="408" y="312" width="52" height="30" rx="8" fill="#4b83ff" opacity="0.22"/><text x="434" y="332" text-anchor="middle" class="m" font-size="14" fill="#c9d8ff">120</text>
+    <rect x="468" y="312" width="52" height="30" rx="8" fill="#4b83ff" opacity="0.22"/><text x="494" y="332" text-anchor="middle" class="m" font-size="14" fill="#c9d8ff">130</text>
     <text x="536" y="332" class="f" font-size="14" fill="#6e7889">+ any snapshot revision</text>
   </g>
 </svg>
