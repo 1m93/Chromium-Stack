@@ -316,6 +316,191 @@ function Get-DoctorReport {
     }
 }
 
+# ---------- engines ----------
+# Kept in step with lib/engines.sh and gui/server.py. All three have to agree on
+# the on-disk naming or the same directory means different things to each.
+$Engines = @('chromium', 'firefox', 'edge', 'webkit')
+$EngineNames = @{
+    chromium = 'Chromium'; firefox = 'Firefox'; edge = 'Edge'; webkit = 'WebKit'
+}
+
+# Selectors reach the CLI as one argument, so there is no shell to inject into -
+# but a bare "is it digits" was the whole guard before there was more than one
+# engine. Versions are alphanumeric and dotted (115.0, 140.14.0esr, 26.5);
+# nothing matching this can be a path, a switch, or a second word.
+$SelectorPattern = '^(?:(?:chromium|firefox|edge|webkit):)?[0-9A-Za-z][0-9A-Za-z.]{0,31}$'
+
+function Get-EngineOfKey {
+    param([string]$key)
+    foreach ($engine in $Engines) {
+        if ($engine -ne 'chromium' -and $key.StartsWith("$engine-")) { return $engine }
+    }
+    return 'chromium'
+}
+
+function Get-SelectorLabel {
+    param([string]$selector)
+    $engine = 'chromium'; $version = $selector
+    if ($selector.Contains(':')) {
+        $parts = $selector.Split(':', 2)
+        $engine = $parts[0]; $version = $parts[1]
+    }
+    $name = $EngineNames[$engine]
+    if (-not $name) { $name = 'Chromium' }
+    return "$name $version"
+}
+
+# The S rows: every release tools/discover.py found, per engine, with its date.
+# Read apart from Read-Catalog because the two answer different questions - V and
+# B rows are Chromium's snapshot bookkeeping; these are the shelf across all four
+# engines, and only these carry a date to arrange years by.
+function Read-Shelf {
+    $shelf = @{}
+    foreach ($engine in $Engines) { $shelf[$engine] = New-Object System.Collections.ArrayList }
+    $seen = @{}
+    foreach ($path in @($Catalog, $CacheFile)) {
+        if (-not (Test-Path $path)) { continue }
+        foreach ($line in Get-Content $path) {
+            if ($line -match '^\s*#' -or $line.Trim() -eq '') { continue }
+            $f = $line -split "`t"
+            if ($f[0] -ne 'S' -or $f.Count -lt 6) { continue }
+            $engine = $f[1]
+            if (-not $shelf.ContainsKey($engine)) { continue }
+            $key = "$engine/$($f[3])"
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+            [void]$shelf[$engine].Add(@{
+                engine = $engine; year = [int]$f[2]; id = $f[3]
+                label = $f[4]; date = $f[5]
+            })
+        }
+    }
+    foreach ($engine in $Engines) {
+        $sorted = @($shelf[$engine] | Sort-Object -Property date -Descending)
+        $shelf[$engine] = $sorted
+    }
+    return $shelf
+}
+
+# Every installed build keyed by its directory name, whatever the engine.
+# Get-InstalledBuilds above stays numeric and Chromium-only, because the Docker
+# bookkeeping is built on revisions and reads it.
+function Get-InstalledByKey {
+    $result = @{}
+    if (-not (Test-Path $BuildsDir)) { return $result }
+    foreach ($dir in Get-ChildItem -Path $BuildsDir -Directory -ErrorAction SilentlyContinue) {
+        if (-not (Test-Path (Join-Path $dir.FullName '.complete'))) { continue }
+        $meta = @{}
+        $metaPath = Join-Path $dir.FullName '.meta'
+        if (Test-Path $metaPath) {
+            foreach ($line in Get-Content $metaPath) {
+                if ($line -match "^([A-Z_]+)='(.*)'$") { $meta[$Matches[1]] = $Matches[2] }
+            }
+        }
+        $engine = $meta['META_ENGINE']
+        if (-not $engine) { $engine = Get-EngineOfKey $dir.Name }
+        $version = $meta['META_VERSION']; if (-not $version) { $version = $dir.Name }
+        $platform = $meta['META_PLATFORM']; if (-not $platform) { $platform = '?' }
+        $result[$dir.Name] = @{
+            key          = $dir.Name
+            engine       = $engine
+            version      = $version
+            platformDir  = $platform
+            installedAt  = $meta['META_INSTALLED']
+            sizeBytes    = Get-DirSize $dir.FullName
+            profileBytes = Get-DirSize (Join-Path $ProfilesDir $dir.Name)
+        }
+    }
+    return $result
+}
+
+# The directory a Chromium milestone installs into here, and whether it can be
+# offered at all. Chromium is the one engine whose on-disk name is not its
+# version - it is the snapshot revision, which depends on the platform.
+#
+# Unknown is not unavailable: B rows exist only for the milestones the catalog
+# ships, and the rest are resolved against the live archive on first launch. So a
+# milestone with no B row has no key yet and cannot be reported as installed, but
+# it is perfectly launchable.
+function Get-ChromiumCell {
+    param($builds, [int]$milestone)
+    if (-not $builds.ContainsKey($milestone)) { return @{ key = $null; supported = $true } }
+    if ($builds[$milestone].ContainsKey($HostPlatform)) {
+        return @{ key = [string]$builds[$milestone][$HostPlatform].revision; supported = $true }
+    }
+    return @{ key = $null; supported = $false }   # catalogued, not for this host
+}
+
+# The shelf as years x engines, which is how the page draws it. Version numbering
+# does not line up across engines - Chromium 120, Firefox 121, Edge 120 and
+# WebKit 17.4 are contemporaries and none of those numbers say so - so the
+# release date is the only axis they can share.
+function Build-Matrix {
+    param($installed, $builds)
+    $shelf = Read-Shelf
+    $cells = @{}
+    $years = @{}
+
+    foreach ($engine in $Engines) {
+        foreach ($release in $shelf[$engine]) {
+            if ($engine -eq 'chromium') {
+                $resolved = Get-ChromiumCell $builds ([int]$release.id)
+                $key = $resolved.key; $supported = $resolved.supported
+            } else {
+                # Every other engine names its build after its own version, so
+                # the key is known before anything is resolved.
+                $key = "$engine-$($release.id)"; $supported = $true
+            }
+            $local = $null
+            if ($key -and $installed.ContainsKey($key)) { $local = $installed[$key] }
+            $entry = @{
+                engine    = $engine
+                label     = $release.label
+                id        = $release.id
+                date      = $release.date
+                # The id, not the label: two WebKit builds are both called 26.5
+                # and only the id says which.
+                selector  = "$engine`:$($release.id)"
+                key       = $key
+                supported = $supported
+                installed = ($null -ne $local)
+                sizeBytes = if ($local) { $local.sizeBytes } else { 0 }
+                profileBytes = if ($local) { $local.profileBytes } else { 0 }
+            }
+            $year = $release.year
+            $years[$year] = $true
+            if (-not $cells.ContainsKey($year)) { $cells[$year] = @{} }
+            if (-not $cells[$year].ContainsKey($engine)) {
+                $cells[$year][$engine] = New-Object System.Collections.ArrayList
+            }
+            [void]$cells[$year][$engine].Add($entry)
+        }
+    }
+
+    $rows = New-Object System.Collections.ArrayList
+    foreach ($year in ($years.Keys | Sort-Object -Descending)) {
+        $row = @{ year = $year; cells = @{} }
+        foreach ($engine in $Engines) {
+            $bucket = $null
+            if ($cells[$year].ContainsKey($engine)) { $bucket = @($cells[$year][$engine]) }
+            if (-not $bucket -or $bucket.Count -eq 0) { $row.cells[$engine] = $null; continue }
+            # An installed build is what someone opening the manager is looking
+            # for, so it leads its year even when it is not the newest.
+            $lead = $bucket[0]
+            foreach ($candidate in $bucket) { if ($candidate.installed) { $lead = $candidate; break } }
+            $others = New-Object System.Collections.ArrayList
+            foreach ($candidate in $bucket) {
+                if (-not [object]::ReferenceEquals($candidate, $lead)) { [void]$others.Add($candidate) }
+            }
+            $cell = $lead.Clone()
+            $cell.others = @($others)
+            $row.cells[$engine] = $cell
+        }
+        [void]$rows.Add($row)
+    }
+    return $rows
+}
+
 function Get-State {
     $catalog = Read-Catalog
     $installed = Get-InstalledBuilds
@@ -366,8 +551,17 @@ function Get-State {
         [void]$extra.Add($row)
     }
 
-    $total = 0
-    foreach ($info in $installed.Values) { $total += $info.sizeBytes + $info.profileBytes }
+    # Summed over every engine, not over the rows above: those are Chromium's
+    # catalogue, so a gauge built from them reported a 2.2 GB directory as 589 MB
+    # the moment anything other than Chromium was installed.
+    $everything = Get-InstalledByKey
+    $browserBytes = 0
+    $profileBytes = 0
+    foreach ($info in $everything.Values) {
+        $browserBytes += $info.sizeBytes
+        $profileBytes += $info.profileBytes
+    }
+    $total = $browserBytes + $profileBytes
 
     return @{
         root = $Root
@@ -376,6 +570,13 @@ function Get-State {
         hostPlatforms = @($HostPlatform)
         versions = $rows
         extra = $extra
+        # @() for the same reason the jobs list has it: a returned collection
+        # unrolls, and the page needs a list even when there is one row.
+        matrix = @(Build-Matrix $everything $catalog.builds)
+        engines = @(foreach ($e in $Engines) { @{ id = $e; name = $EngineNames[$e] } })
+        installedCount = $everything.Count
+        browserBytes = $browserBytes
+        profileBytes = $profileBytes
         totalBytes = $total
         # Images and profile volumes are the other place gigabytes go, and they
         # are invisible from the file tree the rest of this reads.
@@ -502,7 +703,9 @@ function Get-JobSummary {
 }
 
 # ---------- http ----------
-function ConvertTo-Json2 { param($obj) $obj | ConvertTo-Json -Depth 8 -Compress }
+# Depth 12, not 8: a matrix cell nests year -> cells -> engine -> others -> entry,
+# and at 8 the innermost entries serialise as type names instead of objects.
+function ConvertTo-Json2 { param($obj) $obj | ConvertTo-Json -Depth 12 -Compress }
 
 function Send-Response {
     param($Stream, [int]$Status, [string]$ContentType, [byte[]]$Body)
@@ -821,11 +1024,12 @@ function Invoke-Route {
     }
 
     $selector = [string](Get-Field $body 'selector')
-    if ($selector -notmatch '^\d+$') { Send-Json $Stream @{ error = 'bad selector' } 400; return }
+    if ($selector -notmatch $SelectorPattern) { Send-Json $Stream @{ error = 'bad selector' } 400; return }
+    $label = Get-SelectorLabel $selector
 
     switch ($path) {
         '/api/install' {
-            $id = Start-Job2 'install' $selector @('install', $selector) "Installing Chromium $selector"
+            $id = Start-Job2 'install' $selector @('install', $selector) "Installing $label"
             Send-Json $Stream @{ job = $id }; return
         }
         '/api/launch' {
@@ -836,17 +1040,17 @@ function Invoke-Route {
             if ($size) { $cliArgs += @('--size', $size) }
             $gpu = Get-Field $body 'gpu'
             if ($gpu -eq $true) { $cliArgs += '--gpu' } elseif ($gpu -eq $false) { $cliArgs += '--no-gpu' }
-            $id = Start-Job2 'launch' $selector $cliArgs "Chromium $selector"
+            $id = Start-Job2 'launch' $selector $cliArgs $label
             Send-Json $Stream @{ job = $id }; return
         }
         '/api/remove' {
             $cliArgs = @('remove', $selector)
             if (Get-Field $body 'withProfile') { $cliArgs += '--with-profile' }
-            $id = Start-Job2 'remove' $selector $cliArgs "Removing $selector"
+            $id = Start-Job2 'remove' $selector $cliArgs "Removing $label"
             Send-Json $Stream @{ job = $id }; return
         }
         '/api/clean' {
-            $id = Start-Job2 'clean' $selector @('clean', $selector) "Resetting profile $selector"
+            $id = Start-Job2 'clean' $selector @('clean', $selector) "Resetting profile $label"
             Send-Json $Stream @{ job = $id }; return
         }
         '/api/docker' {
@@ -854,6 +1058,12 @@ function Invoke-Route {
             if (-not $action) { $action = 'start' }
             if (@('start', 'stop', 'rebuild', 'purge') -notcontains $action) {
                 Send-Json $Stream @{ error = 'bad action' } 400; return
+            }
+            # The container image is built around a Chromium snapshot revision;
+            # engineshelf-docker.ps1 has no idea what firefox:115 would mean, and
+            # would fail with the reason buried in a job log.
+            if ($selector.Contains(':') -and -not $selector.StartsWith('chromium:')) {
+                Send-Json $Stream @{ error = 'Docker only runs Chromium versions.' } 400; return
             }
             $cliArgs = @($action, $selector)
             # An image is a gigabyte, so removing one has to be possible from the

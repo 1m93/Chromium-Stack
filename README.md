@@ -1,19 +1,20 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="EngineShelf — every Chromium milestone, one click away" width="100%">
+  <img src="assets/banner.svg" alt="EngineShelf — four browser engines, one click away" width="100%">
 </p>
 
 <p align="center">
   <a href="https://github.com/1m93/EngineShelf/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/1m93/EngineShelf?style=flat-square&color=2f6df6&label=release"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-ready-2b3444?style=flat-square">
-  <img alt="Chromium 60 and up" src="https://img.shields.io/badge/Chromium-60%20and%20up-4b83ff?style=flat-square">
+  <img alt="Chromium, Firefox, Edge and WebKit" src="https://img.shields.io/badge/Chromium%20%C2%B7%20Firefox%20%C2%B7%20Edge%20%C2%B7%20WebKit-4%20engines-4b83ff?style=flat-square">
   <img alt="No install required" src="https://img.shields.io/badge/setup-double--click-1d9a5a?style=flat-square">
   <a href="https://github.com/1m93/EngineShelf/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/1m93/EngineShelf/total?style=flat-square&color=5b6472&label=downloads"></a>
 </p>
 
 <p align="center">
   <b>A shelf of real browsers, going back to 2017.</b><br>
-  Pick a Chromium version, press Launch, and it opens as an ordinary desktop browser —<br>
-  tabs, bookmarks, DevTools and all. No account, no build step, nothing to configure.
+  Pick a version of Chromium, Firefox, Edge or WebKit, press Launch, and it opens as an<br>
+  ordinary desktop browser — tabs, bookmarks, DevTools and all. No account, no build
+  step, nothing to configure.
 </p>
 
 <p align="center">
@@ -33,12 +34,26 @@ your site look finished — right up until it meets an engine from 2019, where a
 unsupported CSS declaration is **dropped, not degraded**, and a layout falls apart in a
 way nothing on your machine will ever show you.
 
+And modern browsers agree with each other far more than they used to, which hides the
+other half of the problem: three engines still ship on the desktop, and the one you
+develop in is the one whose bugs you will never find.
+
 |  | The situation | What EngineShelf gives you |
 |---|---|---|
 | **Kiosks & devices** | POS terminals, scanners and industrial tablets ship a System WebView years behind the OS. It is the *engine* that decides whether your CSS survives. | The same engine on your desk, in a window you can click around in. |
 | **The support ticket** | A customer on a locked-down browser reports a bug you cannot reproduce anywhere. | Open their engine, load the page, see it happen. |
-| **The `browserslist` claim** | Your config promises support for an old floor. Nobody has ever checked. | Two minutes to find out whether the promise is true. |
+| **“Only breaks in Firefox”** | Gecko is not Blink with different chrome. Different layout rounding, different fonts, its own certificate store. | Firefox 57 through today, beside the Chromium you already test in. |
+| **The `browserslist` claim** | Your config promises support for an old floor — often across engines. Nobody has ever checked. | Two minutes to find out whether the promise is true, on each engine it names. |
 | **The regression hunt** | Something broke *somewhere* between two releases. | 90, 105 and 120 open side by side, bisected by eye. |
+
+<sub>**A word on WebKit, before you get your hopes up.** WebKit is the engine Safari is
+built on, and it is the closest thing to Safari that can be downloaded — but it is not
+Safari. What opens is a minimal browser shell around the engine: no Safari interface, no
+Intelligent Tracking Prevention, no Safari media stack. It will catch a CSS property
+Safari has not shipped. It will not reproduce a cookie being capped at seven days, an
+HLS stream refusing to play, or anything specific to Safari on iOS. Those need a real
+device or a simulator, and nothing here changes that. It is listed as **WebKit** rather
+than Safari for exactly this reason.</sub>
 
 ---
 
@@ -82,8 +97,8 @@ what is installed, what each one costs in disk.
 
 ### 2 · Pick a version
 
-Press **Launch** on any row. The first launch of a version downloads it — 90–300 MB, a few
-minutes, once. Every launch after that is instant.
+Click any cell — a year on one axis, an engine on the other. The first launch of a version
+downloads it, 90–400 MB and a few minutes, once. Every launch after that is instant.
 
 </td>
 <td width="33%" valign="top">
@@ -98,11 +113,13 @@ launcher window when you are done.
 </table>
 
 <p align="center">
-  <img src="assets/screenshot-manager.png" width="100%" alt="The EngineShelf manager: every catalogued Chromium milestone grouped by era, five installed, Chromium 74 running, each row showing its revision, the features it does and does not have, and what it costs in disk">
+  <img src="assets/screenshot-manager.png" width="100%" alt="The EngineShelf manager: a grid with years down the side and Chromium, Firefox, Edge and WebKit across the top, installed versions outlined in green with their size, and the rest of each year folded behind a plus">
   <br>
-  <sub>Every catalogued milestone on one page, grouped by what it is useful for — which are
-  installed, which run natively, which go through Rosetta, what each is costing you in disk,
-  and one button to open any of them.</sub>
+  <sub>Years down, engines across. Version numbers do not line up between engines —
+  Chromium 120, Firefox 121, Edge 120 and WebKit 17.4 are contemporaries and none of those
+  numbers say so — so the shelf is arranged by when things shipped. Installed versions are
+  outlined; the rest of a year folds behind a <b>+</b>. A list view is a click away when you
+  want to filter, search, or reach the per-version actions.</sub>
 </p>
 
 > [!TIP]
@@ -113,8 +130,14 @@ launcher window when you are done.
 Prefer the terminal? The whole thing is one command:
 
 ```bash
-./engineshelf.sh run 74        # install if needed, then launch Chromium 74
+./engineshelf.sh run 74             # install if needed, then launch Chromium 74
+./engineshelf.sh run firefox:115    # any engine, by name
+./engineshelf.sh run firefox:esr    # or by the line you actually care about
+./engineshelf.sh run edge:151
+./engineshelf.sh run webkit:26.5
 ```
+
+A bare number still means Chromium, so nothing you already type has changed.
 
 ---
 
@@ -128,7 +151,8 @@ One page, served locally, with everything on it.
 | **A shared URL for every launch** | Set it once at the top; every version opens there. |
 | **Window size and graphics** | Fix the viewport for a layout check, or force hardware acceleration on or off. |
 | **Per-row menu** | Download without launching, run that version in Docker, reset its profile, or delete it. |
-| **Grouped by era** | Rows sit under the years they belong to, with what each era brought — jump straight to one, or sort by age or disk used. |
+| **Two views of one shelf** | A grid of years × engines for comparing across engines, or the list for filtering, searching and the per-version menu. |
+| **Grouped by era** | In the list, rows sit under the years they belong to, with what each era brought — jump straight to one, or sort by age or disk used. |
 | **Search and filters** | Filter by version, revision or feature — `:has()`, `dvh`, `flex gap` — or narrow to what is installed, running, or stuck on Rosetta. |
 | **Add by revision** | Any build in the Chromium snapshot archive, not just the catalogued milestones. |
 | **System check** | Tells you what is missing before it matters, with buttons that install it. |
@@ -160,11 +184,26 @@ tab closing that ends the session, twelve seconds later. `--tab` asks for that o
 
 ## The version shelf
 
-Every catalogued milestone is verified against the live archive — and any other snapshot
-revision works too. The shelf is not frozen at whatever shipped in your copy:
-a milestone this build has never heard of is looked up in the archive the first time you
-ask for it, and remembered afterwards, so a newly released Chromium runs without updating
-EngineShelf. See [Keeping up with Chrome](#keeping-up-with-chrome).
+Nothing here is a list somebody typed in. Each engine has an index its own vendor
+publishes, every one of those carries release dates, and the shelf is built from them — so
+it keeps growing on its own and cannot go stale. A version this build has never heard of is
+looked up the first time you ask for it and remembered afterwards. See
+[Keeping up](#keeping-up-with-chrome).
+
+How far back each engine reaches is not a choice; it is however much its vendor still
+publishes. They differ a lot, and it is worth knowing before you go looking:
+
+| Engine | Reaches back to | Where the builds come from | The catch |
+|---|---|---|---|
+| **Chromium** | 2017 · milestone 60 | the Chromium snapshot archive | nothing is pruned — any revision in the archive works, not just catalogued ones |
+| **Firefox** | 2017 · Firefox 57 | `ftp.mozilla.org`, every release ever shipped | old builds trust only the certificate authorities they shipped with, so EngineShelf turns on the OS trust store for them — without that, a 2019 Firefox rejects most of today's HTTPS |
+| **Edge** | 2021 on Linux · about six months on macOS and Windows | the package pool, and Microsoft's enterprise feed | the mac and Windows downloads carry a per-file GUID that cannot be constructed, so only what the feed still lists can be fetched at all |
+| **WebKit** | 2021 | Playwright's build CDN | builds are deleted over time, and for older OS releases a different revision is pinned — so a version can still exist for Linux while no macOS archive of it was ever published |
+
+<sub>Edge is Chromium underneath, so it is not a second engine — what it adds is Edge's own
+Tracking Prevention defaults and a build that matches the WebView2 runtime Windows kiosks
+ship. Firefox is the only other full desktop engine there is. WebKit is an engine without a
+browser around it; see the note further up.</sub>
 
 | Era | Versions | What changes here |
 |---|---|---|

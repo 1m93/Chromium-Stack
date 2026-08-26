@@ -855,7 +855,24 @@ function render() {
 
 /* ---------- the matrix ---------- */
 
+// True only when the backend serving this page knows about the shelf. Two
+// independent servers answer /api/state - server.py and server.ps1 - so the page
+// cannot assume a field exists just because one of them sends it. Without the
+// shelf there is nothing to draw a matrix from, so the switch is not offered and
+// the list is the only view, exactly as before.
+function matrixAvailable() {
+  return Array.isArray(state.matrix) && Array.isArray(state.engines)
+    && state.matrix.length > 0;
+}
+
 function renderViewSwitch() {
+  const available = matrixAvailable();
+  // A remembered choice must not survive into a backend that cannot honour it,
+  // or the shelf would come up blank with no way to get back to the list.
+  if (!available) view.mode = 'list';
+
+  const group = document.querySelector('.viewswitch');
+  if (group) group.hidden = !available;
   for (const [mode, id] of [['matrix', 'view-matrix'], ['list', 'view-list']]) {
     const button = $(id);
     if (!button) continue;
@@ -863,6 +880,7 @@ function renderViewSwitch() {
     button.setAttribute('aria-pressed', String(on));
     button.classList.toggle('on', on);
   }
+
   // Sorting, filtering and the era jumps only mean something for the list. In
   // the matrix they would show counts for rows nobody can see - "Installed 2"
   // over a shelf with five installed builds, because the list is Chromium only.
@@ -1056,8 +1074,17 @@ function renderChrome(rows, counts) {
   // From the server, which walks the whole builds directory. Summing the rows
   // below instead only ever saw Chromium, and under-reported a 2.2 GB directory
   // as 589 MB once Firefox, Edge and WebKit could live there too.
-  const browsers = state.browserBytes || 0;
-  const profiles = state.profileBytes || 0;
+  //
+  // Falls back to that row sum when the field is absent: this page is served by
+  // two independent backends, and a Windows manager built before the field
+  // existed should show a slightly low number rather than a zero.
+  const hasTotals = typeof state.browserBytes === 'number';
+  const browsers = hasTotals
+    ? state.browserBytes
+    : rows.reduce((total, row) => total + row.sizeBytes, 0);
+  const profiles = hasTotals
+    ? state.profileBytes
+    : rows.reduce((total, row) => total + row.profileBytes, 0);
   // Images and their profile volumes live inside Docker rather than under the
   // EngineShelf directory, so nothing that walks the file tree can see them -
   // and at a gigabyte each they were the largest thing this gauge left out.
