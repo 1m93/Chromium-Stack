@@ -19,7 +19,11 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
+      # A release event checks out a detached HEAD at the tag commit; check out
+      # the default branch explicitly so the commit-back below has a branch to push.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Write docs/release.json from the latest release
         env:
