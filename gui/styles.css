@@ -1,4 +1,4 @@
-/* chromium-stack manager — local, single page, no build step.
+/* engineshelf manager — local, single page, no build step.
    Layout is the "Shelf" redesign: a fixed app shell (header, launch bar,
    sidebar + scrolling shelf, job log, status bar) rather than a scrolling
    document, so the status bar and filters never leave the screen. */

@@ -1,14 +1,14 @@
 #
-# ChromiumStack - Docker edition (Windows)
+# EngineShelf - Docker edition (Windows)
 #
 # Runs the Linux x86_64 build of a Chromium version inside a container and shows
 # its desktop in a tab of your normal browser.
 #
-#   .\chromium-stack-docker.ps1 start 74     # build if needed, run, open the desktop
-#   .\chromium-stack-docker.ps1 stop 74      # stop the container
-#   .\chromium-stack-docker.ps1 logs 74      # follow its log
-#   .\chromium-stack-docker.ps1 list         # what is running
-#   .\chromium-stack-docker.ps1 rebuild 74   # rebuild the image from scratch
+#   .\engineshelf-docker.ps1 start 74     # build if needed, run, open the desktop
+#   .\engineshelf-docker.ps1 stop 74      # stop the container
+#   .\engineshelf-docker.ps1 logs 74      # follow its log
+#   .\engineshelf-docker.ps1 list         # what is running
+#   .\engineshelf-docker.ps1 rebuild 74   # rebuild the image from scratch
 #
 # Each version gets its own image, container, profile volume and port, so several
 # can run side by side.
@@ -44,12 +44,12 @@ function Test-Docker {
     if ($status -eq 'missing') {
         Write-Host ""
         Write-Host "  The Docker edition needs Docker, which is not installed." -ForegroundColor White
-        Write-Host "  The native launcher needs nothing: .\chromium-stack.ps1 run <version>" -ForegroundColor DarkGray
+        Write-Host "  The native launcher needs nothing: .\engineshelf.ps1 run <version>" -ForegroundColor DarkGray
     }
 
     if (-not (Invoke-PfFix 'docker')) {
         Die "Docker is not available, so the Docker edition cannot run.
-   Use the native launcher instead: .\chromium-stack.ps1 run <version>"
+   Use the native launcher instead: .\engineshelf.ps1 run <version>"
     }
 }
 
@@ -57,7 +57,7 @@ function Test-Docker {
 # selector naming a Windows revision still resolves to the right image.
 function Resolve-DockerTarget {
     param([string]$Raw)
-    if (-not $Raw) { Die "Which version? e.g. 74. Try: .\chromium-stack.ps1 catalog" }
+    if (-not $Raw) { Die "Which version? e.g. 74. Try: .\engineshelf.ps1 catalog" }
     $token = $Raw -replace '^[MmRr]', ''
     if ($token -notmatch '^\d+$') { Die "Not a version or revision: $Raw" }
 
@@ -91,9 +91,9 @@ function Resolve-DockerTarget {
 # gui/server.ps1 reads them back to show which versions have an image, how much
 # disk it costs and which containers are up, so a rename here has to happen
 # there too (grep ContainerPrefix).
-function Get-ImageName     { param($rev) "chromium-stack:$rev" }
-function Get-ContainerName { param($rev) "chromium-stack-$rev" }
-function Get-VolumeName    { param($rev) "chromium-stack-profile-$rev" }
+function Get-ImageName     { param($rev) "engineshelf:$rev" }
+function Get-ContainerName { param($rev) "engineshelf-$rev" }
+function Get-VolumeName    { param($rev) "engineshelf-profile-$rev" }
 
 # Ports are handed out per container; ask Docker what a running one actually got
 # rather than recomputing and guessing wrong.
@@ -117,7 +117,7 @@ function Get-FreePort {
 }
 
 # Published on the loopback address only. The desktop in there has no password
-# and a real browser attached to it, and the rest of ChromiumStack is careful to
+# and a real browser attached to it, and the rest of EngineShelf is careful to
 # stay off the network; a plain -p put it in front of everyone on the wifi.
 #
 # Between choosing a port and binding it another container can take it, and that
@@ -210,14 +210,14 @@ function Invoke-Start {
         Start-Sleep -Seconds 1
     }
     Write-Host ""
-    if (-not $ok) { Die "No answer on port $port. Check: .\chromium-stack-docker.ps1 logs $($target.Revision)" }
+    if (-not $ok) { Die "No answer on port $port. Check: .\engineshelf-docker.ps1 logs $($target.Revision)" }
 
     Write-Host ""
     Write-Host "  > $url" -ForegroundColor Green
     Write-Host "  Copy and paste work across the tab in both directions." -ForegroundColor DarkGray
     Write-Host "  To reach a dev server on this machine, type" -ForegroundColor DarkGray
     Write-Host "  http://host.docker.internal:4173 in the Chromium address bar." -ForegroundColor DarkGray
-    Write-Host "  Stop it with: .\chromium-stack-docker.ps1 stop $($target.Milestone)" -ForegroundColor DarkGray
+    Write-Host "  Stop it with: .\engineshelf-docker.ps1 stop $($target.Milestone)" -ForegroundColor DarkGray
     Write-Host ""
     Start-Process $url | Out-Null
 }
@@ -254,10 +254,10 @@ switch -Regex ($Command) {
         Test-Docker
         Write-Host ""
         Write-Host "Containers" -ForegroundColor White
-        docker ps -a --filter 'name=chromium-stack-' --format '  {{.Names}}`t{{.Status}}`t{{.Ports}}'
+        docker ps -a --filter 'name=engineshelf-' --format '  {{.Names}}`t{{.Status}}`t{{.Ports}}'
         Write-Host ""
         Write-Host "Images" -ForegroundColor White
-        docker images 'chromium-stack' --format '  {{.Repository}}:{{.Tag}}`t{{.Size}}'
+        docker images 'engineshelf' --format '  {{.Repository}}:{{.Tag}}`t{{.Size}}'
         Write-Host ""
         break
     }
@@ -274,14 +274,14 @@ switch -Regex ($Command) {
     }
     default {
         Write-Host ""
-        Write-Host "ChromiumStack - Docker edition (Windows)" -ForegroundColor White
+        Write-Host "EngineShelf - Docker edition (Windows)" -ForegroundColor White
         Write-Host ""
-        Write-Host "  .\chromium-stack-docker.ps1 start <version>"
-        Write-Host "  .\chromium-stack-docker.ps1 stop <version>"
-        Write-Host "  .\chromium-stack-docker.ps1 logs <version>"
-        Write-Host "  .\chromium-stack-docker.ps1 rebuild <version>"
-        Write-Host "  .\chromium-stack-docker.ps1 purge <version> [--with-profile]"
-        Write-Host "  .\chromium-stack-docker.ps1 list"
+        Write-Host "  .\engineshelf-docker.ps1 start <version>"
+        Write-Host "  .\engineshelf-docker.ps1 stop <version>"
+        Write-Host "  .\engineshelf-docker.ps1 logs <version>"
+        Write-Host "  .\engineshelf-docker.ps1 rebuild <version>"
+        Write-Host "  .\engineshelf-docker.ps1 purge <version> [--with-profile]"
+        Write-Host "  .\engineshelf-docker.ps1 list"
         Write-Host ""
     }
 }

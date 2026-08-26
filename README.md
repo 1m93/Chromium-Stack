@@ -1,13 +1,13 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="ChromiumStack — every Chromium milestone, one click away" width="100%">
+  <img src="assets/banner.svg" alt="EngineShelf — every Chromium milestone, one click away" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/1m93/Chromium-Stack/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/1m93/Chromium-Stack?style=flat-square&color=2f6df6&label=release"></a>
+  <a href="https://github.com/1m93/EngineShelf/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/1m93/EngineShelf?style=flat-square&color=2f6df6&label=release"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-ready-2b3444?style=flat-square">
   <img alt="Chromium 60 and up" src="https://img.shields.io/badge/Chromium-60%20and%20up-4b83ff?style=flat-square">
   <img alt="No install required" src="https://img.shields.io/badge/setup-double--click-1d9a5a?style=flat-square">
-  <a href="https://github.com/1m93/Chromium-Stack/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/1m93/Chromium-Stack/total?style=flat-square&color=5b6472&label=downloads"></a>
+  <a href="https://github.com/1m93/EngineShelf/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/1m93/EngineShelf/total?style=flat-square&color=5b6472&label=downloads"></a>
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@ your site look finished — right up until it meets an engine from 2019, where a
 unsupported CSS declaration is **dropped, not degraded**, and a layout falls apart in a
 way nothing on your machine will ever show you.
 
-|  | The situation | What ChromiumStack gives you |
+|  | The situation | What EngineShelf gives you |
 |---|---|---|
 | **Kiosks & devices** | POS terminals, scanners and industrial tablets ship a System WebView years behind the OS. It is the *engine* that decides whether your CSS survives. | The same engine on your desk, in a window you can click around in. |
 | **The support ticket** | A customer on a locked-down browser reports a bug you cannot reproduce anywhere. | Open their engine, load the page, see it happen. |
@@ -50,19 +50,19 @@ install, nothing to keep together, no loose folder of files to lose.
 
 | Platform | File | How you open it |
 |---|---|---|
-| **macOS** | `ChromiumStack-<ver>-macOS.zip` | Unzip → double-click **`ChromiumStack.app`** (drag it to Applications if you like) |
-| **Windows** | `ChromiumStack-<ver>-Windows.zip` | Unzip → double-click **`ChromiumStack.bat`** (want a Desktop icon? run `Create-Shortcut.ps1` once) |
-| **Linux** | `ChromiumStack-<ver>-Linux.tar.gz` | Extract → run **`./ChromiumStack`** |
+| **macOS** | `EngineShelf-<ver>-macOS.zip` | Unzip → double-click **`EngineShelf.app`** (drag it to Applications if you like) |
+| **Windows** | `EngineShelf-<ver>-Windows.zip` | Unzip → double-click **`EngineShelf.bat`** (want a Desktop icon? run `Create-Shortcut.ps1` once) |
+| **Linux** | `EngineShelf-<ver>-Linux.tar.gz` | Extract → run **`./EngineShelf`** |
 
 <sub>**Runs on** — macOS 10.13+ on Intel and 11+ on Apple Silicon · Windows 10/11, using the PowerShell 5.1 that ships with them · Linux x86_64. The manager wants Python 3 on macOS and Linux; the command line does not.</sub>
 
 <sub>Paranoid, sensibly so? `shasum -c SHA256SUMS.txt` verifies the download against the published checksums. Prefer to build the packages yourself — see [RELEASE.md](RELEASE.md).</sub>
 
-<sub>**Windows warns about the download?** `ChromiumStack.bat` is a short, readable script — you can open it in Notepad — that just starts the manager (`app\gui.ps1`); there is no compiled program to trust. If SmartScreen or a “Run anyway?” prompt appears, that is expected for any downloaded script without a paid certificate, not a sign of anything wrong. If it feels stuck, unblock the folder first: in PowerShell, `Get-ChildItem -Recurse | Unblock-File` (clears the “downloaded from the internet” mark), or right-click each file → Properties → **Unblock**. Verify against `SHA256SUMS.txt` if you want certainty. Want a Desktop/Start-Menu icon instead of the plain `.bat`? Run `Create-Shortcut.ps1` once after extracting.</sub>
+<sub>**Windows warns about the download?** `EngineShelf.bat` is a short, readable script — you can open it in Notepad — that just starts the manager (`app\gui.ps1`); there is no compiled program to trust. If SmartScreen or a “Run anyway?” prompt appears, that is expected for any downloaded script without a paid certificate, not a sign of anything wrong. If it feels stuck, unblock the folder first: in PowerShell, `Get-ChildItem -Recurse | Unblock-File` (clears the “downloaded from the internet” mark), or right-click each file → Properties → **Unblock**. Verify against `SHA256SUMS.txt` if you want certainty. Want a Desktop/Start-Menu icon instead of the plain `.bat`? Run `Create-Shortcut.ps1` once after extracting.</sub>
 
-<sub>**Running from a clone instead?** Same launchers, plus `./gui.sh` (or the `chromium-stack.desktop` entry) on Linux. Keep the launcher inside the project folder — it finds everything else relative to itself.</sub>
+<sub>**Running from a clone instead?** Same launchers, plus `./gui.sh` (or the `engineshelf.desktop` entry) on Linux. Keep the launcher inside the project folder — it finds everything else relative to itself.</sub>
 
-[releases]: https://github.com/1m93/Chromium-Stack/releases/latest
+[releases]: https://github.com/1m93/EngineShelf/releases/latest
 
 ---
 
@@ -98,7 +98,7 @@ launcher window when you are done.
 </table>
 
 <p align="center">
-  <img src="assets/screenshot-manager.png" width="100%" alt="The ChromiumStack manager: every catalogued Chromium milestone grouped by era, five installed, Chromium 74 running, each row showing its revision, the features it does and does not have, and what it costs in disk">
+  <img src="assets/screenshot-manager.png" width="100%" alt="The EngineShelf manager: every catalogued Chromium milestone grouped by era, five installed, Chromium 74 running, each row showing its revision, the features it does and does not have, and what it costs in disk">
   <br>
   <sub>Every catalogued milestone on one page, grouped by what it is useful for — which are
   installed, which run natively, which go through Rosetta, what each is costing you in disk,
@@ -113,7 +113,7 @@ launcher window when you are done.
 Prefer the terminal? The whole thing is one command:
 
 ```bash
-./chromium-stack.sh run 74        # install if needed, then launch Chromium 74
+./engineshelf.sh run 74        # install if needed, then launch Chromium 74
 ```
 
 ---
@@ -164,7 +164,7 @@ Every catalogued milestone is verified against the live archive — and any othe
 revision works too. The shelf is not frozen at whatever shipped in your copy:
 a milestone this build has never heard of is looked up in the archive the first time you
 ask for it, and remembered afterwards, so a newly released Chromium runs without updating
-ChromiumStack. See [Keeping up with Chrome](#keeping-up-with-chrome).
+EngineShelf. See [Keeping up with Chrome](#keeping-up-with-chrome).
 
 | Era | Versions | What changes here |
 |---|---|---|
@@ -177,7 +177,7 @@ ChromiumStack. See [Keeping up with Chrome](#keeping-up-with-chrome).
 
 Those are the hand-picked ones, each chosen because something interesting lands there.
 Newer milestones are added on the same spacing as Chrome releases them — run
-`./chromium-stack.sh catalog` for what your machine can actually launch today.
+`./engineshelf.sh catalog` for what your machine can actually launch today.
 
 <details>
 <summary><b>Running a version that is not on the shelf</b></summary>
@@ -193,7 +193,7 @@ curl -s "https://chromiumdash.appspot.com/fetch_milestones?mstone=74" \
 # 638880
 ```
 
-Then `./chromium-stack.sh run 638880`. Not every commit position is archived; if that exact
+Then `./engineshelf.sh run 638880`. Not every commit position is archived; if that exact
 one was never built for your platform, the tool says so — try one a few commits later.
 
 **Older than 60 is not a limit we chose.** The snapshot bucket does hold builds going back
@@ -233,17 +233,17 @@ putting it in `ANCHORS` and rerunning.
 ## Keeping up with Chrome
 
 Chrome branches a new milestone roughly every four weeks. Nothing here needs a new release
-of ChromiumStack for that to show up.
+of EngineShelf for that to show up.
 
 **On the command line.** Ask for any milestone. If it is not in `catalog.tsv`, the archive
 is asked instead — the branch point from chromiumdash, then the nearest revision the
 snapshot bucket actually built — and the answer is written to
-`~/.chromium-stack/catalog.cache.tsv`. That file is read *before* the shipped catalog, so
+`~/.engineshelf/catalog.cache.tsv`. That file is read *before* the shipped catalog, so
 the newest answer always wins:
 
 ```bash
-./chromium-stack.sh run 152        # never heard of it? looked up once, then cached
-./chromium-stack.sh catalog        # also picks up anything released since your build
+./engineshelf.sh run 152        # never heard of it? looked up once, then cached
+./engineshelf.sh catalog        # also picks up anything released since your build
 ```
 
 A resolved milestone never expires: a branch point does not move, and the snapshot bucket
@@ -254,7 +254,7 @@ The one thing that can go stale is a revision the bucket later drops; if a downl
 that row is forgotten and the next run re-resolves it.
 
 The cache lives under your home rather than beside `catalog.tsv` on purpose: the shipped
-catalog is often on a read-only volume — inside `ChromiumStack.app`, for one.
+catalog is often on a read-only volume — inside `EngineShelf.app`, for one.
 
 **In the manager.** Same cache, same precedence. It asks the CLI to refresh in the
 background at startup, so the list fills in without blocking the page.
@@ -302,22 +302,22 @@ in 74 leaves 120 untouched, and neither goes near your everyday browser.
 The manager is a front end for the CLI — both do the same things, so they cannot drift apart.
 
 ```bash
-./chromium-stack.sh catalog                    # versions available for this machine
-./chromium-stack.sh list                       # what is installed, with disk usage
-./chromium-stack.sh run 74                     # install if needed, then launch
-./chromium-stack.sh run 120 localhost:4173     # launch 120 on a URL
-./chromium-stack.sh run 638880                 # launch a raw snapshot revision
-./chromium-stack.sh install 90                 # download without launching
-./chromium-stack.sh remove 90                  # delete a downloaded browser
-./chromium-stack.sh clean 90                   # reset that version's profile
-./chromium-stack.sh doctor                     # check dependencies
-./chromium-stack.sh gui                        # open the manager
+./engineshelf.sh catalog                    # versions available for this machine
+./engineshelf.sh list                       # what is installed, with disk usage
+./engineshelf.sh run 74                     # install if needed, then launch
+./engineshelf.sh run 120 localhost:4173     # launch 120 on a URL
+./engineshelf.sh run 638880                 # launch a raw snapshot revision
+./engineshelf.sh install 90                 # download without launching
+./engineshelf.sh remove 90                  # delete a downloaded browser
+./engineshelf.sh clean 90                   # reset that version's profile
+./engineshelf.sh doctor                     # check dependencies
+./engineshelf.sh gui                        # open the manager
 ```
 
 Flags for `run`: `--size 1280x800`, `--gpu` / `--no-gpu`, `--no-restart`, and anything after
 `--` goes straight to Chromium. `<version>` is a milestone (`74`) or a snapshot revision
 (`638880`) — milestones are small and revisions are six digits or more, so there is nothing
-to disambiguate. Windows runs the same commands through `.\chromium-stack.ps1`.
+to disambiguate. Windows runs the same commands through `.\engineshelf.ps1`.
 
 ---
 
@@ -328,16 +328,16 @@ browser, over noVNC. It never touches Rosetta, so on Apple Silicon it sidesteps 
 crash described under [Good to know → Stability on Apple Silicon](#good-to-know).
 
 ```bash
-./chromium-stack-docker.sh start 74      # build if needed, run, open the desktop
-./chromium-stack-docker.sh stop 74
-./chromium-stack-docker.sh logs 74
-./chromium-stack-docker.sh rebuild 74    # rebuild the image from scratch
-./chromium-stack-docker.sh list          # containers and images
-./chromium-stack-docker.sh purge 74      # delete that version's image
+./engineshelf-docker.sh start 74      # build if needed, run, open the desktop
+./engineshelf-docker.sh stop 74
+./engineshelf-docker.sh logs 74
+./engineshelf-docker.sh rebuild 74    # rebuild the image from scratch
+./engineshelf-docker.sh list          # containers and images
+./engineshelf-docker.sh purge 74      # delete that version's image
 ```
 
 Each version gets its own image, container, profile volume and port, so several can run side
-by side. Windows uses `.\chromium-stack-docker.ps1` with the same commands.
+by side. Windows uses `.\engineshelf-docker.ps1` with the same commands.
 
 <details>
 <summary><b>What to expect from it</b></summary>
@@ -387,7 +387,7 @@ then `curl -fsSL https://get.docker.com | sudo sh` inside the distro) and either
 that distro or having `dockerd` listen on `tcp://localhost:2375` so the Windows CLI can reach
 it through `DOCKER_HOST`. Worth knowing first: on Windows the native launcher runs the
 x86_64 builds directly, with no Rosetta anywhere in the picture, so the Docker edition buys
-you nothing there. Use `.\chromium-stack.ps1 run 74` instead.
+you nothing there. Use `.\engineshelf.ps1 run 74` instead.
 
 </details>
 
@@ -452,10 +452,10 @@ The **···** menu on any installed row offers:
 From the command line:
 
 ```bash
-./chromium-stack.sh list                    # what is installed, and how big
-./chromium-stack.sh remove 74               # delete the browser, keep the profile
-./chromium-stack.sh remove 74 --with-profile
-./chromium-stack.sh clean 74                # reset just the profile
+./engineshelf.sh list                    # what is installed, and how big
+./engineshelf.sh remove 74               # delete the browser, keep the profile
+./engineshelf.sh remove 74 --with-profile
+./engineshelf.sh clean 74                # reset just the profile
 ```
 
 Docker images are the other place disk quietly disappears — around a gigabyte each. The
@@ -463,8 +463,8 @@ manager counts them in its Disk read-out and offers **Delete Docker image** in t
 from a terminal:
 
 ```bash
-./chromium-stack-docker.sh list             # containers and images
-./chromium-stack-docker.sh purge 74         # remove that version's image
+./engineshelf-docker.sh list             # containers and images
+./engineshelf-docker.sh purge 74         # remove that version's image
 ```
 
 </details>
@@ -474,13 +474,13 @@ from a terminal:
 
 <br>
 
-ChromiumStack needs very little, and says so up front rather than failing halfway through a
+EngineShelf needs very little, and says so up front rather than failing halfway through a
 download.
 
 ```bash
-./chromium-stack.sh doctor         # what is installed, what is not, and why it matters
-./chromium-stack.sh doctor --fix   # offer to install each missing piece
-./chromium-stack.sh doctor --json  # the same report, for scripts
+./engineshelf.sh doctor         # what is installed, what is not, and why it matters
+./engineshelf.sh doctor --fix   # offer to install each missing piece
+./engineshelf.sh doctor --json  # the same report, for scripts
 ```
 
 It never installs anything silently. For each missing piece it prints the exact command it
@@ -504,7 +504,7 @@ would run, what that will cost you, and waits for a yes:
 | **Docker** | the Docker edition only | everything else works |
 
 The manager shows the same report under **System check**. It opens by itself only when
-something ChromiumStack cannot work without is missing — the recommended and optional ones
+something EngineShelf cannot work without is missing — the recommended and optional ones
 are counted on the header button instead of interrupting you; its **Install** buttons run the
 same commands. Where a fix
 needs administrator rights, macOS asks through the system password dialog; elsewhere the
@@ -525,18 +525,18 @@ there.
 
 | Path | Contents |
 |---|---|
-| `~/.chromium-stack/builds/<revision>/` | a downloaded browser |
-| `~/.chromium-stack/profiles/<revision>/` | that version's profile (cookies, logins, storage) |
-| `~/.chromium-stack/logs/<revision>.log` | that version's stderr from its last run |
-| `~/.chromium-stack/manager-window/` | the browser profile behind the manager's own window — a few tens of MB of browser plumbing, not something ChromiumStack downloaded. Safe to delete when the manager is closed; it is rebuilt on the next start. |
-| `%USERPROFILE%\.chromium-stack\` | the same, on Windows |
-| docker volume `chromium-stack-profile-<revision>` | the Docker edition's profile |
+| `~/.engineshelf/builds/<revision>/` | a downloaded browser |
+| `~/.engineshelf/profiles/<revision>/` | that version's profile (cookies, logins, storage) |
+| `~/.engineshelf/logs/<revision>.log` | that version's stderr from its last run |
+| `~/.engineshelf/manager-window/` | the browser profile behind the manager's own window — a few tens of MB of browser plumbing, not something EngineShelf downloaded. Safe to delete when the manager is closed; it is rebuilt on the next start. |
+| `%USERPROFILE%\.engineshelf\` | the same, on Windows |
+| docker volume `engineshelf-profile-<revision>` | the Docker edition's profile |
 
-Set `CHROMIUM_STACK_HOME` to put all of it somewhere else.
+Set `ENGINESHELF_HOME` to put all of it somewhere else.
 
 An existing `~/.chrome74` install from the single-version days is **adopted on first run**
 rather than re-downloaded, and its profile becomes Chromium 74's. That happens only when the
-home is the default one; if `CHROMIUM_STACK_HOME` is set, the old directory is left alone.
+home is the default one; if `ENGINESHELF_HOME` is set, the old directory is left alone.
 
 </details>
 
@@ -545,25 +545,25 @@ home is the default one; if `CHROMIUM_STACK_HOME` is set, the old directory is l
 
 <br>
 
-**macOS — “ChromiumStack.app cannot be opened because it is from an unidentified developer.”**
+**macOS — “EngineShelf.app cannot be opened because it is from an unidentified developer.”**
 Right-click the app → **Open** → **Open**. Once. The app carries an ad-hoc signature, not a
 paid developer one.
 
 **macOS — the app bounces once and a permission alert appears.**
 If the folder sits in `~/Documents`, `~/Desktop` or `~/Downloads`, macOS gates access to it.
-Allow ChromiumStack under **System Settings → Privacy & Security → Files and Folders**, or
+Allow EngineShelf under **System Settings → Privacy & Security → Files and Folders**, or
 move the folder somewhere unprotected. Running `./gui.sh` from Terminal is unaffected.
 
 **Windows — SmartScreen or antivirus complains about the download.**
-The launcher is `ChromiumStack.bat`, a short script you can open in Notepad — there is no
+The launcher is `EngineShelf.bat`, a short script you can open in Notepad — there is no
 compiled program to trust. Without a paid certificate a downloaded script can still draw a
 “Run anyway?” prompt; click through it once. If a file feels stuck, unblock the folder:
-`Get-ChildItem -Recurse | Unblock-File`. `.\chromium-stack.ps1 run 74` skips the launcher
+`Get-ChildItem -Recurse | Unblock-File`. `.\engineshelf.ps1 run 74` skips the launcher
 entirely.
 
 **The manager will not start — “needs Python 3”.**
 It offers to install it for you. To do it yourself: macOS `xcode-select --install`, Linux
-`sudo apt install python3`. Or skip the manager: `./chromium-stack.sh run 74`.
+`sudo apt install python3`. Or skip the manager: `./engineshelf.sh run 74`.
 
 **macOS on Apple Silicon — an old version will not start.**
 Milestones up to 90 run under Rosetta: `softwareupdate --install-rosetta`.
@@ -572,10 +572,10 @@ Milestones up to 90 run under Rosetta: `softwareupdate --install-rosetta`.
 
 **Linux — the desktop entry has no icon.** Desktop environments look icons up by name, so
 copy it where they can find it:
-`mkdir -p ~/.local/share/icons && cp assets/icon-512.png ~/.local/share/icons/chromium-stack.png`
+`mkdir -p ~/.local/share/icons && cp assets/icon-512.png ~/.local/share/icons/engineshelf.png`
 
 **The browser starts and immediately closes.** Check
-`~/.chromium-stack/logs/<revision>.log`. Three crashes in a row within 5 seconds each and the
+`~/.engineshelf/logs/<revision>.log`. Three crashes in a row within 5 seconds each and the
 launcher stops retrying, assuming the setup is broken rather than the random crash above.
 
 **A revision is rejected as “not archived”.** Not every commit position is built. Pick one a
@@ -594,20 +594,20 @@ hosts must be reachable.
 <br>
 
 ```
-ChromiumStack.app                     double-click, opens the manager (macOS)
-ChromiumStack.bat                     double-click, opens the manager (Windows)
-chromium-stack.desktop                Linux desktop entry
+EngineShelf.app                     double-click, opens the manager (macOS)
+EngineShelf.bat                     double-click, opens the manager (Windows)
+engineshelf.desktop                Linux desktop entry
 gui.sh / gui.ps1                      start the manager
 gui/index.html, app.js, styles.css    the manager page
 gui/server.py                         manager backend, macOS/Linux (stdlib only)
 gui/server.ps1                        manager backend, Windows (PowerShell only)
-chromium-stack.sh / .ps1              the launcher everything else drives
-chromium-stack-docker.sh / .ps1       Docker launcher, one image per version
+engineshelf.sh / .ps1              the launcher everything else drives
+engineshelf-docker.sh / .ps1       Docker launcher, one image per version
 lib/preflight.sh, preflight.ps1       dependency checks and the install offers,
                                       shared by the CLI, Docker and the manager
 catalog.tsv                           verified revisions per milestone per platform,
                                       as of the release - the seed, not the last word
-~/.chromium-stack/catalog.cache.tsv   milestones resolved live since then; read first
+~/.engineshelf/catalog.cache.tsv   milestones resolved live since then; read first
 tools/refresh-catalog.py              regenerate catalog.tsv from the archive
 tools/sync-landing.py                 bring docs/index.html into step with catalog.tsv
 docker/Dockerfile                     Chromium + Xvfb + fluxbox + x11vnc + noVNC
@@ -626,15 +626,15 @@ tools/build-app.sh                    compile and sign the macOS bundle launcher
 tools/launcher/launcher.c             that launcher's source
 ```
 
-The macOS launcher is a committed binary and Windows just runs `ChromiumStack.bat`, so nothing
+The macOS launcher is a committed binary and Windows just runs `EngineShelf.bat`, so nothing
 has to be built to use this. Zip the folder and hand it to someone — no clone needed.
 
-`ChromiumStack.app/Contents/MacOS/ChromiumStack` is a universal binary. A `.app` cannot work
+`EngineShelf.app/Contents/MacOS/EngineShelf` is a universal binary. A `.app` cannot work
 without a compiled executable, and a shell script will not do: when the project lives in a
 folder macOS protects, a script-based bundle has its file access attributed to `/bin/bash`,
 which macOS denies without ever prompting. All it does is `chdir` and hand over to `gui.sh`.
 
-Windows uses `ChromiumStack.bat` — no compiled launcher. It hands over to `gui.ps1` with
+Windows uses `EngineShelf.bat` — no compiled launcher. It hands over to `gui.ps1` with
 `-ExecutionPolicy Bypass`, so an unconfigured machine does not refuse the script, and because
 it is a plain script rather than an unsigned `.exe`, SmartScreen has no binary to distrust. A
 `.bat` cannot carry an icon, so the Windows release also ships `Create-Shortcut.ps1`, which
@@ -660,7 +660,7 @@ on Intel, 11.0 on Apple Silicon — so it loads on older systems, but nothing ol
 development machine has actually been booted and clicked through.
 
 **Nothing on the Windows side has been run on Windows.** The Windows package ships no compiled
-launcher — `ChromiumStack.bat` hands straight to PowerShell. The scripts target PowerShell 5.1
+launcher — `EngineShelf.bat` hands straight to PowerShell. The scripts target PowerShell 5.1
 (which ships with Windows 10/11) and have been reviewed, but if you are the first to try any
 of it there, expect to find something. The manager's Windows backend deliberately speaks HTTP
 over a plain `TcpListener` rather than `System.Net.HttpListener`, which would need a `netsh`
@@ -670,9 +670,9 @@ URL reservation or an elevated prompt.
 parameterised by revision and the Debian package list covers old and new builds — including
 `libgconf`, which Debian dropped and the oldest milestones still link against — but a given
 milestone may want a library the list does not have. The container's log says which one:
-`./chromium-stack-docker.sh logs <version>`.
+`./engineshelf-docker.sh logs <version>`.
 
-Found something? [Open an issue](https://github.com/1m93/Chromium-Stack/issues) — Windows
+Found something? [Open an issue](https://github.com/1m93/EngineShelf/issues) — Windows
 reports especially welcome.
 
 ---

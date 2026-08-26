@@ -1,5 +1,5 @@
 /*
- * ChromiumStack macOS bundle launcher.
+ * EngineShelf macOS bundle launcher.
  *
  * This exists only so that CFBundleExecutable is a real Mach-O binary. A shell
  * script works fine as a bundle executable until the project sits somewhere
@@ -11,7 +11,7 @@
  * It works in two layouts, trying them in order:
  *   1. Self-contained release - every script lives inside the bundle at
  *      Contents/Resources, so the .app is a single draggable thing.
- *   2. Development / sibling  - the scripts sit next to ChromiumStack.app in the
+ *   2. Development / sibling  - the scripts sit next to EngineShelf.app in the
  *      project folder, which is how the repo is laid out.
  * Whichever one has a runnable gui.sh wins.
  *
@@ -33,7 +33,7 @@ static void alert(const char *message)
 {
     char script[2048];
     snprintf(script, sizeof(script),
-             "display alert \"ChromiumStack could not start\" message \"%s\" as critical",
+             "display alert \"EngineShelf could not start\" message \"%s\" as critical",
              message);
 
     pid_t pid = fork();
@@ -48,7 +48,7 @@ static void alert(const char *message)
 }
 
 /* The resolved path of this executable:
- *   <bundle>/ChromiumStack.app/Contents/MacOS/ChromiumStack   */
+ *   <bundle>/EngineShelf.app/Contents/MacOS/EngineShelf   */
 static int executable_path(char *out, size_t out_size)
 {
     char raw[PATH_MAX];
@@ -91,7 +91,7 @@ static int project_dir(char *out, size_t out_size)
     if (executable_path(exe, sizeof(exe)) != 0)
         return -1;
 
-    /* Contents/MacOS/ChromiumStack -> Contents/Resources */
+    /* Contents/MacOS/EngineShelf -> Contents/Resources */
     char resources[PATH_MAX];
     if ((size_t)snprintf(resources, sizeof(resources), "%s", exe) < sizeof(resources) &&
         strip_levels(resources, 2) == 0) {
@@ -105,7 +105,7 @@ static int project_dir(char *out, size_t out_size)
         }
     }
 
-    /* Contents/MacOS/ChromiumStack -> the folder holding ChromiumStack.app */
+    /* Contents/MacOS/EngineShelf -> the folder holding EngineShelf.app */
     char sibling[PATH_MAX];
     if ((size_t)snprintf(sibling, sizeof(sibling), "%s", exe) >= sizeof(sibling) ||
         strip_levels(sibling, 4) != 0)
@@ -120,7 +120,7 @@ static int project_dir(char *out, size_t out_size)
  * open the log is not fatal - starting the browser matters more. */
 static void redirect_output(const char *project)
 {
-    const char *home_override = getenv("CHROMIUM_STACK_HOME");
+    const char *home_override = getenv("ENGINESHELF_HOME");
     if (home_override == NULL)
         home_override = getenv("BROWSERS_EMU_HOME");
     char dir[PATH_MAX];
@@ -130,7 +130,7 @@ static void redirect_output(const char *project)
         const char *home = getenv("HOME");
         if (home == NULL)
             return;
-        snprintf(dir, sizeof(dir), "%s/.chromium-stack", home);
+        snprintf(dir, sizeof(dir), "%s/.engineshelf", home);
     }
     mkdir(dir, 0755);
 
@@ -154,14 +154,14 @@ int main(void)
         /* The usual cause is macOS withholding access to the enclosing folder. */
         alert("macOS is blocking access to the folder this app is in.\n\n"
               "Open System Settings > Privacy & Security > Files and Folders "
-              "and allow ChromiumStack, then open it again.\n\n"
+              "and allow EngineShelf, then open it again.\n\n"
               "Or run ./gui.sh from Terminal instead.");
         return 1;
     }
 
     if (access("gui.sh", X_OK) != 0) {
         alert("gui.sh is missing.\n\n"
-              "Keep ChromiumStack.app inside the chromium-stack folder, "
+              "Keep EngineShelf.app inside the engineshelf folder, "
               "or use the packaged release.");
         return 1;
     }

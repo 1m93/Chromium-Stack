@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# ChromiumStack - open the graphical manager (macOS / Linux)
+# EngineShelf - open the graphical manager (macOS / Linux)
 #
 # Starts a small local web server and opens it in a window of its own. Nothing
 # is installed and nothing listens outside this machine: the server binds to
@@ -40,14 +40,14 @@ find_python() {
 if ! find_python; then
   printf '\n  %s\n\n' "${PF_B}The graphical manager needs Python 3, which is not installed.${PF_RST}"
   printf '  %s\n' "${PF_DIM}The command line does not need it:${PF_RST}"
-  printf '  %s\n' "${PF_DIM}  ./chromium-stack.sh catalog${PF_RST}"
-  printf '  %s\n' "${PF_DIM}  ./chromium-stack.sh run 74${PF_RST}"
+  printf '  %s\n' "${PF_DIM}  ./engineshelf.sh catalog${PF_RST}"
+  printf '  %s\n' "${PF_DIM}  ./engineshelf.sh run 74${PF_RST}"
 
   # Offer the install rather than leaving the user to work it out.
   if pf_offer python3 && find_python; then
     printf '  %s\n\n' "${PF_GRN}Starting the manager.${PF_RST}"
   else
-    printf '\n  %s\n' "Run ./chromium-stack.sh doctor --fix once Python 3 is in place."
+    printf '\n  %s\n' "Run ./engineshelf.sh doctor --fix once Python 3 is in place."
     exit 1
   fi
 fi

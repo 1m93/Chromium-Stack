@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=chromium-stack
+Name=EngineShelf
 Comment=Install, launch and manage old Chromium engines
 Exec=bash -c 'cd "$(dirname "%k")" && ./gui.sh'
-Icon=chromium-stack
+Icon=engineshelf
 Terminal=true
 Categories=Development;WebBrowser;

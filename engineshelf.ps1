@@ -1,16 +1,16 @@
 #
-# ChromiumStack - run an old Chromium engine on a modern machine (Windows)
+# EngineShelf - run an old Chromium engine on a modern machine (Windows)
 #
 # PowerShell 5.1+, which ships with Windows 10/11. Downloads a pinned Chromium
 # build once, then launches it as an ordinary desktop browser with its own
 # profile. Any milestone in catalog.tsv works, as does any raw revision from the
 # Chromium snapshot archive.
 #
-#   .\chromium-stack.ps1 catalog                    # versions available here
-#   .\chromium-stack.ps1 run 74                     # install if needed, launch
-#   .\chromium-stack.ps1 run 120 localhost:4173     # launch 120 on a URL
-#   .\chromium-stack.ps1 list                       # what is installed, how big
-#   .\chromium-stack.ps1 remove 74                  # free the disk space
+#   .\engineshelf.ps1 catalog                    # versions available here
+#   .\engineshelf.ps1 run 74                     # install if needed, launch
+#   .\engineshelf.ps1 run 120 localhost:4173     # launch 120 on a URL
+#   .\engineshelf.ps1 list                       # what is installed, how big
+#   .\engineshelf.ps1 remove 74                  # free the disk space
 #
 # The GUI (.\gui.ps1) drives this same script, so both agree by construction.
 #
@@ -32,15 +32,17 @@ $Catalog   = Join-Path $ScriptDir 'catalog.tsv'
 $BaseUrl   = 'https://commondatastorage.googleapis.com/chromium-browser-snapshots'
 $ListApi   = 'https://www.googleapis.com/storage/v1/b/chromium-browser-snapshots/o'
 
-# BROWSERS_EMU_HOME is what this tool was called before; still honoured so an
+# This tool has been named three things; both old variables are still honoured so an
 # existing setup does not break on a rename.
 $RootIsDefault = $false
-if ($env:CHROMIUM_STACK_HOME) {
+if ($env:ENGINESHELF_HOME) {
+    $Root = $env:ENGINESHELF_HOME
+} elseif ($env:CHROMIUM_STACK_HOME) {
     $Root = $env:CHROMIUM_STACK_HOME
 } elseif ($env:BROWSERS_EMU_HOME) {
     $Root = $env:BROWSERS_EMU_HOME
 } else {
-    $Root = Join-Path $env:USERPROFILE '.chromium-stack'
+    $Root = Join-Path $env:USERPROFILE '.engineshelf'
     $RootIsDefault = $true
 }
 $BuildsDir   = Join-Path $Root 'builds'
@@ -160,7 +162,7 @@ function Write-Meta {
 function Add-CacheRows {
     param($rows)
     if (-not $rows -or @($rows).Count -eq 0) { return }
-    $existing = @('# ChromiumStack cache - milestones resolved against the live archive.')
+    $existing = @('# EngineShelf cache - milestones resolved against the live archive.')
     if (Test-Path $CacheFile) { $existing = @(Get-Content $CacheFile) }
     $tmp = "$CacheFile.$PID"
     try {
@@ -339,7 +341,7 @@ function Update-NewMilestones {
 # no extra syntax from the user.
 function Resolve-Selector {
     param([string]$Raw)
-    if (-not $Raw) { Die "Which version? e.g. 74, or a revision like 638880. Try: .\chromium-stack.ps1 catalog" }
+    if (-not $Raw) { Die "Which version? e.g. 74, or a revision like 638880. Try: .\engineshelf.ps1 catalog" }
     $token = $Raw -replace '^[MmRr]', ''
     if ($token -notmatch '^\d+$') { Die "Not a version or revision: $Raw" }
 
@@ -354,7 +356,7 @@ function Resolve-Selector {
             if ($resolved) { Add-CacheRows $resolved; Update-Catalog }
         }
         if (-not ($CatalogBuilds.ContainsKey($m) -and $CatalogBuilds[$m].ContainsKey($HostPlatform))) {
-            Die "No $HostPlatform build of Chromium $m is available. It is in neither the catalog nor the cache, and the archive could not be reached to look it up. Try: .\chromium-stack.ps1 catalog"
+            Die "No $HostPlatform build of Chromium $m is available. It is in neither the catalog nor the cache, and the archive could not be reached to look it up. Try: .\engineshelf.ps1 catalog"
         }
         $b = $CatalogBuilds[$m][$HostPlatform]
         return @{ Milestone = "$m"; Version = $CatalogVersions[$m].Version; Platform = $HostPlatform
@@ -394,7 +396,7 @@ function Resolve-Selector {
                       Revision = $token; Archive = $candidate; Root = ($candidate -replace '\.zip$', '') }
         }
     }
-    Die "Revision $token is not archived for $HostPlatform. Pick a nearby position, or a catalogued version: .\chromium-stack.ps1 catalog"
+    Die "Revision $token is not archived for $HostPlatform. Pick a nearby position, or a catalogued version: .\engineshelf.ps1 catalog"
 }
 
 function Get-BinaryPath {
@@ -523,7 +525,7 @@ function Invoke-Catalog {
         Write-Host $state -ForegroundColor $colour
     }
     Write-Host ""
-    Write-Host "Install and run:  .\chromium-stack.ps1 run <version>" -ForegroundColor DarkGray
+    Write-Host "Install and run:  .\engineshelf.ps1 run <version>" -ForegroundColor DarkGray
     if (Test-Path $CacheFile) {
         Write-Host "Milestones newer than this release are resolved live and cached in $CacheFile" -ForegroundColor DarkGray
     }
@@ -548,13 +550,13 @@ function Invoke-List {
             $version, $dir.Name, ($size / 1MB), ($prof / 1MB))
     }
     if (-not $any) {
-        Write-Host "  Nothing installed yet. See: .\chromium-stack.ps1 catalog" -ForegroundColor DarkGray
+        Write-Host "  Nothing installed yet. See: .\engineshelf.ps1 catalog" -ForegroundColor DarkGray
         Write-Host ""
         return
     }
     Write-Host ""
     Write-Host ("  Total: {0:N0} MB" -f ($total / 1MB)) -ForegroundColor DarkGray
-    Write-Host "  Remove one with: .\chromium-stack.ps1 remove <version|revision>" -ForegroundColor DarkGray
+    Write-Host "  Remove one with: .\engineshelf.ps1 remove <version|revision>" -ForegroundColor DarkGray
 }
 
 function Invoke-Run {
@@ -668,7 +670,7 @@ function Invoke-Doctor {
     Write-Host ""
 
     if ($Options -notcontains '--fix') {
-        Write-Host "  Offer to install the missing pieces:  .\chromium-stack.ps1 doctor --fix" -ForegroundColor DarkGray
+        Write-Host "  Offer to install the missing pieces:  .\engineshelf.ps1 doctor --fix" -ForegroundColor DarkGray
         Write-Host ""
         return
     }
@@ -679,9 +681,9 @@ function Invoke-Doctor {
 
 function Show-Usage {
     Write-Host ""
-    Write-Host "ChromiumStack - run an old Chromium engine on a modern machine" -ForegroundColor White
+    Write-Host "EngineShelf - run an old Chromium engine on a modern machine" -ForegroundColor White
     Write-Host ""
-    Write-Host "  .\chromium-stack.ps1 <command> [args]"
+    Write-Host "  .\engineshelf.ps1 <command> [args]"
     Write-Host ""
     Write-Host "  catalog                 List the Chromium versions available for this host"
     Write-Host "  list                    List what is installed, with disk usage"
@@ -701,7 +703,7 @@ function Show-Usage {
     Write-Host "  Each version keeps its own profile, so a newer build never upgrades a"
     Write-Host "  profile out from under an older one."
     Write-Host ""
-    Write-Host "  Files live in $Root (override with CHROMIUM_STACK_HOME)."
+    Write-Host "  Files live in $Root (override with ENGINESHELF_HOME)."
     Write-Host ""
 }
 

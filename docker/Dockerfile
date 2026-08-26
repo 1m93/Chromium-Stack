@@ -4,7 +4,7 @@
 # builds run through Rosetta, whose stack unwinder makes them crash at random
 # (see ../README.md -> Stability). This image runs the Linux x86_64 build instead.
 #
-# REVISION is supplied by chromium-stack-docker.sh from catalog.tsv, so one
+# REVISION is supplied by engineshelf-docker.sh from catalog.tsv, so one
 # Dockerfile covers every catalogued version.
 FROM --platform=linux/amd64 debian:bookworm-slim
 
@@ -49,7 +49,7 @@ RUN set -e; \
     if wget -q -O /tmp/gconf.deb "$url"; then \
     mkdir -p /opt/legacy-libs && dpkg -x /tmp/gconf.deb /opt/legacy-libs; \
     rm -f /tmp/gconf.deb; \
-    echo /opt/legacy-libs/usr/lib/x86_64-linux-gnu > /etc/ld.so.conf.d/chromium-stack-legacy.conf; \
+    echo /opt/legacy-libs/usr/lib/x86_64-linux-gnu > /etc/ld.so.conf.d/engineshelf-legacy.conf; \
     ldconfig; \
     else \
     echo "WARNING: could not fetch libgconf-2-4; the oldest milestones will not start." >&2; \
@@ -81,7 +81,7 @@ RUN set -e; \
     ui=/usr/share/novnc/app/ui.js; page=/usr/share/novnc/vnc.html; \
     grep -q '^export default UI;' "$ui" || { echo "noVNC layout changed: no export in ui.js" >&2; exit 1; }; \
     grep -q 'src="app/ui.js"' "$page" || { echo "noVNC layout changed: no ui.js tag in vnc.html" >&2; exit 1; }; \
-    sed -i 's|^export default UI;|window.UI = UI;   /* ChromiumStack: app/clipboard.js needs the live RFB object */\nexport default UI;|' "$ui"; \
+    sed -i 's|^export default UI;|window.UI = UI;   /* EngineShelf: app/clipboard.js needs the live RFB object */\nexport default UI;|' "$ui"; \
     sed -i 's|<script type="module" crossorigin="anonymous" src="app/ui.js"></script>|&\n    <script src="app/clipboard.js" defer></script>|' "$page"; \
     grep -q 'app/clipboard.js' "$page"
 

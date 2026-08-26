@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""ChromiumStack GUI backend (macOS / Linux).
+"""EngineShelf GUI backend (macOS / Linux).
 
 Serves the static page in this directory and a small JSON API. All real work -
-install, launch, remove, reset - is delegated to chromium-stack.sh, so the GUI and
+install, launch, remove, reset - is delegated to engineshelf.sh, so the GUI and
 the command line cannot drift apart. State (what is installed, how big it is) is
 read straight off disk, which is cheap and needs no subprocess.
 
@@ -34,7 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.dirname(HERE)
 CATALOG = os.path.join(PROJECT, "catalog.tsv")
-CLI = os.path.join(PROJECT, "chromium-stack.sh")
+CLI = os.path.join(PROJECT, "engineshelf.sh")
 
 
 def augment_path():
@@ -53,7 +53,7 @@ def augment_path():
 
 
 augment_path()
-DOCKER_CLI = os.path.join(PROJECT, "chromium-stack-docker.sh")
+DOCKER_CLI = os.path.join(PROJECT, "engineshelf-docker.sh")
 
 TOKEN = secrets.token_urlsafe(24)
 
@@ -78,12 +78,12 @@ def host_platforms():
 
 
 def root_dir():
-    override = os.environ.get("CHROMIUM_STACK_HOME") or os.environ.get("BROWSERS_EMU_HOME")
-    return override or os.path.join(os.path.expanduser("~"), ".chromium-stack")
+    override = os.environ.get("ENGINESHELF_HOME") or os.environ.get("BROWSERS_EMU_HOME")
+    return override or os.path.join(os.path.expanduser("~"), ".engineshelf")
 
 
 def catalog_cache():
-    """Milestones chromium-stack.sh has resolved against the live archive.
+    """Milestones engineshelf.sh has resolved against the live archive.
 
     It lives under the user's root rather than next to catalog.tsv, which ships
     inside the release and is often read-only.
@@ -172,7 +172,7 @@ def invalidate_sizes():
 
 
 def read_meta(path):
-    """Parse the shell-sourced .meta written by chromium-stack.sh."""
+    """Parse the shell-sourced .meta written by engineshelf.sh."""
     meta = {}
     try:
         with open(path) as handle:
@@ -209,12 +209,12 @@ def installed_builds():
     return builds
 
 
-# The names chromium-stack-docker.sh gives the things it creates. The manager
+# The names engineshelf-docker.sh gives the things it creates. The manager
 # reads them back, which is the only way a version living in a container can look
 # like one living on disk; renaming any of them means changing both files.
-CONTAINER_PREFIX = "chromium-stack-"
-IMAGE_REPO = "chromium-stack"
-VOLUME_PREFIX = "chromium-stack-profile-"
+CONTAINER_PREFIX = "engineshelf-"
+IMAGE_REPO = "engineshelf"
+VOLUME_PREFIX = "engineshelf-profile-"
 
 # `docker info` takes the best part of a second and the page asks for the state
 # every four; the answer does not change that fast.
@@ -280,7 +280,7 @@ def docker_profile_sizes():
 
 
 def docker_status():
-    """What Docker is holding for ChromiumStack: images, their size, containers.
+    """What Docker is holding for EngineShelf: images, their size, containers.
 
     Without this the shelf could say nothing true about a version that runs in a
     container: no size for an image costing a gigabyte, and no sign it was
@@ -322,7 +322,7 @@ def docker_status():
             for tag, size in zip(tags, sizes):
                 slot(tag)["imageBytes"] = int(size) if size.isdigit() else 0
 
-        # One container per version, named chromium-stack-<revision>. Stopped
+        # One container per version, named engineshelf-<revision>. Stopped
         # ones are listed too: a container that exits the moment it starts is a
         # fault worth showing, not a row that quietly does nothing.
         listing = docker_out(["ps", "-a", "--filter", f"name={CONTAINER_PREFIX}",
@@ -382,7 +382,7 @@ def forget_doctor():
 
 
 def doctor_report():
-    """Whatever `chromium-stack.sh doctor --json` says.
+    """Whatever `engineshelf.sh doctor --json` says.
 
     The checks live in lib/preflight.sh so the CLI, the Docker launcher and this
     page cannot disagree about what is missing or how to fix it. Cached briefly:
@@ -676,7 +676,7 @@ def open_app_window(url):
 def stop_containers():
     """Stop and remove the containers this project runs, if any are up.
 
-    Named the way chromium-stack-docker.sh names them, and stopped the way it
+    Named the way engineshelf-docker.sh names them, and stopped the way it
     stops them: SIGTERM first, because killed outright the browser inside leaves
     a lock in its profile volume that breaks the next start.
     """
@@ -694,7 +694,7 @@ def stop_containers():
 def tidy_cut_off(revisions):
     """Clear up after downloads the shutdown interrupted.
 
-    chromium-stack.sh removes both of these itself when a download fails, but a
+    engineshelf.sh removes both of these itself when a download fails, but a
     job killed outright never reaches that code - and closing the window is now
     an ordinary way for a download to end, so an 80 MB orphan every time is not
     acceptable. The zip cannot be resumed either: the CLI fetches it whole.
@@ -785,7 +785,7 @@ def watch_window():
 # --------------------------------------------------------------------------- #
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ChromiumStack"
+    server_version = "EngineShelf"
 
     def log_message(self, *_args):
         pass                       # the console belongs to the launcher, not the server
@@ -810,7 +810,7 @@ class Handler(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").split(":")[0]
         if host not in ("127.0.0.1", "localhost", "[::1]", "::1"):
             return False
-        if not secrets.compare_digest(self.headers.get("X-ChromiumStack-Token", ""), TOKEN):
+        if not secrets.compare_digest(self.headers.get("X-EngineShelf-Token", ""), TOKEN):
             return False
         _life["seen"] = time.time()
         return True
@@ -1008,7 +1008,7 @@ def main():
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()
 
     print()
-    print(f"  ChromiumStack manager  ->  {url}")
+    print(f"  EngineShelf manager  ->  {url}")
     print(f"  Files: {root_dir()}")
     if shell is not None:
         print("  Closing the window quits the manager, the browsers it opened")

@@ -1,9 +1,9 @@
 #
-# ChromiumStack GUI backend (Windows).
+# EngineShelf GUI backend (Windows).
 #
 # Serves the static page in this directory and the same small JSON API as
 # gui/server.py. All real work - install, launch, remove, reset - is delegated to
-# chromium-stack.ps1, so the GUI and the command line cannot drift apart.
+# engineshelf.ps1, so the GUI and the command line cannot drift apart.
 #
 # This speaks HTTP over a raw TcpListener rather than System.Net.HttpListener on
 # purpose: HttpListener needs a netsh URL ACL reservation or an elevated prompt,
@@ -30,16 +30,16 @@ $ErrorActionPreference = 'Stop'
 $Here    = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Project = Split-Path -Parent $Here
 $Catalog = Join-Path $Project 'catalog.tsv'
-$Cli       = Join-Path $Project 'chromium-stack.ps1'
-$DockerCli = Join-Path $Project 'chromium-stack-docker.ps1'
+$Cli       = Join-Path $Project 'engineshelf.ps1'
+$DockerCli = Join-Path $Project 'engineshelf-docker.ps1'
 
 if (-not (Test-Path $Cli)) { throw "Missing $Cli" }
 
 $Token = [Convert]::ToBase64String([Guid]::NewGuid().ToByteArray()) -replace '[^A-Za-z0-9]', ''
 
-if ($env:CHROMIUM_STACK_HOME)   { $Root = $env:CHROMIUM_STACK_HOME }
+if ($env:ENGINESHELF_HOME)   { $Root = $env:ENGINESHELF_HOME }
 elseif ($env:BROWSERS_EMU_HOME) { $Root = $env:BROWSERS_EMU_HOME }
-else                          { $Root = Join-Path $env:USERPROFILE '.chromium-stack' }
+else                          { $Root = Join-Path $env:USERPROFILE '.engineshelf' }
 $CacheFile   = Join-Path $Root 'catalog.cache.tsv'
 $BuildsDir   = Join-Path $Root 'builds'
 $ProfilesDir = Join-Path $Root 'profiles'
@@ -126,12 +126,12 @@ function Get-InstalledBuilds {
     return $result
 }
 
-# The names chromium-stack-docker.ps1 gives the things it creates. The manager
+# The names engineshelf-docker.ps1 gives the things it creates. The manager
 # reads them back, which is the only way a version living in a container can look
 # like one living on disk; renaming any of them means changing both files.
-$ContainerPrefix = 'chromium-stack-'
-$ImageRepo       = 'chromium-stack'
-$VolumePrefix    = 'chromium-stack-profile-'
+$ContainerPrefix = 'engineshelf-'
+$ImageRepo       = 'engineshelf'
+$VolumePrefix    = 'engineshelf-profile-'
 
 # Probing Docker costs about a second and the page asks every four; the answer
 # does not change that fast. Volume sizes cost a second on their own, so they
@@ -179,7 +179,7 @@ function Get-DockerVolumeSizes {
 
 function Get-DockerStatus {
     <#
-      What Docker is holding for ChromiumStack: images, their size, containers.
+      What Docker is holding for EngineShelf: images, their size, containers.
 
       Without this the shelf could say nothing true about a version that runs in
       a container - no size for an image costing a gigabyte, and no sign it was
@@ -224,7 +224,7 @@ function Get-DockerStatus {
             }
         }
 
-        # One container per version, named chromium-stack-<revision>. Stopped
+        # One container per version, named engineshelf-<revision>. Stopped
         # ones are listed too: a container that exits the moment it starts is a
         # fault worth showing, not a row that quietly does nothing.
         $listing = @(docker ps -a --filter "name=$ContainerPrefix" `
@@ -390,7 +390,7 @@ function Get-State {
 }
 
 # ---------- jobs ----------
-# Each job is a child powershell running chromium-stack.ps1 with its output
+# Each job is a child powershell running engineshelf.ps1 with its output
 # redirected to a file, so the HTTP loop never blocks on a long download or on a
 # browser window that stays open for an hour.
 $script:Jobs = @{}
@@ -596,8 +596,8 @@ function Test-Authorised {
     $hostHeader = ''
     if ($Request.headers.ContainsKey('host')) { $hostHeader = ($Request.headers['host'] -split ':')[0] }
     if ($hostHeader -ne '127.0.0.1' -and $hostHeader -ne 'localhost') { return $false }
-    if (-not $Request.headers.ContainsKey('x-chromiumstack-token')) { return $false }
-    if ($Request.headers['x-chromiumstack-token'] -cne $Token) { return $false }
+    if (-not $Request.headers.ContainsKey('x-engineshelf-token')) { return $false }
+    if ($Request.headers['x-engineshelf-token'] -cne $Token) { return $false }
     $script:LastSeen = Get-Date
     return $true
 }
@@ -700,7 +700,7 @@ function Stop-Containers {
     <#
       Stop and remove the containers this project runs, if any are up.
 
-      Named the way chromium-stack-docker.ps1 names them, and stopped the way it
+      Named the way engineshelf-docker.ps1 names them, and stopped the way it
       stops them: SIGTERM first, because killed outright the browser inside
       leaves a lock in its profile volume that breaks the next start.
     #>
@@ -717,7 +717,7 @@ function Clear-CutOff {
     <#
       Clear up after downloads the shutdown interrupted.
 
-      chromium-stack.ps1 removes both of these itself when a download fails, but
+      engineshelf.ps1 removes both of these itself when a download fails, but
       a job killed outright never reaches that code - and closing the window is
       now an ordinary way for a download to end, so an 80 MB orphan every time is
       not acceptable. The archive cannot be resumed either: it is fetched whole.
@@ -892,7 +892,7 @@ if (-not $NoOpen -and -not $Tab) { $script:Shell = Open-AppWindow $url }
 elseif (-not $NoOpen)            { Start-Process $url | Out-Null }
 
 Write-Host ""
-Write-Host "  ChromiumStack manager  ->  $url"
+Write-Host "  EngineShelf manager  ->  $url"
 Write-Host "  Files: $Root"
 if ($script:Shell) {
     Write-Host "  Closing the window quits the manager, the browsers it opened"

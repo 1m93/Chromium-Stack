@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Compile and sign ChromiumStack.app's launcher.
+# Compile and sign EngineShelf.app's launcher.
 #
 #   tools/build-app.sh
 #
@@ -11,9 +11,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/ChromiumStack.app"
+APP="$ROOT/EngineShelf.app"
 SOURCE="$ROOT/tools/launcher/launcher.c"
-TARGET="$APP/Contents/MacOS/ChromiumStack"
+TARGET="$APP/Contents/MacOS/EngineShelf"
 
 [ "$(uname -s)" = "Darwin" ] || { echo "x  macOS only." >&2; exit 1; }
 command -v cc >/dev/null 2>&1 || { echo "x  Need the Xcode command line tools: xcode-select --install" >&2; exit 1; }

@@ -1,4 +1,4 @@
-/* chromium-stack manager — talks to gui/server.py (or gui/server.ps1 on Windows).
+/* engineshelf manager — talks to gui/server.py (or gui/server.ps1 on Windows).
 
    The page is an app shell rather than a scrolling document: header, launch
    options, sidebar and status bar are fixed, and only the shelf in the middle
@@ -68,7 +68,7 @@ const iconSpan = (name) => {
 
 /* ---------- theme ---------- */
 
-const THEME_KEY = 'chromiumstack.theme';
+const THEME_KEY = 'engineshelf.theme';
 
 function readStored(key) {
   try {
@@ -188,7 +188,7 @@ async function api(path, options = {}) {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'X-ChromiumStack-Token': TOKEN,
+      'X-EngineShelf-Token': TOKEN,
       ...(options.headers || {}),
     },
   });
@@ -557,7 +557,7 @@ const doctorProblems = () => {
   );
 };
 
-// Only what ChromiumStack cannot work without. The recommended and optional ones
+// Only what EngineShelf cannot work without. The recommended and optional ones
 // are worth knowing about, but not worth a panel in front of the shelf on every
 // launch - the header button carries the count for those.
 const doctorBlockers = () =>
@@ -601,10 +601,10 @@ function renderDoctor() {
   const note = document.createElement('span');
   note.className = 'muted';
   note.textContent = blockers.length
-    ? `${blockers.length} thing${blockers.length > 1 ? 's' : ''} ChromiumStack cannot work without.`
+    ? `${blockers.length} thing${blockers.length > 1 ? 's' : ''} EngineShelf cannot work without.`
     : problems.length
       ? `Everything required is present. ${problems.length} optional thing${problems.length > 1 ? 's' : ''} you could still sort out.`
-      : 'Everything ChromiumStack needs is present.';
+      : 'Everything EngineShelf needs is present.';
   const hide = document.createElement('button');
   hide.className = 'btn';
   hide.textContent = 'Hide';
@@ -825,7 +825,7 @@ function renderChrome(rows, counts) {
   const browsers = rows.reduce((total, row) => total + row.sizeBytes, 0);
   const profiles = rows.reduce((total, row) => total + row.profileBytes, 0);
   // Images and their profile volumes live inside Docker rather than under the
-  // ChromiumStack directory, so nothing that walks the file tree can see them -
+  // EngineShelf directory, so nothing that walks the file tree can see them -
   // and at a gigabyte each they were the largest thing this gauge left out.
   const containers = state.dockerBytes || 0;
   const total = browsers + profiles + containers;
@@ -1026,7 +1026,7 @@ function renderRow(row) {
       mark.textContent = `Docker · ${mb(row.dockerImage)}`;
       mark.title = row.dockerProfileBytes
         ? `Image built for the container, plus ${mb(row.dockerProfileBytes)} of profile. ` +
-          'Layers shared with other ChromiumStack images are counted once per image.'
+          'Layers shared with other EngineShelf images are counted once per image.'
         : 'Image built for the container, not running.';
     }
     tags.append(mark);
@@ -1288,7 +1288,7 @@ function toggleMenu(container, row) {
           const go = await askConfirm({
             title: `Delete the Docker image for ${row.name}?`,
             body:
-              `Frees up to ${mb(held)}, less whatever layers other ChromiumStack images ` +
+              `Frees up to ${mb(held)}, less whatever layers other EngineShelf images ` +
               "share. The container's profile is kept, so building it again restores " +
               'your session. Building takes several minutes.',
             label: 'Delete image',
@@ -1584,7 +1584,7 @@ async function pollJob() {
     $('log-out').textContent =
       `${error.message}\n\nThe job itself may well be running - this is the manager ` +
       'failing to read its output. The version list still updates, and the launcher ' +
-      'writes its own log under the ChromiumStack home directory.';
+      'writes its own log under the EngineShelf home directory.';
     return;
   }
   if (watching !== jobId) return;
@@ -1819,7 +1819,7 @@ async function refresh() {
       title: 'Cannot reach the manager',
       detail:
         `${error.message}. The local server is not answering — it was probably ` +
-        'stopped. Reopen ChromiumStack, or run ./gui.sh from the project folder.',
+        'stopped. Reopen EngineShelf, or run ./gui.sh from the project folder.',
       actionLabel: 'Try again',
       onAction: refresh,
     });

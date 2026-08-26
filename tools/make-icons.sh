@@ -5,7 +5,7 @@
 #   tools/make-icons.sh
 #
 # Produces:
-#   ChromiumStack.app/Contents/Resources/AppIcon.icns   macOS bundle icon
+#   EngineShelf.app/Contents/Resources/AppIcon.icns   macOS bundle icon
 #   assets/icon.ico                                   Windows shortcut icon
 #   assets/icon-512.png                               Linux desktop entry icon
 #
@@ -39,7 +39,7 @@ find_browser() {
     [ -n "$candidate" ] && [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
   done
   # Fall back to a Chromium this project already downloaded.
-  local home="${CHROMIUM_STACK_HOME:-$HOME/.chromium-stack}"
+  local home="${ENGINESHELF_HOME:-$HOME/.engineshelf}"
   for candidate in "$home"/builds/*/chrome-mac/Chromium.app/Contents/MacOS/Chromium \
                    "$home"/builds/*/chrome-linux/chrome; do
     [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
@@ -49,7 +49,7 @@ find_browser() {
 
 BROWSER="$(find_browser)" || die "No Chromium-family browser found to render the SVGs.
    Install one, point CHROMIUM_STACK_RENDERER at it, or run:
-     ./chromium-stack.sh install 130"
+     ./engineshelf.sh install 130"
 
 # ---------- render one PNG at an exact pixel size ----------
 render() {
@@ -94,9 +94,9 @@ emit 512  512  icon_512x512.png
 emit 512  1024 icon_512x512@2x.png
 
 if command -v iconutil >/dev/null 2>&1; then
-  mkdir -p "$ROOT/ChromiumStack.app/Contents/Resources"
-  iconutil -c icns "$ICONSET" -o "$ROOT/ChromiumStack.app/Contents/Resources/AppIcon.icns"
-  echo "  wrote ChromiumStack.app/Contents/Resources/AppIcon.icns"
+  mkdir -p "$ROOT/EngineShelf.app/Contents/Resources"
+  iconutil -c icns "$ICONSET" -o "$ROOT/EngineShelf.app/Contents/Resources/AppIcon.icns"
+  echo "  wrote EngineShelf.app/Contents/Resources/AppIcon.icns"
 else
   echo "  ! iconutil not found (macOS only) - skipped AppIcon.icns"
 fi

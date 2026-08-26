@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# ChromiumStack code-obfuscation helpers.
+# EngineShelf code-obfuscation helpers.
 #
 # Sourced by tools/release.sh. Every function rewrites a *staged copy* of a file
 # in place - never a source file in the repo.
@@ -12,7 +12,7 @@
 #
 # Techniques by language:
 #   bash        gzip+base64 the body, run it through `eval`. The leading comment
-#               header is kept verbatim, because chromium-stack-docker.sh prints
+#               header is kept verbatim, because engineshelf-docker.sh prints
 #               its own header as help, and because ${BASH_SOURCE[0]} still
 #               resolves to the wrapper under eval, so SCRIPT_DIR keeps working.
 #   python      zlib+base64 the body, run it through exec() with __file__ set, so

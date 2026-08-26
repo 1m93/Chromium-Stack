@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# ChromiumStack - Docker edition (macOS / Linux)
+# EngineShelf - Docker edition (macOS / Linux)
 #
 # Runs the Linux x86_64 build of a Chromium version inside a container and shows
 # its desktop in a tab of your normal browser. Slower than the native launcher,
 # but it does not go through Rosetta, so it does not inherit the random crash
 # Rosetta's stack unwinder causes on Apple Silicon.
 #
-#   ./chromium-stack-docker.sh start 74     # build if needed, run, open the desktop
-#   ./chromium-stack-docker.sh stop 74      # stop the container
-#   ./chromium-stack-docker.sh logs 74      # follow its log
-#   ./chromium-stack-docker.sh list         # what is running
-#   ./chromium-stack-docker.sh rebuild 74   # rebuild the image from scratch
+#   ./engineshelf-docker.sh start 74     # build if needed, run, open the desktop
+#   ./engineshelf-docker.sh stop 74      # stop the container
+#   ./engineshelf-docker.sh logs 74      # follow its log
+#   ./engineshelf-docker.sh list         # what is running
+#   ./engineshelf-docker.sh rebuild 74   # rebuild the image from scratch
 #
 # Each version gets its own image, container, profile volume and port, so several
 # can run side by side.
@@ -44,11 +44,11 @@ ensure_docker() {
   if [ "$PF_STATUS" = "missing" ]; then
     echo ""
     echo "  ${B}The Docker edition needs Docker, which is not installed.${RST}"
-    echo "  ${DIM}The native launcher needs nothing: ./chromium-stack.sh run <version>${RST}"
+    echo "  ${DIM}The native launcher needs nothing: ./engineshelf.sh run <version>${RST}"
   fi
 
   pf_offer docker || die "Docker is not available, so the Docker edition cannot run.
-   Use the native launcher instead: ./chromium-stack.sh run <version>"
+   Use the native launcher instead: ./engineshelf.sh run <version>"
 }
 
 # ---------- catalog ----------
@@ -56,7 +56,7 @@ ensure_docker() {
 # selector naming a Mac or Windows revision still resolves to the right image.
 resolve() {
   local raw="${1:-}" token milestone
-  [ -n "$raw" ] || die "Which version? e.g. 74. Try: ./chromium-stack.sh catalog"
+  [ -n "$raw" ] || die "Which version? e.g. 74. Try: ./engineshelf.sh catalog"
   token="${raw#[MmRr]}"
   case "$token" in
     ''|*[!0-9]*) die "Not a version or revision: $raw" ;;
@@ -84,9 +84,9 @@ resolve() {
 # gui/server.py reads them back to show which versions have an image, how much
 # disk it costs and which containers are up, so a rename here has to happen
 # there too (grep CONTAINER_PREFIX).
-image_name()     { printf 'chromium-stack:%s\n' "$1"; }
-container_name() { printf 'chromium-stack-%s\n' "$1"; }
-volume_name()    { printf 'chromium-stack-profile-%s\n' "$1"; }
+image_name()     { printf 'engineshelf:%s\n' "$1"; }
+container_name() { printf 'engineshelf-%s\n' "$1"; }
+volume_name()    { printf 'engineshelf-profile-%s\n' "$1"; }
 
 # Ports are handed out per container; ask Docker what a running one actually got
 # rather than recomputing and guessing wrong.
@@ -110,7 +110,7 @@ free_port() {
 }
 
 # Published on the loopback address only. The desktop in there has no password
-# and a real browser attached to it, and the rest of ChromiumStack is careful to
+# and a real browser attached to it, and the rest of EngineShelf is careful to
 # stay off the network; a plain -p put it in front of everyone on the wifi.
 #
 # Between choosing a port and binding it another container can take it, and that
@@ -251,12 +251,12 @@ cmd_list() {
   echo ""
   echo "${B}Containers${RST}"
   echo ""
-  docker ps -a --filter "name=chromium-stack-" \
+  docker ps -a --filter "name=engineshelf-" \
     --format '  {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
   echo ""
   echo "${B}Images${RST}"
   echo ""
-  docker images "chromium-stack" --format '  {{.Repository}}:{{.Tag}}\t{{.Size}}' || true
+  docker images "engineshelf" --format '  {{.Repository}}:{{.Tag}}\t{{.Size}}' || true
   echo ""
 }
 

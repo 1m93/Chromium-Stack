@@ -1,5 +1,5 @@
 #
-# ChromiumStack - open the graphical manager (Windows)
+# EngineShelf - open the graphical manager (Windows)
 #
 # Starts a small local web server and opens it in a window of its own. Nothing is
 # installed and nothing listens outside this machine: the server binds to

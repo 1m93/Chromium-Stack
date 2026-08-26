@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# ChromiumStack - run an old Chromium engine on a modern machine (macOS / Linux)
+# EngineShelf - run an old Chromium engine on a modern machine (macOS / Linux)
 #
 # Downloads a pinned Chromium build once, then launches it as an ordinary
 # desktop browser with its own profile. Any milestone in catalog.tsv works, as
 # does any raw revision from the Chromium snapshot archive.
 #
-#   ./chromium-stack.sh run 74                  # launch Chromium 74
-#   ./chromium-stack.sh run 120 localhost:4173  # launch 120 on a URL
-#   ./chromium-stack.sh list                    # what is installed, and how big
-#   ./chromium-stack.sh remove 74               # free the disk space
+#   ./engineshelf.sh run 74                  # launch Chromium 74
+#   ./engineshelf.sh run 120 localhost:4173  # launch 120 on a URL
+#   ./engineshelf.sh list                    # what is installed, and how big
+#   ./engineshelf.sh remove 74               # free the disk space
 #
 # The GUI (./gui.sh) drives this same script, so both agree by construction.
 #
@@ -22,13 +22,15 @@ CATALOG="$SCRIPT_DIR/catalog.tsv"
 BASE_URL="https://commondatastorage.googleapis.com/chromium-browser-snapshots"
 LIST_API="https://www.googleapis.com/storage/v1/b/chromium-browser-snapshots/o"
 
-# BROWSERS_EMU_HOME is what this tool was called before; still honoured so an
+# This tool has been named three things: browsers-emu, then ChromiumStack, now
+# EngineShelf. Both old variables are still honoured, newest winning, so an
 # existing setup does not break on a rename.
-if [ -n "${CHROMIUM_STACK_HOME:-}" ] || [ -n "${BROWSERS_EMU_HOME:-}" ]; then
-  ROOT="${CHROMIUM_STACK_HOME:-${BROWSERS_EMU_HOME:-}}"
+if [ -n "${ENGINESHELF_HOME:-}" ] || [ -n "${CHROMIUM_STACK_HOME:-}" ] \
+   || [ -n "${BROWSERS_EMU_HOME:-}" ]; then
+  ROOT="${ENGINESHELF_HOME:-${CHROMIUM_STACK_HOME:-${BROWSERS_EMU_HOME:-}}}"
   ROOT_IS_DEFAULT=0
 else
-  ROOT="$HOME/.chromium-stack"
+  ROOT="$HOME/.engineshelf"
   ROOT_IS_DEFAULT=1
 fi
 BUILDS_DIR="$ROOT/builds"
@@ -36,7 +38,7 @@ PROFILES_DIR="$ROOT/profiles"
 LOGS_DIR="$ROOT/logs"
 
 # catalog.tsv ships inside the release and often lands on a read-only volume - it
-# does inside ChromiumStack.app - so anything learned at runtime is written here
+# does inside EngineShelf.app - so anything learned at runtime is written here
 # instead. The cache is the newer of the two and is always consulted first.
 CACHE="$ROOT/catalog.cache.tsv"
 STABLE_CACHE="$ROOT/stable.cache"
@@ -67,7 +69,7 @@ case "$(uname -s)" in
     fi
     ;;
   Linux) HOST_PLATFORMS="Linux_x64" ;;
-  *) die "Unsupported OS: $(uname -s). On Windows use chromium-stack.ps1 or ChromiumStack.bat." ;;
+  *) die "Unsupported OS: $(uname -s). On Windows use engineshelf.ps1 or EngineShelf.bat." ;;
 esac
 
 # ---------- catalog ----------
@@ -127,7 +129,7 @@ cache_add() {           # rows on stdin
   tmp="$CACHE.$$"
   {
     if [ -f "$CACHE" ]; then cat "$CACHE"; else
-      printf '%s\n' "# ChromiumStack cache - milestones resolved against the live archive."
+      printf '%s\n' "# EngineShelf cache - milestones resolved against the live archive."
     fi
     printf '%s\n' "$rows"
   } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
@@ -415,12 +417,16 @@ is_installed() { [ -f "$(build_dir "$1")/.complete" ]; }
 # ~/.browsers-emu. Nothing inside changed, so moving the directory across is the
 # whole migration - no re-download, no lost profiles.
 adopt_previous_root() {
-  local previous="$HOME/.browsers-emu"
+  local previous
   [ "${ROOT_IS_DEFAULT:-0}" -eq 1 ] || return 0
-  [ -d "$previous" ] || return 0
   [ -e "$ROOT" ] && return 0
-  mv "$previous" "$ROOT" 2>/dev/null || return 0
-  info "${DIM}Moved your existing browsers into $ROOT (renamed from browsers-emu).${RST}"
+  # Newest name first: somebody who used both should end up with the later one.
+  for previous in "$HOME/.chromium-stack" "$HOME/.browsers-emu"; do
+    [ -d "$previous" ] || continue
+    mv "$previous" "$ROOT" 2>/dev/null || continue
+    info "${DIM}Moved your existing browsers into $ROOT (renamed from $(basename "$previous")).${RST}"
+    return 0
+  done
 }
 
 # The single-version layout was ~/.chrome74/<revision>/ plus one shared profile.
@@ -809,7 +815,7 @@ cmd_doctor() {
 
 usage() {
   cat <<USAGE
-${B}ChromiumStack${RST} - run an old Chromium engine on a modern machine
+${B}EngineShelf${RST} - run an old Chromium engine on a modern machine
 
   $0 <command> [args]
 
@@ -827,7 +833,7 @@ Commands:
 
 <version> is a milestone (74) or a raw snapshot revision (638880). A milestone
 this copy has never heard of is looked up in the snapshot archive and remembered,
-so newly released Chromium versions work without updating ChromiumStack.
+so newly released Chromium versions work without updating EngineShelf.
 
 Options for run:
   --size WxH                 Fixed window size, e.g. --size 1280x800
@@ -838,7 +844,7 @@ Options for run:
 Each version keeps its own profile, so a newer build never upgrades a profile
 out from under an older one.
 
-Files live in $ROOT (override with CHROMIUM_STACK_HOME).
+Files live in $ROOT (override with ENGINESHELF_HOME).
 USAGE
 }
 

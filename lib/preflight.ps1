@@ -1,5 +1,5 @@
 #
-# ChromiumStack - dependency checks (Windows).
+# EngineShelf - dependency checks (Windows).
 #
 # Dot-sourced, never run directly:
 #   . "$ScriptDir\lib\preflight.ps1"
@@ -121,7 +121,7 @@ function Show-PfReport {
     }
     Write-Host ""
     if (-not $problems) {
-        Write-Host "  Everything ChromiumStack needs is present." -ForegroundColor Green
+        Write-Host "  Everything EngineShelf needs is present." -ForegroundColor Green
         Write-Host ""
     }
     return $problems
@@ -141,7 +141,7 @@ function Invoke-PfFix {
         if ($Component -eq 'docker') {
             Write-Host "   Install the CLI:  winget install -e --id Docker.DockerCLI"
             Write-Host "   Then an engine for it to talk to: Docker Engine inside a WSL 2 distro."
-            Write-Host "   The native launcher needs none of this:  .\chromium-stack.ps1 run 74"
+            Write-Host "   The native launcher needs none of this:  .\engineshelf.ps1 run 74"
         }
         return $false
     }
@@ -159,7 +159,7 @@ function Invoke-PfFix {
         # answer; say so instead of blocking on a prompt nobody will see.
         if ([Environment]::UserInteractive -eq $false) {
             Write-Host "!  Cannot ask for confirmation without a console." -ForegroundColor Yellow
-            Write-Host "   Run it yourself, or: .\chromium-stack.ps1 doctor --fix"
+            Write-Host "   Run it yourself, or: .\engineshelf.ps1 doctor --fix"
             return $false
         }
         $answer = Read-Host "  Run it now? [y/N]"

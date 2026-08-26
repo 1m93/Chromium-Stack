@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build clean, self-contained, obfuscated ChromiumStack releases into dist/.
+# Build clean, self-contained, obfuscated EngineShelf releases into dist/.
 #
 #   tools/release.sh                 # build every artifact this machine can
 #   tools/release.sh --no-obfuscate  # readable source (for debugging a release)
@@ -8,10 +8,10 @@
 #   tools/release.sh --version 2.1   # stamp a version into the artifact names
 #
 # Produces, in dist/:
-#   ChromiumStack-<ver>-macOS.zip      a single self-contained .app, zipped
-#   ChromiumStack-<ver>-Windows.zip    ChromiumStack.bat + hidden app/ scripts
-#   ChromiumStack-<ver>-Linux.tar.gz   ./ChromiumStack launcher + scripts
-#   SHA256SUMS.txt                     checksums for every artifact above
+#   EngineShelf-<ver>-macOS.zip      a single self-contained .app, zipped
+#   EngineShelf-<ver>-Windows.zip    EngineShelf.bat + hidden app/ scripts
+#   EngineShelf-<ver>-Linux.tar.gz   ./EngineShelf launcher + scripts
+#   SHA256SUMS.txt                   checksums for every artifact above
 #
 # Obfuscation is deterrence, not protection - see tools/obfuscate.sh. bash and
 # Python are wrapped and TESTED on this machine. PowerShell defaults to a safe
@@ -43,7 +43,7 @@ if [ -z "$VERSION" ]; then
   VERSION="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
   if [ -z "$VERSION" ]; then
     VERSION="$(sed -n 's/.*CFBundleShortVersionString<\/key>[^<]*<string>\([^<]*\)<.*/\1/p' \
-               "$ROOT/ChromiumStack.app/Contents/Info.plist" 2>/dev/null | head -1)"
+               "$ROOT/EngineShelf.app/Contents/Info.plist" 2>/dev/null | head -1)"
   fi
   VERSION="${VERSION:-dev}"
 fi
@@ -81,15 +81,15 @@ stage_tree() {
   cp "$ROOT/gui/styles.css" "$dest/gui/"
 
   if [ "$flavour" = "posix" ]; then
-    cp "$ROOT/chromium-stack.sh"        "$dest/"
-    cp "$ROOT/chromium-stack-docker.sh" "$dest/"
+    cp "$ROOT/engineshelf.sh"        "$dest/"
+    cp "$ROOT/engineshelf-docker.sh" "$dest/"
     cp "$ROOT/gui.sh"                   "$dest/"
     cp "$ROOT/lib/preflight.sh"         "$dest/lib/"
     cp "$ROOT/gui/server.py"            "$dest/gui/"
     chmod +x "$dest"/*.sh
   else
-    cp "$ROOT/chromium-stack.ps1"        "$dest/"
-    cp "$ROOT/chromium-stack-docker.ps1" "$dest/"
+    cp "$ROOT/engineshelf.ps1"        "$dest/"
+    cp "$ROOT/engineshelf-docker.ps1" "$dest/"
     cp "$ROOT/gui.ps1"                   "$dest/"
     cp "$ROOT/lib/preflight.ps1"         "$dest/lib/"
     cp "$ROOT/gui/server.ps1"            "$dest/gui/"
@@ -102,8 +102,8 @@ stage_tree() {
   min_web "$dest/gui/styles.css"
 
   if [ "$flavour" = "posix" ]; then
-    obf_bash "$dest/chromium-stack.sh"
-    obf_bash "$dest/chromium-stack-docker.sh"
+    obf_bash "$dest/engineshelf.sh"
+    obf_bash "$dest/engineshelf-docker.sh"
     obf_bash "$dest/gui.sh"
     obf_bash "$dest/lib/preflight.sh"
     obf_py   "$dest/gui/server.py"
@@ -111,8 +111,8 @@ stage_tree() {
   else
     local fn=obf_ps1_light label="light (comment strip)"
     [ "$PS_HEAVY" = "1" ] && { fn=obf_ps1_heavy; label="heavy (encoded, UNTESTED here)"; }
-    "$fn" "$dest/chromium-stack.ps1"
-    "$fn" "$dest/chromium-stack-docker.ps1"
+    "$fn" "$dest/engineshelf.ps1"
+    "$fn" "$dest/engineshelf-docker.ps1"
     "$fn" "$dest/gui.ps1"
     "$fn" "$dest/lib/preflight.ps1"
     "$fn" "$dest/gui/server.ps1"
@@ -121,7 +121,7 @@ stage_tree() {
 }
 
 # --------------------------------------------------------------------------- #
-step "ChromiumStack release  (version $VERSION, obfuscate=$OBFUSCATE ps-heavy=$PS_HEAVY)"
+step "EngineShelf release  (version $VERSION, obfuscate=$OBFUSCATE ps-heavy=$PS_HEAVY)"
 rm -rf "$DIST"; mkdir -p "$DIST"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
@@ -129,10 +129,10 @@ WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 build_macos() {
   [ "$(uname -s)" = "Darwin" ] || { say "skip macOS (not on Darwin)"; return; }
   step "macOS  (.app -> .zip)"
-  local app="$WORK/ChromiumStack.app"
+  local app="$WORK/EngineShelf.app"
   # Copy the built bundle skeleton (launcher + Info.plist + icon), then fill
   # Contents/Resources with the runtime tree so the .app stands alone.
-  cp -R "$ROOT/ChromiumStack.app" "$app"
+  cp -R "$ROOT/EngineShelf.app" "$app"
   rm -rf "$app/Contents/_CodeSignature"           # stale, we re-sign below
   stage_tree "$app/Contents/Resources" posix
 
@@ -140,29 +140,29 @@ build_macos() {
   say "signed $(codesign -dv "$app" 2>&1 | sed -n 's/^Identifier=//p')"
 
   cat > "$WORK/HOW TO OPEN.txt" <<'HELP'
-ChromiumStack - how to open (macOS)
+EngineShelf - how to open (macOS)
 
 1. Unzip this file (double-click it in Finder).
-2. Double-click ChromiumStack.app.
+2. Double-click EngineShelf.app.
    Optional: drag it into your Applications folder first.
 
 First time only - "unidentified developer"?
   macOS blocks apps not signed with a paid Apple certificate. Right-click
-  (or Control-click) ChromiumStack.app -> Open -> Open. Just once.
+  (or Control-click) EngineShelf.app -> Open -> Open. Just once.
 
 If the app bounces and asks for file access:
-  When the folder sits in Documents, Desktop or Downloads, allow ChromiumStack
+  When the folder sits in Documents, Desktop or Downloads, allow EngineShelf
   under System Settings -> Privacy & Security -> Files and Folders, or move the
   folder somewhere else.
 
 The manager needs Python 3 (it comes with: xcode-select --install).
 To stop it: close the window it opens.
 
-More help: https://github.com/1m93/Chromium-Stack
+More help: https://github.com/1m93/EngineShelf
 HELP
 
-  ( cd "$WORK" && zip -qr -X "$DIST/ChromiumStack-$VERSION-macOS.zip" ChromiumStack.app "HOW TO OPEN.txt" )
-  say "wrote ChromiumStack-$VERSION-macOS.zip"
+  ( cd "$WORK" && zip -qr -X "$DIST/EngineShelf-$VERSION-macOS.zip" EngineShelf.app "HOW TO OPEN.txt" )
+  say "wrote EngineShelf-$VERSION-macOS.zip"
 }
 
 # ---- Windows: .bat launcher + hidden app/ scripts ------------------------- #
@@ -172,14 +172,14 @@ HELP
 # icon'd Desktop/Start Menu shortcut for anyone who wants one.
 build_windows() {
   step "Windows  (.zip)"
-  local top="$WORK/win/ChromiumStack"
+  local top="$WORK/win/EngineShelf"
   mkdir -p "$top/app"
   stage_tree "$top/app" windows
 
   # The one entry point: forward to the real, obfuscated gui.ps1 under app\.
-  cat > "$top/ChromiumStack.bat" <<'BAT'
+  cat > "$top/EngineShelf.bat" <<'BAT'
 @echo off
-title ChromiumStack
+title EngineShelf
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0app\gui.ps1" %*
 if errorlevel 1 pause
 BAT
@@ -189,7 +189,7 @@ BAT
   # never carries a "downloaded from the internet" mark.
   cp "$ROOT/assets/icon.ico" "$top/icon.ico" 2>/dev/null || true
   cat > "$top/Create-Shortcut.ps1" <<'SHORTCUT'
-# Put a ChromiumStack shortcut (with icon) on the Desktop and Start Menu.
+# Put a EngineShelf shortcut (with icon) on the Desktop and Start Menu.
 # Run it once after extracting - right-click -> "Run with PowerShell", or:
 #   powershell -ExecutionPolicy Bypass -File .\Create-Shortcut.ps1
 #   powershell -ExecutionPolicy Bypass -File .\Create-Shortcut.ps1 -Remove
@@ -197,11 +197,11 @@ BAT
 param([switch]$Remove)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$bat  = Join-Path $root 'ChromiumStack.bat'
+$bat  = Join-Path $root 'EngineShelf.bat'
 $icon = Join-Path $root 'icon.ico'
 $targets = @(
-    (Join-Path ([Environment]::GetFolderPath('Desktop'))  'ChromiumStack.lnk'),
-    (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\ChromiumStack.lnk')
+    (Join-Path ([Environment]::GetFolderPath('Desktop'))  'EngineShelf.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\EngineShelf.lnk')
 )
 if ($Remove) {
     foreach ($p in $targets) { if (Test-Path $p) { Remove-Item $p -Force; Write-Host "removed $p" } }
@@ -219,21 +219,21 @@ foreach ($p in $targets) {
     $lnk.Save()
     Write-Host "created $p"
 }
-Write-Host "`nDone. Look for ChromiumStack on your Desktop and in the Start Menu."
+Write-Host "`nDone. Look for EngineShelf on your Desktop and in the Start Menu."
 SHORTCUT
 
   cat > "$top/HOW TO OPEN.txt" <<'HELP'
-ChromiumStack - how to open (Windows)
+EngineShelf - how to open (Windows)
 
 1. Unzip this folder (right-click the .zip -> Extract All).
-2. Double-click ChromiumStack.bat.
+2. Double-click EngineShelf.bat.
    A window opens and starts the manager. Close it to stop.
 
 Want a Desktop / Start Menu icon?
   Right-click Create-Shortcut.ps1 -> Run with PowerShell (once).
 
 Windows warns about the download?
-  ChromiumStack.bat is a short, readable script - open it in Notepad - that
+  EngineShelf.bat is a short, readable script - open it in Notepad - that
   only starts the manager; there is no program to trust. A "Run anyway?" prompt
   is normal for any downloaded script without a paid certificate. If a file
   feels stuck, open PowerShell in this folder and unblock everything:
@@ -244,49 +244,49 @@ Windows warns about the download?
 
 Uses the PowerShell that ships with Windows 10/11 - nothing to install.
 
-More help: https://github.com/1m93/Chromium-Stack
+More help: https://github.com/1m93/EngineShelf
 HELP
 
-  ( cd "$WORK/win" && zip -qr -X "$DIST/ChromiumStack-$VERSION-Windows.zip" ChromiumStack )
-  say "wrote ChromiumStack-$VERSION-Windows.zip (.bat launcher, no .exe)"
+  ( cd "$WORK/win" && zip -qr -X "$DIST/EngineShelf-$VERSION-Windows.zip" EngineShelf )
+  say "wrote EngineShelf-$VERSION-Windows.zip (.bat launcher, no .exe)"
 }
 
 # ---- Linux: tarball with a clean top launcher ----------------------------- #
 build_linux() {
   step "Linux  (.tar.gz)"
-  local top="$WORK/linux/chromium-stack"
+  local top="$WORK/linux/engineshelf"
   mkdir -p "$top"
   stage_tree "$top" posix
-  cp "$ROOT/chromium-stack.desktop" "$top/" 2>/dev/null || true
+  cp "$ROOT/engineshelf.desktop" "$top/" 2>/dev/null || true
   cp "$ROOT/assets/icon-512.png"    "$top/" 2>/dev/null || true
 
   # A capitalised launcher so the extracted folder has one obvious entry point.
-  cat > "$top/ChromiumStack" <<'RUN'
+  cat > "$top/EngineShelf" <<'RUN'
 #!/usr/bin/env bash
 cd "$(dirname "$(readlink -f "$0")")" && exec ./gui.sh "$@"
 RUN
-  chmod +x "$top/ChromiumStack"
+  chmod +x "$top/EngineShelf"
 
   cat > "$top/HOW TO OPEN.txt" <<'HELP'
-ChromiumStack - how to open (Linux)
+EngineShelf - how to open (Linux)
 
-1. Extract this archive:  tar -xzf ChromiumStack-*-Linux.tar.gz
-2. Run the launcher:      cd chromium-stack && ./ChromiumStack
-   (or ./gui.sh, or double-click chromium-stack.desktop in your file manager)
+1. Extract this archive:  tar -xzf EngineShelf-*-Linux.tar.gz
+2. Run the launcher:      cd engineshelf && ./EngineShelf
+   (or ./gui.sh, or double-click engineshelf.desktop in your file manager)
 
 The manager needs Python 3:  sudo apt install python3
 
 Desktop entry has no icon? Copy it where your desktop can find it:
   mkdir -p ~/.local/share/icons
-  cp icon-512.png ~/.local/share/icons/chromium-stack.png
+  cp icon-512.png ~/.local/share/icons/engineshelf.png
 
 To stop it: close the manager window (or Ctrl+C in the terminal).
 
-More help: https://github.com/1m93/Chromium-Stack
+More help: https://github.com/1m93/EngineShelf
 HELP
 
-  ( cd "$WORK/linux" && tar -czf "$DIST/ChromiumStack-$VERSION-Linux.tar.gz" chromium-stack )
-  say "wrote ChromiumStack-$VERSION-Linux.tar.gz"
+  ( cd "$WORK/linux" && tar -czf "$DIST/EngineShelf-$VERSION-Linux.tar.gz" engineshelf )
+  say "wrote EngineShelf-$VERSION-Linux.tar.gz"
 }
 
 build_macos
@@ -295,7 +295,7 @@ build_linux
 
 # ---- checksums ------------------------------------------------------------ #
 step "checksums"
-( cd "$DIST" && shasum -a 256 ChromiumStack-* > SHA256SUMS.txt && cat SHA256SUMS.txt )
+( cd "$DIST" && shasum -a 256 EngineShelf-* > SHA256SUMS.txt && cat SHA256SUMS.txt )
 
 step "done"
 say "artifacts in $DIST"
