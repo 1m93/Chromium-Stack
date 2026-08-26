@@ -94,6 +94,102 @@ details[open] [data-chev]{transform:rotate(45deg)}
 @keyframes caret{0%,49%{opacity:1}50%,100%{opacity:0}}
 @keyframes pulse{50%{opacity:.3}}
 @keyframes glowdrift{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(4%,-3%) scale(1.08)}}
+/* ---------- the sixty-seconds demo ----------
+   One 11s CSS loop drives the whole thing: the three step cards light up in
+   turn, the cursor presses Get, the row downloads, then the browser opens.
+   Every animated property is opacity, transform, colour or width, and the loop
+   is paused whenever it is off screen. With animation off - reduced motion, or
+   no JS to mark it visible - the base state is the last frame: one version
+   running with its window open, which is the point the section is making. */
+.dm-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:26px;margin-top:32px}
+.dm-step{padding-left:16px;border-left:2px solid currentColor;color:var(--accent);animation:dmStep1 11s linear infinite}
+.dm-step[data-step="2"]{animation-name:dmStep2}
+.dm-step[data-step="3"]{animation-name:dmStep3}
+.dm-head{display:flex;align-items:center;gap:10px}
+.dm-head h3{margin:0;font-size:17px;font-weight:620;letter-spacing:-.01em;color:var(--ink)}
+.dm-step p{margin:14px 0 0;font-size:15px;line-height:1.62;color:var(--ink-2);text-wrap:pretty}
+.dm-num{position:relative;display:flex;align-items:center;justify-content:center;width:26px;height:26px;flex:none;border-radius:8px;font-family:var(--mono);font-size:12.5px;font-weight:600}
+.dm-num::before{content:"";position:absolute;inset:0;border-radius:8px;background:currentColor;opacity:.16}
+.dm-num i{position:relative;font-style:normal}
+@keyframes dmStep1{0%,16%{color:var(--accent)}20%,100%{color:var(--ink-3)}}
+@keyframes dmStep2{0%,16%{color:var(--ink-3)}20%,56%{color:var(--accent)}60%,100%{color:var(--ink-3)}}
+@keyframes dmStep3{0%,56%{color:var(--ink-3)}62%,92%{color:var(--accent)}96%,100%{color:var(--ink-3)}}
+
+.dm-stage{margin:40px 0 0;padding:0}
+.dm-frame{position:relative}
+.dm-win{position:relative;z-index:1;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--shadow)}
+.dm-bar{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.dm-mark{width:18px;height:18px;flex:none;border-radius:6px;background:var(--accent)}
+.dm-bar b{font-size:12.5px;font-weight:620}
+.dm-host{padding:2px 8px;border:1px solid var(--line);border-radius:999px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.dm-disk{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.dm-rows{padding:10px}
+.dm-row{position:relative;display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid transparent;border-radius:10px}
+.dm-row+.dm-row{margin-top:6px}
+.dm-row.is-target{z-index:2;border-color:var(--line);background:var(--panel-2)}
+.dm-dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--ink-3)}
+.dm-dot.is-ok{background:var(--ok)}
+.dm-tdot{background:var(--accent);animation:dmDot 11s linear infinite}
+@keyframes dmDot{0%,19%{background:var(--ink-3)}23%,93%{background:var(--accent)}97%,100%{background:var(--ink-3)}}
+.dm-id{min-width:0}
+.dm-id b{display:block;font-size:13.5px;font-weight:620;letter-spacing:-.01em}
+.dm-id span{display:block;margin-top:2px;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.dm-act{position:relative;width:152px;height:30px;flex:none;margin-left:auto}
+.dm-slot{position:absolute;top:0;right:0;display:flex;align-items:center;justify-content:flex-end;gap:10px;height:30px}
+.dm-btn{display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 14px;border:1px solid transparent;border-radius:9px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.dm-btn.is-primary{background:var(--accent);color:#fff}
+.dm-btn.is-ghost{border-color:var(--line);color:var(--ink-2)}
+.dm-btn.is-warn{border-color:color-mix(in srgb,var(--warn) 55%,var(--line));color:var(--warn)}
+.dm-get{opacity:0;animation:dmIdle 11s linear infinite}
+.dm-prog{opacity:0;animation:dmBusy 11s linear infinite}
+.dm-stop{opacity:1;animation:dmDone 11s linear infinite}
+@keyframes dmIdle{0%,19%{opacity:1}21%,94%{opacity:0}98%,100%{opacity:1}}
+@keyframes dmBusy{0%,19%{opacity:0}23%,57%{opacity:1}60%,100%{opacity:0}}
+@keyframes dmDone{0%,57%{opacity:0}61%,93%{opacity:1}96%,100%{opacity:0}}
+.dm-pct{display:block;width:36px;height:14px;overflow:hidden;font-family:var(--mono);font-size:11px;color:var(--ink-2);text-align:right}
+.dm-pctlist{display:block;animation:dmPct 11s steps(1,end) infinite}
+.dm-pctlist i{display:block;height:14px;line-height:14px;font-style:normal}
+@keyframes dmPct{0%,20%{transform:translateY(0)}24%{transform:translateY(-14px)}29%{transform:translateY(-28px)}34%{transform:translateY(-42px)}39%{transform:translateY(-56px)}44%{transform:translateY(-70px)}49%{transform:translateY(-84px)}54%{transform:translateY(-98px)}57%,100%{transform:translateY(-112px)}}
+.dm-track{position:relative;display:block;width:96px;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.dm-fill{position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:3px;background:var(--accent);animation:dmFill 11s linear infinite}
+@keyframes dmFill{0%,20%{width:0}57%,100%{width:100%}}
+.dm-cursor{position:absolute;top:9px;right:12px;z-index:3;width:20px;height:20px;opacity:0;animation:dmCursor 11s cubic-bezier(.3,.7,.2,1) infinite}
+.dm-cursor svg{display:block;width:20px;height:20px}
+.dm-cursor::after{content:"";position:absolute;left:-9px;top:-9px;width:30px;height:30px;border:2px solid var(--accent);border-radius:50%;opacity:0;animation:dmRipple 11s linear infinite}
+@keyframes dmCursor{
+  0%{opacity:0;transform:translate(-132px,72px) scale(1)}
+  5%{opacity:1;transform:translate(-118px,64px) scale(1)}
+  16%{opacity:1;transform:translate(0,0) scale(1)}
+  19%{opacity:1;transform:translate(0,0) scale(.8)}
+  23%{opacity:1;transform:translate(0,0) scale(1)}
+  32%{opacity:0;transform:translate(-52px,52px) scale(1)}
+  34%,100%{opacity:0;transform:translate(-132px,72px) scale(1)}
+}
+@keyframes dmRipple{0%,18%{opacity:0;transform:scale(.45)}20%{opacity:.85;transform:scale(.7)}27%,100%{opacity:0;transform:scale(1.6)}}
+.dm-foot{display:flex;align-items:center;gap:9px;padding:10px 14px;border-top:1px solid var(--line)}
+.dm-fdot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--accent);animation:dmDot 11s linear infinite}
+.dm-ftext{position:relative;display:block;flex:1;min-width:0;height:15px}
+.dm-ftext i{position:absolute;left:0;top:0;font-style:normal;font-size:11.5px;line-height:15px;color:var(--ink-2);white-space:nowrap}
+.dm-fpath{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+.dm-pop{position:absolute;right:-24px;bottom:-34px;z-index:2;width:48%;max-width:380px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);box-shadow:var(--shadow);overflow:hidden;transform-origin:100% 100%;animation:dmPop 11s cubic-bezier(.2,.7,.2,1) infinite}
+@keyframes dmPop{0%,58%{opacity:0;transform:translateY(24px) scale(.94)}67%,92%{opacity:1;transform:none}97%,100%{opacity:0;transform:translateY(24px) scale(.94)}}
+.dm-poptop{display:flex;align-items:center;gap:6px;padding:9px 11px;border-bottom:1px solid var(--line);background:var(--panel)}
+.dm-poptop i{width:7px;height:7px;border-radius:50%;background:var(--ink-3);opacity:.55}
+.dm-url{margin-left:6px;flex:1;padding:3px 9px;border-radius:999px;background:var(--bg);font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.dm-popbody{display:flex;flex-direction:column;gap:9px;padding:16px 14px 12px}
+.dm-popbody i{height:9px;border-radius:5px;background:var(--ink-3);opacity:.26}
+.dm-poptag{padding:0 14px 13px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.dm-cap{margin-top:48px;font-size:13px;line-height:1.6;color:var(--ink-3);text-wrap:pretty}
+/* A looping animation is cheap, but not while nobody is looking at it. */
+[data-demo] *{animation-play-state:paused}
+[data-demo][data-play] *{animation-play-state:running}
+@media (max-width:680px){
+  .dm-act{width:118px}
+  .dm-track{width:62px}
+  .dm-host,.dm-fpath{display:none}
+  .dm-pop{width:74%;right:-10px;bottom:-26px}
+}
+
 @media (max-width:980px){
   [data-r="hero"],[data-r="two"]{grid-template-columns:minmax(0,1fr)!important;gap:40px!important}
   [data-r="stack"]{height:340px!important;order:-1}
@@ -398,19 +494,62 @@ details[open] [data-chev]{transform:rotate(45deg)}
 
 <section id="start" style="max-width:1160px;margin:0 auto;padding:76px 28px">
   <h2 data-reveal style="display:inline-flex;align-items:center;gap:8px;margin:0;font-family:var(--mono);font-size:11.5px;font-weight:400;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg><span>Sixty seconds to your first old browser</span></h2>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:26px;margin-top:32px">
-    <div data-reveal>
-      <div style="display:flex;align-items:center;gap:10px"><span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:12.5px;font-weight:600">1</span><h3 style="margin:0;font-size:17px;font-weight:620;letter-spacing:-.01em">Open it</h3></div>
-      <p style="margin:14px 0 0;font-size:15px;line-height:1.62;color:var(--ink-2);text-wrap:pretty">Double-click the launcher. The <strong style="color:var(--ink);font-weight:600">manager</strong> opens in your normal browser: every version, what is installed, what each one costs in disk.</p>
+  <div data-reveal data-demo>
+    <div class="dm-steps">
+      <div class="dm-step" data-step="1">
+        <div class="dm-head"><span class="dm-num"><i>1</i></span><h3>Open it</h3></div>
+        <p>Double-click the launcher. The <strong style="color:var(--ink);font-weight:600">manager</strong> opens in your normal browser: every version, what is installed, what each one costs in disk.</p>
+      </div>
+      <div class="dm-step" data-step="2">
+        <div class="dm-head"><span class="dm-num"><i>2</i></span><h3>Pick a version</h3></div>
+        <p>Press <strong style="color:var(--ink);font-weight:600">Launch</strong> on any row. The first launch of a version downloads it — 90–300 MB, a few minutes, once. Every launch after that is instant.</p>
+      </div>
+      <div class="dm-step" data-step="3">
+        <div class="dm-head"><span class="dm-num"><i>3</i></span><h3>Use it</h3></div>
+        <p>A real browser window opens. Type a URL, open DevTools, log in, keep the profile. Close the launcher window when you are done.</p>
+      </div>
     </div>
-    <div data-reveal>
-      <div style="display:flex;align-items:center;gap:10px"><span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:12.5px;font-weight:600">2</span><h3 style="margin:0;font-size:17px;font-weight:620;letter-spacing:-.01em">Pick a version</h3></div>
-      <p style="margin:14px 0 0;font-size:15px;line-height:1.62;color:var(--ink-2);text-wrap:pretty">Press <strong style="color:var(--ink);font-weight:600">Launch</strong> on any row. The first launch of a version downloads it — 90–300 MB, a few minutes, once. Every launch after that is instant.</p>
-    </div>
-    <div data-reveal>
-      <div style="display:flex;align-items:center;gap:10px"><span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-family:var(--mono);font-size:12.5px;font-weight:600">3</span><h3 style="margin:0;font-size:17px;font-weight:620;letter-spacing:-.01em">Use it</h3></div>
-      <p style="margin:14px 0 0;font-size:15px;line-height:1.62;color:var(--ink-2);text-wrap:pretty">A real browser window opens. Type a URL, open DevTools, log in, keep the profile. Close the launcher window when you are done.</p>
-    </div>
+
+    <figure class="dm-stage">
+      <div class="dm-frame" aria-hidden="true">
+        <div class="dm-win">
+          <div class="dm-bar"><span class="dm-mark"></span><b>ChromiumStack</b><span class="dm-host">darwin/arm64</span><span class="dm-disk">1.18 GB</span></div>
+          <div class="dm-rows">
+            <div class="dm-row">
+              <span class="dm-dot is-ok"></span>
+              <span class="dm-id"><b>Chromium 130</b><span>130.0.6723.0 · native arm64</span></span>
+              <span class="dm-act"><span class="dm-slot"><span class="dm-btn is-primary">Launch</span></span></span>
+            </div>
+            <div class="dm-row is-target">
+              <span class="dm-dot dm-tdot"></span>
+              <span class="dm-id"><b>Chromium 74</b><span>r638880 · no flexbox gap</span></span>
+              <span class="dm-act">
+                <span class="dm-slot dm-get"><span class="dm-btn is-ghost">Get</span></span>
+                <span class="dm-slot dm-prog"><span class="dm-pct"><span class="dm-pctlist"><i>0%</i><i>12%</i><i>27%</i><i>41%</i><i>58%</i><i>70%</i><i>84%</i><i>96%</i><i>100%</i></span></span><i class="dm-track"><i class="dm-fill"></i></i></span>
+                <span class="dm-slot dm-stop"><span class="dm-btn is-warn">Stop</span></span>
+                <span class="dm-cursor"><svg viewBox="0 0 24 24" fill="none"><path d="M5 2.6v16.1l4.3-4.1 2.6 6.2 2.9-1.2-2.6-6.1 6-.6z" fill="var(--ink)" stroke="var(--bg)" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+              </span>
+            </div>
+            <div class="dm-row">
+              <span class="dm-dot"></span>
+              <span class="dm-id"><b>Chromium 60</b><span>r474901 · not installed</span></span>
+              <span class="dm-act"><span class="dm-slot"><span class="dm-btn is-ghost">Get</span></span></span>
+            </div>
+          </div>
+          <div class="dm-foot">
+            <span class="dm-fdot"></span>
+            <span class="dm-ftext"><i class="dm-get">Nothing running</i><i class="dm-prog">Downloading Chromium 74</i><i class="dm-stop">Chromium 74 · running</i></span>
+            <span class="dm-fpath">Files in ~/.chromium-stack</span>
+          </div>
+        </div>
+        <div class="dm-pop">
+          <div class="dm-poptop"><i></i><i></i><i></i><span class="dm-url">localhost:4173</span></div>
+          <div class="dm-popbody"><i style="width:62%"></i><i style="width:88%"></i><i style="width:46%"></i></div>
+          <div class="dm-poptag">Chromium 74 · 2019 engine</div>
+        </div>
+      </div>
+      <figcaption class="dm-cap">One row, one button. The download happens once; after that the same button opens a 2019 engine in about the time a tab takes.</figcaption>
+    </figure>
   </div>
 
   <figure data-reveal style="margin:52px 0 0">
@@ -886,6 +1025,19 @@ details[open] [data-chev]{transform:rotate(45deg)}
       });
     }, {rootMargin: '0px 0px -6% 0px'});
     targets.forEach(el => io.observe(el));
+  }
+
+  /* ---------- the sixty-seconds demo ---------- */
+  // The loop is CSS; all this does is stop it burning cycles off screen.
+  const demo = document.querySelector('[data-demo]');
+  if (demo) {
+    if (reduced || !('IntersectionObserver' in window)) {
+      demo.removeAttribute('data-play');          // the still frame is the point
+    } else {
+      new IntersectionObserver(entries => {
+        entries.forEach(e => e.target.toggleAttribute('data-play', e.isIntersecting));
+      }, {rootMargin: '15% 0px'}).observe(demo);
+    }
   }
 
   /* ---------- hero counters ---------- */
