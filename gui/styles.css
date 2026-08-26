@@ -1456,3 +1456,27 @@ table.matrix thead th {
   font-size: 11px;
   color: var(--c-faint);
 }
+
+/* Per-engine summary, sidebar, matrix view only. */
+.engline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+.engline:hover {
+  background: var(--c-surface);
+}
+.engname {
+  color: var(--c-text);
+}
+.engcount {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font: 500 11px/1 var(--mono);
+  color: var(--c-faint);
+}

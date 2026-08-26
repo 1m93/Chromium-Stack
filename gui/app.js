@@ -892,10 +892,53 @@ function renderViewSwitch() {
   // renderChrome decides whether the era list is worth showing at all, so this
   // only ever hides it - forcing it visible again would override that.
   if (matrix) $('eras-group').hidden = true;
+  $('engines-group').hidden = !matrix;
+  if (matrix) renderEngineSummary();
   const sortLabel = document.querySelector('.sort-label');
   if (sortLabel) sortLabel.hidden = matrix;
   const search = document.querySelector('.search');
   if (search) search.hidden = matrix;
+}
+
+// What each engine actually holds on this machine, counted off the matrix rather
+// than the list - the list is Chromium only, which is why its counts cannot be
+// reused here.
+function renderEngineSummary() {
+  const host = $('engine-list');
+  host.textContent = '';
+  const rows = state.matrix || [];
+  for (const engine of state.engines || []) {
+    let total = 0;
+    let installed = 0;
+    let bytes = 0;
+    for (const row of rows) {
+      const cell = row.cells[engine.id];
+      if (!cell) continue;
+      const all = [cell, ...(cell.others || [])];
+      total += all.length;
+      for (const entry of all) {
+        if (!entry.installed) continue;
+        installed += 1;
+        bytes += entry.sizeBytes;
+      }
+    }
+    if (!total) continue;
+
+    const line = document.createElement('div');
+    line.className = 'engline';
+    line.append(spanWith('engname', engine.name));
+    const right = spanWith('engcount', '');
+    if (installed) {
+      right.append(spanWith('mdot', ''));
+      right.append(document.createTextNode(mb(bytes)));
+      line.title = `${installed} of ${total} ${engine.name} versions on disk`;
+    } else {
+      right.textContent = `${total}`;
+      line.title = `${total} ${engine.name} versions on the shelf, none downloaded`;
+    }
+    line.append(right);
+    host.append(line);
+  }
 }
 
 function setView(mode) {

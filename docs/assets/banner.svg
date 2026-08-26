@@ -1,12 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" width="1200" height="380" role="img" aria-label="EngineShelf — every Chromium milestone, one click away">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" width="1200" height="380" role="img" aria-label="EngineShelf — four browser engines, every version, one click away">
 <!-- README hero. The card on the right is the manager's shelf in miniature: one
      row per version, a dot for its state, and the one button that acts on it.
      Colours are the app's own tokens, so this and the real window match.
 
-     Nothing here names a milestone count or a version range: the catalogue
-     updates itself, and art is the one place that cannot follow it. The rows
-     show one machine's shelf, which is a snapshot by nature, not a claim about
-     how far the catalogue reaches. -->
+     Nothing here names a version count or a range: the shelf is built from each
+     vendor's own index and updates itself, and art is the one place that cannot
+     follow it. The rows show one machine's shelf - one engine each, in the four
+     states a row can be in - which is a snapshot by nature, not a claim about
+     how far any engine reaches. -->
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0d1017"/>
@@ -36,10 +37,10 @@
   <rect width="1200" height="380" rx="18" fill="url(#glow)"/>
 
   <!-- wordmark -->
-  <text x="72" y="106" class="f" font-size="14" font-weight="600" letter-spacing="4.2" fill="#5c8dff">CHROMIUM VERSION MANAGER</text>
+  <text x="72" y="106" class="f" font-size="14" font-weight="600" letter-spacing="3.4" fill="#5c8dff">BROWSER ENGINE MANAGER</text>
   <text x="72" y="178" class="f" font-size="62" font-weight="700" fill="#ffffff" letter-spacing="-1.4">EngineShelf</text>
   <rect x="74" y="198" width="300" height="2" rx="1" fill="url(#rule)"/>
-  <text x="72" y="232" class="f" font-size="20" fill="#a3adbd">Every Chromium milestone,</text>
+  <text x="72" y="232" class="f" font-size="20" fill="#a3adbd">Four engines, every version,</text>
   <text x="72" y="258" class="f" font-size="20" fill="#a3adbd">one click away.</text>
 
   <!-- where it runs -->
@@ -47,7 +48,7 @@
     <rect x="72"  y="290" width="70" height="32" rx="9" fill="#ffffff" opacity="0.07"/><text x="107" y="311" text-anchor="middle" class="f" font-size="14" fill="#9aa6bb">macOS</text>
     <rect x="150" y="290" width="84" height="32" rx="9" fill="#ffffff" opacity="0.07"/><text x="192" y="311" text-anchor="middle" class="f" font-size="14" fill="#9aa6bb">Windows</text>
     <rect x="242" y="290" width="62" height="32" rx="9" fill="#ffffff" opacity="0.07"/><text x="273" y="311" text-anchor="middle" class="f" font-size="14" fill="#9aa6bb">Linux</text>
-    <text x="322" y="311" class="f" font-size="14" fill="#6e7889">+ any snapshot revision</text>
+    <text x="322" y="311" class="f" font-size="13" fill="#6e7889">Chromium · Firefox · Edge · WebKit</text>
   </g>
 
   <!-- the manager, in miniature -->
@@ -63,15 +64,15 @@
     <!-- installed, idle -->
     <rect x="706" y="104" width="408" height="44" rx="11" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
     <circle cx="730" cy="126" r="4" fill="#3fbd7d"/>
-    <text x="756" y="124" class="f name">Chromium 130</text>
-    <text x="756" y="139" class="m sub">130.0.6723.0 · native arm64</text>
+    <text x="756" y="124" class="f name">Chromium 152</text>
+    <text x="756" y="139" class="m sub">152.0.7623.0 · native arm64</text>
     <rect x="1018" y="113" width="84" height="26" rx="8" fill="#5c8dff"/>
     <text x="1060" y="130" text-anchor="middle" class="f pill" fill="#ffffff">Launch</text>
 
     <!-- downloading, with its progress -->
     <rect x="706" y="154" width="408" height="44" rx="11" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
     <circle cx="730" cy="176" r="4" fill="#5c8dff"/>
-    <text x="756" y="174" class="f name">Chromium 105</text>
+    <text x="756" y="174" class="f name">Firefox 140 ESR</text>
     <text x="756" y="189" class="m sub">downloading · 100 MB of 232 MB</text>
     <text x="1102" y="170" text-anchor="end" class="m" font-size="10" fill="#a3adbd">43%</text>
     <rect x="946" y="178" width="156" height="6" rx="3" fill="#272c36"/>
@@ -80,20 +81,20 @@
     <!-- running -->
     <rect x="706" y="204" width="408" height="44" rx="11" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
     <circle cx="730" cy="226" r="4" fill="#5c8dff"/>
-    <text x="756" y="224" class="f name">Chromium 74</text>
-    <text x="756" y="239" class="m sub">r638880 · running · 192 MB</text>
+    <text x="756" y="224" class="f name">WebKit 26.5</text>
+    <text x="756" y="239" class="m sub">r2336 · running · 294 MB</text>
     <rect x="1018" y="213" width="84" height="26" rx="8" fill="none" stroke="#e0a03c" stroke-width="1.2"/>
     <text x="1060" y="230" text-anchor="middle" class="f pill" fill="#e0a03c">Stop</text>
 
     <!-- not installed yet -->
     <rect x="706" y="254" width="408" height="44" rx="11" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
     <circle cx="730" cy="276" r="4" fill="#6e7889"/>
-    <text x="756" y="274" class="f name">Chromium 60</text>
-    <text x="756" y="289" class="m sub">r474901 · not installed</text>
+    <text x="756" y="274" class="f name">Edge 151</text>
+    <text x="756" y="289" class="m sub">151.0.4129.107 · not installed</text>
     <rect x="1018" y="263" width="84" height="26" rx="8" fill="#ffffff" opacity="0.06"/>
     <text x="1060" y="280" text-anchor="middle" class="f pill" fill="#a3adbd">Get</text>
 
     <text x="706" y="316" class="m" font-size="10.5" fill="#6e7889">Files in ~/.engineshelf</text>
-    <text x="1114" y="316" text-anchor="end" class="m" font-size="10.5" fill="#6e7889">1.18 GB on disk</text>
+    <text x="1114" y="316" text-anchor="end" class="m" font-size="10.5" fill="#6e7889">2.2 GB on disk</text>
   </g>
 </svg>
