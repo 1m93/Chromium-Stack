@@ -73,6 +73,7 @@ stage_tree() {
   cp "$ROOT/gui/icon.svg"           "$dest/gui/"
   cp "$ROOT/docker/Dockerfile"      "$dest/docker/"
   cp "$ROOT/docker/entrypoint.sh"   "$dest/docker/"   # runs inside the container
+  cp "$ROOT/docker/clipboard.js"    "$dest/docker/"   # copied into the image by the Dockerfile
 
   # Served assets: minified (comments + indentation stripped).
   cp "$ROOT/gui/index.html" "$dest/gui/"

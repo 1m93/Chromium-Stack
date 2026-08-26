@@ -87,6 +87,10 @@ function Resolve-DockerTarget {
     return @{ Milestone = $milestone; Version = $version; Revision = $revision }
 }
 
+# These three names are the whole contract between this script and the manager:
+# gui/server.ps1 reads them back to show which versions have an image, how much
+# disk it costs and which containers are up, so a rename here has to happen
+# there too (grep ContainerPrefix).
 function Get-ImageName     { param($rev) "chromium-stack:$rev" }
 function Get-ContainerName { param($rev) "chromium-stack-$rev" }
 function Get-VolumeName    { param($rev) "chromium-stack-profile-$rev" }
@@ -101,13 +105,48 @@ function Get-RunningPort {
 }
 
 function Get-FreePort {
+    param([int]$From = 0)
+    if ($From -lt $BasePort) { $From = $BasePort }
     $used = @()
     $listeners = [Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
     foreach ($listener in $listeners) { $used += $listener.Port }
-    for ($port = $BasePort; $port -lt $BasePort + 60; $port++) {
+    for ($port = $From; $port -lt $BasePort + 60; $port++) {
         if ($used -notcontains $port) { return $port }
     }
     Die "No free port between $BasePort and $($BasePort + 60)."
+}
+
+# Published on the loopback address only. The desktop in there has no password
+# and a real browser attached to it, and the rest of ChromiumStack is careful to
+# stay off the network; a plain -p put it in front of everyone on the wifi.
+#
+# Between choosing a port and binding it another container can take it, and that
+# is exactly what happens when two versions are started together: both saw 6080
+# free, the second lost the race and reported "Could not start the container".
+# Docker is the only thing that can answer for certain, so a refused binding
+# moves up a port and tries again instead of ending the launch.
+function Start-Container {
+    param($Image, $Container, $Volume)
+    $floor = $BasePort
+    for ($attempt = 0; $attempt -lt 6; $attempt++) {
+        $port = Get-FreePort $floor
+        $output = docker run -d --name $Container --platform linux/amd64 `
+            -p "127.0.0.1:${port}:6080" -v "${Volume}:/data" `
+            --add-host 'host.docker.internal:host-gateway' --shm-size=1g $Image 2>&1
+        if ($LASTEXITCODE -eq 0) { return $port }
+        # A named container that failed to start still exists, and the next
+        # attempt cannot reuse the name until it is gone.
+        docker rm -f $Container 2>&1 | Out-Null
+        $text = ($output | Out-String)
+        if ($text -match 'already allocated|address already in use|Bind for') {
+            $floor = $port + 1
+        } else {
+            Write-Host $text
+            return $null
+        }
+    }
+    Write-Host "  Every port tried was taken by something else."
+    return $null
 }
 
 function Invoke-Start {
@@ -149,11 +188,8 @@ function Invoke-Start {
         if ($LASTEXITCODE -ne 0) { Die "Image build failed." }
     }
 
-    $port = Get-FreePort
-    docker run -d --name $container --platform linux/amd64 `
-        -p "${port}:6080" -v "${volume}:/data" `
-        --add-host 'host.docker.internal:host-gateway' --shm-size=1g $image | Out-Null
-    if ($LASTEXITCODE -ne 0) { Die "Could not start the container." }
+    $port = Start-Container $image $container $volume
+    if (-not $port) { Die "Could not start the container." }
 
     $url = "http://localhost:$port/vnc.html?autoconnect=1&resize=scale"
     Write-Host "  Waiting for the desktop" -NoNewline
@@ -178,6 +214,7 @@ function Invoke-Start {
 
     Write-Host ""
     Write-Host "  > $url" -ForegroundColor Green
+    Write-Host "  Copy and paste work across the tab in both directions." -ForegroundColor DarkGray
     Write-Host "  To reach a dev server on this machine, type" -ForegroundColor DarkGray
     Write-Host "  http://host.docker.internal:4173 in the Chromium address bar." -ForegroundColor DarkGray
     Write-Host "  Stop it with: .\chromium-stack-docker.ps1 stop $($target.Milestone)" -ForegroundColor DarkGray
@@ -191,9 +228,20 @@ switch -Regex ($Command) {
     '^(stop|down)$' {
         $target = Resolve-DockerTarget $Selector
         Test-Docker
-        docker rm -f (Get-ContainerName $target.Revision) 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Ok "Stopped Chromium $($target.Version)." }
-        else { Write-Host "Chromium $($target.Version) was not running." -ForegroundColor DarkGray }
+        $container = Get-ContainerName $target.Revision
+        # SIGTERM before SIGKILL, so the browser inside gets to close its
+        # profile. A container removed outright left a lock in the profile volume
+        # that stopped the next start of this version dead; the entrypoint clears
+        # a stale one now, but stopping politely is still the right way round.
+        $live = docker ps --format '{{.Names}}' 2>$null
+        if ($live -contains $container) {
+            docker stop -t 12 $container 2>&1 | Out-Null
+            docker rm -f $container 2>&1 | Out-Null
+            Write-Ok "Stopped Chromium $($target.Version)."
+        } else {
+            docker rm -f $container 2>&1 | Out-Null
+            Write-Host "Chromium $($target.Version) was not running." -ForegroundColor DarkGray
+        }
         break
     }
     '^logs$' {

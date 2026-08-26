@@ -120,25 +120,184 @@ function Get-InstalledBuilds {
     return $result
 }
 
+# The names chromium-stack-docker.ps1 gives the things it creates. The manager
+# reads them back, which is the only way a version living in a container can look
+# like one living on disk; renaming any of them means changing both files.
+$ContainerPrefix = 'chromium-stack-'
+$ImageRepo       = 'chromium-stack'
+$VolumePrefix    = 'chromium-stack-profile-'
+
+# Probing Docker costs about a second and the page asks every four; the answer
+# does not change that fast. Volume sizes cost a second on their own, so they
+# get a longer window - a profile grows by megabytes over a session.
+$script:DockerCache = @{ At = [datetime]::MinValue; Value = $null }
+$script:VolumeCache = @{ At = [datetime]::MinValue; Value = $null }
+
+function Convert-HumanBytes {
+    # "10.13MB" -> bytes. Docker's own read-outs use decimal units.
+    param([string]$Text)
+    if ($Text -notmatch '^\s*([\d.]+)\s*([KMGT]?B)\s*$') { return 0 }
+    $scale = @{ 'B' = 1; 'KB' = 1e3; 'MB' = 1e6; 'GB' = 1e9; 'TB' = 1e12 }[$Matches[2].ToUpper()]
+    return [int64]([double]$Matches[1] * $scale)
+}
+
+function Get-PublishedPort {
+    # "127.0.0.1:6081->6080/tcp" -> 6081. The launcher takes whichever port it
+    # can get, so asking what a container published is the only way to know.
+    param([string]$Mapping)
+    foreach ($part in ($Mapping -split ',')) {
+        if ($part -match ':(\d+)->6080/') { return [int]$Matches[1] }
+    }
+    return $null
+}
+
+function Get-DockerVolumeSizes {
+    if ($script:VolumeCache.Value -and
+        ((Get-Date) - $script:VolumeCache.At).TotalSeconds -lt 60) {
+        return $script:VolumeCache.Value
+    }
+    $sizes = @{}
+    try {
+        $raw = docker system df -v --format '{{json .Volumes}}' 2>$null
+        if ($LASTEXITCODE -eq 0 -and $raw) {
+            foreach ($volume in (@($raw) -join '' | ConvertFrom-Json)) {
+                if ($volume.Name -like "$VolumePrefix*") {
+                    $sizes[$volume.Name.Substring($VolumePrefix.Length)] = Convert-HumanBytes $volume.Size
+                }
+            }
+        }
+    } catch { }
+    $script:VolumeCache = @{ At = (Get-Date); Value = $sizes }
+    return $sizes
+}
+
 function Get-DockerStatus {
+    <#
+      What Docker is holding for ChromiumStack: images, their size, containers.
+
+      Without this the shelf could say nothing true about a version that runs in
+      a container - no size for an image costing a gigabyte, and no sign it was
+      running at all, because the job that starts a container exits as soon as
+      the desktop answers.
+    #>
+    if ($script:DockerCache.Value -and
+        ((Get-Date) - $script:DockerCache.At).TotalSeconds -lt 10) {
+        return $script:DockerCache.Value
+    }
+
     $cli = $null -ne (Get-Command docker -ErrorAction SilentlyContinue)
     $running = $false
     $containers = @()
+    $byRevision = @{}
     if ($cli) {
         docker info 2>&1 | Out-Null
         $running = ($LASTEXITCODE -eq 0)
     }
+
+    function Get-Slot {
+        param($Table, [string]$Revision)
+        if (-not $Table.ContainsKey($Revision)) {
+            $Table[$Revision] = @{ imageBytes = [int64]0; profileBytes = [int64]0
+                                   state = $null; status = ''; port = $null }
+        }
+        return $Table[$Revision]
+    }
+
     if ($running) {
-        # One container per version, named chromium-stack-<revision>. The page
-        # needs these to know which rows can be stopped rather than started.
-        $names = docker ps --format '{{.Names}}' 2>$null
-        foreach ($name in $names) {
-            if ($name -like 'chromium-stack-*') {
-                $containers += $name.Substring('chromium-stack-'.Length)
+        # One image per version, tagged with the revision it was built from. The
+        # tag list is cheap; the exact byte count needs an inspect, because
+        # `docker images` only prints a rounded decimal string.
+        $tags = @(docker images $ImageRepo --format '{{.Tag}}' 2>$null |
+                  Where-Object { $_ -and $_ -ne '<none>' })
+        if ($tags.Count) {
+            $refs = @($tags | ForEach-Object { "${ImageRepo}:$_" })
+            $sizes = @(docker image inspect --format '{{.Size}}' @refs 2>$null)
+            for ($i = 0; $i -lt $tags.Count -and $i -lt $sizes.Count; $i++) {
+                $slot = Get-Slot $byRevision $tags[$i]
+                $slot.imageBytes = [int64]$sizes[$i]
             }
         }
+
+        # One container per version, named chromium-stack-<revision>. Stopped
+        # ones are listed too: a container that exits the moment it starts is a
+        # fault worth showing, not a row that quietly does nothing.
+        $listing = @(docker ps -a --filter "name=$ContainerPrefix" `
+                     --format '{{.Names}}|{{.State}}|{{.Status}}|{{.Ports}}' 2>$null)
+        foreach ($line in $listing) {
+            $parts = $line -split '\|'
+            if ($parts.Count -lt 4 -or $parts[0] -notlike "$ContainerPrefix*") { continue }
+            $revision = $parts[0].Substring($ContainerPrefix.Length)
+            $slot = Get-Slot $byRevision $revision
+            $slot.state = $parts[1]
+            $slot.status = $parts[2]
+            $slot.port = Get-PublishedPort $parts[3]
+            if ($parts[1] -eq 'running') { $containers += $revision }
+        }
+
+        foreach ($entry in (Get-DockerVolumeSizes).GetEnumerator()) {
+            (Get-Slot $byRevision $entry.Key).profileBytes = $entry.Value
+        }
     }
-    return @{ cli = $cli; running = $running; containers = @($containers); supported = (Test-Path $DockerCli) }
+
+    $imageBytes = [int64]0; $profileBytes = [int64]0
+    foreach ($slot in $byRevision.Values) {
+        $imageBytes += $slot.imageBytes
+        $profileBytes += $slot.profileBytes
+    }
+
+    $value = @{
+        cli = $cli; running = $running; containers = @($containers)
+        supported = (Test-Path $DockerCli)
+        byRevision = $byRevision
+        imageBytes = $imageBytes
+        profileBytes = $profileBytes
+    }
+    $script:DockerCache = @{ At = (Get-Date); Value = $value }
+    return $value
+}
+
+function Get-DockerRow {
+    <#
+      The Docker side of one shelf row, or $null if there is nothing to offer.
+
+      A container always runs the Linux x86_64 build, so its revision is not the
+      one this host installs natively - and comparing those two is exactly what
+      used to hide a running container from the row it belonged to.
+    #>
+    param($Revision, $Status)
+    if ($null -eq $Revision -or -not $Status.supported) { return $null }
+    $entry = $Status.byRevision[[string]$Revision]
+    if (-not $entry) { $entry = @{ imageBytes = 0; profileBytes = 0; state = $null; status = ''; port = $null } }
+    return @{
+        revision = $Revision
+        imageBytes = $entry.imageBytes
+        profileBytes = $entry.profileBytes
+        state = $entry.state
+        status = $entry.status
+        port = $entry.port
+    }
+}
+
+function Get-LinuxRevision {
+    # The revision a container would run for this milestone, if there is one.
+    # Rows without a Linux x86_64 build cannot go in a container at all, and the
+    # manager used to offer it anyway.
+    param($Builds, $Milestone)
+    if ($null -eq $Milestone) { return $null }
+    if (-not $Builds.ContainsKey($Milestone)) { return $null }
+    if (-not $Builds[$Milestone].ContainsKey('Linux_x64')) { return $null }
+    return $Builds[$Milestone]['Linux_x64'].revision
+}
+
+function Get-MilestoneOf {
+    # Which milestone a raw revision belongs to, on any platform.
+    param($Builds, $Revision)
+    foreach ($milestone in $Builds.Keys) {
+        foreach ($build in $Builds[$milestone].Values) {
+            if ($build.revision -eq $Revision) { return $milestone }
+        }
+    }
+    return $null
 }
 
 function Get-DoctorReport {
@@ -154,12 +313,14 @@ function Get-DoctorReport {
 function Get-State {
     $catalog = Read-Catalog
     $installed = Get-InstalledBuilds
+    $docker = Get-DockerStatus
     $rows = New-Object System.Collections.ArrayList
     $catalogued = @{}
 
     foreach ($entry in $catalog.versions) {
         $m = $entry.milestone
         $row = @{ milestone = $m; version = $entry.version; note = $entry.note; native = $true }
+        $row.docker = Get-DockerRow (Get-LinuxRevision $catalog.builds $m) $docker
         if ($catalog.builds.ContainsKey($m) -and $catalog.builds[$m].ContainsKey($HostPlatform)) {
             $b = $catalog.builds[$m][$HostPlatform]
             $row.platformDir = $HostPlatform
@@ -182,7 +343,9 @@ function Get-State {
         [void]$rows.Add($row)
     }
 
-    # Builds installed by raw revision that no catalogue row claims.
+    # Builds installed by raw revision that no catalogue row claims. A container
+    # for one of these still runs the Linux build of whatever milestone it
+    # belongs to, so it is looked up the same way the launcher looks it up.
     $extra = New-Object System.Collections.ArrayList
     foreach ($rev in ($installed.Keys | Sort-Object)) {
         if ($catalogued.ContainsKey($rev)) { continue }
@@ -191,6 +354,9 @@ function Get-State {
         $row.supported = $true
         $row.native = $true
         $row.installed = $true
+        $milestone = Get-MilestoneOf $catalog.builds $rev
+        $dockerRev = if ($null -ne $milestone) { Get-LinuxRevision $catalog.builds $milestone } else { $rev }
+        $row.docker = Get-DockerRow $dockerRev $docker
         [void]$extra.Add($row)
     }
 
@@ -205,7 +371,10 @@ function Get-State {
         versions = $rows
         extra = $extra
         totalBytes = $total
-        docker = Get-DockerStatus
+        # Images and profile volumes are the other place gigabytes go, and they
+        # are invisible from the file tree the rest of this reads.
+        dockerBytes = ($docker.imageBytes + $docker.profileBytes)
+        docker = $docker
         doctor = Get-DoctorReport
         # @() is not decoration. Returning a collection from a function unrolls it,
         # so with no jobs running this arrives as $null and with one as a bare
@@ -294,6 +463,14 @@ function Get-JobRecord {
     $exited = $job.proc.HasExited
     $code = $null
     $status = 'running'
+    if ($exited -and -not $job.settled) {
+        # A finished job has usually just changed what Docker holds, and the page
+        # asks for the state again the moment it sees the job end. Once per job:
+        # this is read on every poll, including polls of a job that ended long ago.
+        $job.settled = $true
+        $script:DockerCache.Value = $null
+        $script:VolumeCache.Value = $null
+    }
     if ($exited) {
         $code = $job.proc.ExitCode
         if ($job.stopping) { $status = 'stopped' }
@@ -508,10 +685,16 @@ function Invoke-Route {
         '/api/docker' {
             $action = [string](Get-Field $body 'action')
             if (-not $action) { $action = 'start' }
-            if (@('start', 'stop', 'logs') -notcontains $action) {
+            if (@('start', 'stop', 'rebuild', 'purge') -notcontains $action) {
                 Send-Json $Stream @{ error = 'bad action' } 400; return
             }
-            $id = Start-Job2 'docker' $selector @($action, $selector) "Docker $action $selector" $DockerCli
+            $cliArgs = @($action, $selector)
+            # An image is a gigabyte, so removing one has to be possible from the
+            # shelf; otherwise the only way to get that disk back is raw docker.
+            if ($action -eq 'purge' -and (Get-Field $body 'withProfile')) {
+                $cliArgs += '--with-profile'
+            }
+            $id = Start-Job2 'docker' $selector $cliArgs "Docker $action $selector" $DockerCli
             Send-Json $Stream @{ job = $id }; return
         }
         default { Send-Json $Stream @{ error = 'no such endpoint' } 404; return }

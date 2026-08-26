@@ -313,18 +313,45 @@ function decorate(row) {
   const open = Boolean(launchJob) && Boolean(info) && info.phase === "open";
   const busy = open ? null : job;
 
+  // Docker is the second way to run the same version, with its own image on
+  // disk, its own container and its own profile volume - and the row used to
+  // know about none of it, so it said "not installed" over a gigabyte of image
+  // and showed nothing at all over a browser that was up. The server reports it
+  // under the Linux revision a container actually runs, which is never the
+  // revision this host installs natively.
+  const dk = row.docker || null;
+  const dockerRunning = Boolean(dk && dk.state === "running");
+  const dockerImage = dk ? dk.imageBytes || 0 : 0;
+  const running = open || dockerRunning;
+
   return {
     raw: row, selector, version, milestone, note, tags, rosetta,
-    job, info, busy, running: open,
+    job, info, busy,
+    running: open,             // a native window, which is what Stop acts on
+    dockerRunning,
+    dockerImage,
+    dockerRevision: dk ? String(dk.revision) : null,
+    dockerProfileBytes: dk ? dk.profileBytes || 0 : 0,
+    dockerStatus: dk ? dk.status || "" : "",
+    dockerUrl: dockerRunning && dk.port
+      ? `http://localhost:${dk.port}/vnc.html?autoconnect=1&resize=scale` : null,
+    // Offered when this milestone has a Linux build to put in a container. The
+    // daemon does not have to be up: the launcher offers to start it, the same
+    // way the command line does.
+    dockerAvailable: Boolean(dk) && Boolean(state.docker && state.docker.cli),
     name: milestone ? `Chromium ${milestone}` : version,
     installed: Boolean(row.installed),
+    // "Is this version taking up disk", which an image answers as much as a
+    // downloaded build does. The installed filter and count read this.
+    onDisk: Boolean(row.installed) || dockerImage > 0,
     supported: row.supported !== false,
     sizeBytes: row.sizeBytes || 0,
     profileBytes: row.profileBytes || 0,
+    diskBytes: (row.sizeBytes || 0) + (row.profileBytes || 0) + dockerImage,
     era: row.extra ? null : eraFor(row),
-    status: open ? "running"
+    status: running ? "running"
       : busy ? (info && info.phase === "downloading" ? "downloading" : "working")
-      : row.installed ? "installed" : "absent",
+      : row.installed || dockerImage ? "installed" : "absent",
     search: [milestone, version, selector ? `r${selector}` : "", raw].join(" ").toLowerCase(),
   };
 }
@@ -575,7 +602,9 @@ function render() {
 
   const counts = {
     all: rows.length,
-    installed: rows.filter((row) => row.installed).length,
+    // A built Docker image is a copy of that version taking up disk, so it
+    // counts as installed here even with nothing in the builds directory.
+    installed: rows.filter((row) => row.onDisk).length,
     running: rows.filter((row) => row.status === "running").length,
     rosetta: rows.filter((row) => row.rosetta).length,
   };
@@ -587,7 +616,7 @@ function render() {
 
   const query = view.query.trim().toLowerCase();
   const visible = rows.filter((row) => {
-    if (view.filter === "installed" && !row.installed) return false;
+    if (view.filter === "installed" && !row.onDisk) return false;
     if (view.filter === "running" && row.status !== "running") return false;
     if (view.filter === "rosetta" && !row.rosetta) return false;
     return !query || row.search.includes(query);
@@ -615,7 +644,8 @@ function render() {
       glyph: "search",
       title: "Nothing matches that filter",
       detail: view.filter === "installed"
-        ? "No browser has been downloaded into this profile directory yet."
+        ? "No browser has been downloaded into this profile directory yet, and no " +
+          "Docker image has been built either."
         : "No catalogued version matches the current filter and search.",
       actionLabel: "Reset filters",
       onAction: () => {
@@ -639,17 +669,27 @@ function renderChrome(rows, counts) {
 
   const browsers = rows.reduce((total, row) => total + row.sizeBytes, 0);
   const profiles = rows.reduce((total, row) => total + row.profileBytes, 0);
-  const total = browsers + profiles;
+  // Images and their profile volumes live inside Docker rather than under the
+  // ChromiumStack directory, so nothing that walks the file tree can see them -
+  // and at a gigabyte each they were the largest thing this gauge left out.
+  const containers = state.dockerBytes || 0;
+  const total = browsers + profiles + containers;
   const share = (value) => `${total ? (value / total) * 100 : 0}%`;
 
-  $("disk-text").textContent = mb(state.totalBytes);
-  $("gauge").title = `${mb(browsers)} of browsers and ${mb(profiles)} of profiles on disk`;
-  $("disk-seg-browsers").style.width = share(browsers);
-  $("disk-seg-profiles").style.width = share(profiles);
-  $("card-seg-browsers").style.width = share(browsers);
-  $("card-seg-profiles").style.width = share(profiles);
+  $("disk-text").textContent = mb(total);
+  $("gauge").title = containers
+    ? `${mb(browsers)} of browsers, ${mb(profiles)} of profiles and ${mb(containers)} of Docker images`
+    : `${mb(browsers)} of browsers and ${mb(profiles)} of profiles on disk`;
+  for (const [id, value] of [["browsers", browsers], ["profiles", profiles], ["docker", containers]]) {
+    $(`disk-seg-${id}`).style.width = share(value);
+    $(`card-seg-${id}`).style.width = share(value);
+  }
   $("disk-browsers").textContent = mb(browsers);
   $("disk-profiles").textContent = mb(profiles);
+  $("disk-docker").textContent = mb(containers);
+  // Hidden rather than shown as zero: most machines never build an image, and a
+  // permanent "Docker 0 MB" line would be noise on all of them.
+  $("disk-docker-line").hidden = containers === 0;
 
   for (const button of document.querySelectorAll("[data-filter]")) {
     button.classList.toggle("is-on", button.dataset.filter === view.filter);
@@ -688,7 +728,7 @@ function groupRows(visible) {
   const byMilestone = (a, b) => (Number(b.milestone) || 0) - (Number(a.milestone) || 0);
   const sorted = (rows) => {
     if (view.sort === "old") return rows.slice().sort((a, b) => -byMilestone(a, b));
-    if (view.sort === "disk") return rows.slice().sort((a, b) => b.sizeBytes - a.sizeBytes);
+    if (view.sort === "disk") return rows.slice().sort((a, b) => b.diskBytes - a.diskBytes);
     return rows.slice().sort(byMilestone);
   };
 
@@ -747,8 +787,10 @@ function renderRow(row) {
   const dot = node.querySelector("[data-dot]");
   dot.dataset.state = row.status;
   dot.title = row.running ? "Running"
+    : row.dockerRunning ? `Running in Docker — ${row.dockerStatus || "container up"}`
     : row.busy ? row.busy.label
-    : row.installed ? "Installed" : "Not installed";
+    : row.installed ? "Installed"
+    : row.dockerImage ? "Docker image built, not running" : "Not installed";
 
   const tags = node.querySelector("[data-tags]");
   for (const text of row.tags) {
@@ -773,12 +815,44 @@ function renderRow(row) {
   }
   if (badge.textContent) tags.append(badge);
 
+  // Docker gets its own marker rather than a share of the fixed-width size
+  // column: it is a separate copy of the browser, and when the container is up
+  // this is also the way back to the tab showing its desktop.
+  if (row.dockerRunning || row.dockerImage) {
+    const mark = document.createElement(row.dockerUrl ? "a" : "span");
+    mark.className = "badge docker";
+    if (row.dockerRunning) {
+      mark.textContent = "Docker · running";
+      mark.classList.add("is-live");
+      const held = `${mb(row.dockerImage)} image` +
+                   (row.dockerProfileBytes ? ` · ${mb(row.dockerProfileBytes)} profile` : "");
+      mark.title = row.dockerUrl
+        ? `${row.dockerStatus} · ${held} — open the desktop`
+        : `${row.dockerStatus || "Container up"} · ${held}`;
+      if (row.dockerUrl) {
+        mark.href = row.dockerUrl;
+        mark.target = "_blank";
+        mark.rel = "noopener";
+      }
+    } else {
+      mark.textContent = `Docker · ${mb(row.dockerImage)}`;
+      mark.title = row.dockerProfileBytes
+        ? `Image built for the container, plus ${mb(row.dockerProfileBytes)} of profile. ` +
+          "Layers shared with other ChromiumStack images are counted once per image."
+        : "Image built for the container, not running.";
+    }
+    tags.append(mark);
+  }
+
   // The version is what identifies a build, so it stays put whatever else the
   // row is doing; sizes and progress words go on their own line under it.
   node.querySelector("[data-version]").textContent = row.supported ? row.version : "";
   node.querySelector("[data-size]").textContent = row.busy
     ? `${workWord(row.busy, row.info)}…`
     : row.installed ? `${mb(row.sizeBytes)} · ${mb(row.profileBytes)} profile`
+    // Nothing downloaded natively, but the image is a real copy of this version
+    // and the row would otherwise read as empty.
+    : row.dockerImage ? `${mb(row.dockerImage)} in Docker`
     : "";
 
   if (row.busy) {
@@ -794,7 +868,7 @@ function renderRow(row) {
   if (!row.supported) {
     node.classList.add("unsupported");
   } else {
-    if (row.running) node.classList.add("is-running");
+    if (row.running || row.dockerRunning) node.classList.add("is-running");
     renderActions(node.querySelector("[data-actions]"), row);
   }
   return node;
@@ -844,11 +918,37 @@ function renderActions(container, row) {
         setTimeout(refresh, 400);
       };
     }
+  } else if (row.dockerRunning) {
+    // The container is up, so the version is running even though no native
+    // window is - and something is burning CPU that the row has to be able to
+    // turn off. The badge next to the version is the way back to the desktop.
+    action.classList.add("warn");
+    action.append(iconSpan("stop"), "Stop");
+    action.title = "Stop the Docker container running this version";
+    action.onclick = async () => {
+      action.disabled = true;
+      try {
+        const { job } = await post("/api/docker", { selector: row.dockerRevision, action: "stop" });
+        watch(job, `Stopping Docker · ${row.name}`);
+      } catch (error) {
+        showJobFailure(`Stopping Docker · ${row.name}`, error.message);
+        action.disabled = false;
+        return;
+      }
+      refresh();
+    };
   } else if (row.installed) {
     action.classList.add("accent");
     action.append(iconSpan("play"), "Launch");
     action.title = "Open this build";
     action.onclick = () => start(action, row);
+  } else if (row.dockerImage) {
+    // The image is already built, so this is one click and no download - the
+    // same shape as Launch, which is what it is.
+    action.classList.add("accent");
+    action.append(iconSpan("cube"), "Launch");
+    action.title = "Run this version in its Docker container and open the desktop";
+    action.onclick = () => startDocker(action, row);
   } else {
     action.append(iconSpan("download"), "Get");
     action.title = "Download this build and launch it";
@@ -874,6 +974,22 @@ async function start(button, row) {
     watch(job, row.name);
   } catch (error) {
     showJobFailure(row.name, error.message);
+    button.disabled = false;
+    return;
+  }
+  refresh();
+}
+
+// The launch options above are for the native launcher - a container brings up a
+// whole desktop and takes none of them - so this is deliberately its own path
+// rather than a flag on start().
+async function startDocker(button, row) {
+  button.disabled = true;
+  try {
+    const { job } = await post("/api/docker", { selector: row.dockerRevision, action: "start" });
+    watch(job, `Docker · ${row.name}`);
+  } catch (error) {
+    showJobFailure(`Docker · ${row.name}`, error.message);
     button.disabled = false;
     return;
   }
@@ -913,19 +1029,52 @@ function toggleMenu(container, row) {
     });
   }
 
-  // One container per version: the server lists the ones that are up, so the
-  // menu offers the half that can actually happen rather than both.
-  if (state.docker && state.docker.supported && state.docker.cli) {
-    if (asArray(state.docker.containers).map(String).includes(selector)) {
-      item("stop", "Stop Docker container", async () => {
-        const { job } = await post("/api/docker", { selector, action: "stop" });
+  // Docker, if this milestone has a Linux build to put in a container. Every
+  // action is keyed by that Linux revision, which is the mismatch that used to
+  // leave a running container looking stopped: the shelf compared it against the
+  // revision this host installs natively, and the two are never the same.
+  const docker = row.dockerRevision;
+  if (row.dockerAvailable) {
+    if (row.dockerRunning) {
+      if (row.dockerUrl) {
+        item("link", "Open the desktop", async () => {
+          window.open(row.dockerUrl, "_blank", "noopener");
+        });
+      }
+      item("stop", "Stop the container", async () => {
+        const { job } = await post("/api/docker", { selector: docker, action: "stop" });
         watch(job, `Stopping Docker · ${row.name}`);
       });
+      if (row.installed) {
+        // Both ways of running this version are available and only one of them
+        // has the row's button, so the other cannot be a dead end.
+        item("play", "Launch natively as well", async () => {
+          const { job } = await post("/api/launch", { selector, ...launchOptions() });
+          watch(job, row.name);
+        });
+      }
     } else {
-      item("cube", "Run in Docker (noVNC)", async () => {
-        const { job } = await post("/api/docker", { selector, action: "start" });
+      item("cube", row.dockerImage
+        ? "Run in Docker (noVNC)"
+        : "Run in Docker (builds an image first)", async () => {
+        const { job } = await post("/api/docker", { selector: docker, action: "start" });
         watch(job, `Docker · ${row.name}`);
       });
+    }
+    if (row.dockerImage) {
+      const held = row.dockerImage + row.dockerProfileBytes;
+      item("trash", `Delete Docker image (${mb(row.dockerImage)})`, async () => {
+        const go = await askConfirm({
+          title: `Delete the Docker image for ${row.name}?`,
+          body: `Frees up to ${mb(held)}, less whatever layers other ChromiumStack images ` +
+                "share. The container's profile is kept, so building it again restores " +
+                "your session. Building takes several minutes.",
+          label: "Delete image",
+        });
+        if (!go) return;
+        const { job } = await post("/api/docker", { selector: docker, action: "purge" });
+        watch(job, `Removing Docker image · ${row.name}`);
+      }, true);
     }
   }
 
@@ -996,9 +1145,15 @@ function renderStatusBar() {
   more.title = others < 1 ? "" : "Show the other running jobs";
 
   if (!job) {
-    $("job-dot").dataset.state = "idle";
-    $("job-title").textContent = "Ready";
-    $("job-detail").textContent = "Nothing running";
+    // A container is not a job: the launcher exits the moment the desktop
+    // answers, so with one running and nothing else happening this bar used to
+    // read "Nothing running" underneath an open browser.
+    const containers = state ? asArray(state.docker && state.docker.containers).length : 0;
+    $("job-dot").dataset.state = containers ? "running" : "idle";
+    $("job-title").textContent = !containers ? "Ready"
+      : containers === 1 ? "1 version running in Docker"
+      : `${containers} versions running in Docker`;
+    $("job-detail").textContent = containers ? "nothing else in progress" : "Nothing running";
     bar.hidden = true;
     return;
   }

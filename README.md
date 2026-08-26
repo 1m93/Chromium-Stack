@@ -198,7 +198,8 @@ just below M60, and none of them can be worked around from here:
   resolved to a revision automatically — you would have to know the revision yourself.
 
 Linux is the one platform where the old builds are still 64-bit, and even there Chromium
-below ~M64 wants `libgconf-2.so.4`, which modern distributions no longer ship.
+below ~M64 wants `libgconf-2.so.4`, which modern distributions no longer ship. The Docker
+image fetches it from the Debian archive, so those milestones do run in a container.
 
 `catalog.tsv` pins one *verified* build per milestone per platform, because the nearest
 archived build is sometimes tens of commits away from the branch point. Regenerate it
@@ -332,6 +333,9 @@ by side. Windows uses `.\chromium-stack-docker.ps1` with the same commands.
 
 <br>
 
+- **Copy and paste** work across the tab in both directions: your usual shortcut pastes into
+  the container, and anything copied inside it lands on your own clipboard. On a Mac that
+  means Cmd-C, Cmd-V and Cmd-X, which the desktop in there would otherwise never see.
 - **Reaching your machine.** Inside the container, `localhost` is the container. Use
   **`http://host.docker.internal:4173`** to reach a server running on your own machine.
 - **On Apple Silicon** the container is emulated, so it is noticeably slower than the native
@@ -341,6 +345,11 @@ by side. Windows uses `.\chromium-stack-docker.ps1` with the same commands.
   viewport height and skew a layout check.
 - **First start builds an image** for that version — several minutes under x86 emulation.
   After that the launcher reuses it.
+- **The desktop is published on `127.0.0.1` only.** It has no password and a real browser
+  attached to it, so it is not offered to the rest of the network.
+- **In the manager** a version running in a container gets the same running dot as a native
+  one, its image size shows on the row and in the Disk read-out, and the row's Stop button
+  stops the container. The green `Docker` marker is a link back to its desktop tab.
 
 **Docker is optional**, and the native launcher is what most people should use. If you do
 want it, the launcher never installs anything behind your back:
@@ -438,7 +447,9 @@ From the command line:
 ./chromium-stack.sh clean 74                # reset just the profile
 ```
 
-Docker images are the other place disk quietly disappears:
+Docker images are the other place disk quietly disappears — around a gigabyte each. The
+manager counts them in its Disk read-out and offers **Delete Docker image** in the row menu;
+from a terminal:
 
 ```bash
 ./chromium-stack-docker.sh list             # containers and images
@@ -589,6 +600,8 @@ tools/refresh-catalog.py              regenerate catalog.tsv from the archive
 tools/sync-landing.py                 bring docs/index.html into step with catalog.tsv
 docker/Dockerfile                     Chromium + Xvfb + fluxbox + x11vnc + noVNC
 docker/entrypoint.sh                  brings up X and supervises the browser
+docker/clipboard.js                   loaded into the noVNC page: bridges the
+                                      container's clipboard and your own
 assets/icon.svg, icon-small.svg       icon sources: full detail, and reduced for
                                       small sizes where detail turns to mush
 assets/icon.ico, icon-512.png         generated, for Windows and Linux
@@ -642,8 +655,10 @@ over a plain `TcpListener` rather than `System.Net.HttpListener`, which would ne
 URL reservation or an elevated prompt.
 
 **The per-version Docker images have not been built for every milestone.** The Dockerfile is
-parameterised by revision and the Debian package list covers old and new builds, but a given
-milestone may want a library the list does not have.
+parameterised by revision and the Debian package list covers old and new builds — including
+`libgconf`, which Debian dropped and the oldest milestones still link against — but a given
+milestone may want a library the list does not have. The container's log says which one:
+`./chromium-stack-docker.sh logs <version>`.
 
 Found something? [Open an issue](https://github.com/1m93/Chromium-Stack/issues) — Windows
 reports especially welcome.

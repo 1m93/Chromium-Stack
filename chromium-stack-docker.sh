@@ -80,6 +80,10 @@ resolve() {
   DOCKER_VERSION="${DOCKER_VERSION:-r$DOCKER_REVISION}"
 }
 
+# These three names are the whole contract between this script and the manager:
+# gui/server.py reads them back to show which versions have an image, how much
+# disk it costs and which containers are up, so a rename here has to happen
+# there too (grep CONTAINER_PREFIX).
 image_name()     { printf 'chromium-stack:%s\n' "$1"; }
 container_name() { printf 'chromium-stack-%s\n' "$1"; }
 volume_name()    { printf 'chromium-stack-profile-%s\n' "$1"; }
@@ -91,7 +95,7 @@ running_port() {
 }
 
 free_port() {
-  local port="$BASE_PORT"
+  local port="${1:-$BASE_PORT}"
   while [ "$port" -lt $((BASE_PORT + 60)) ]; do
     if ! docker ps --format '{{.Ports}}' 2>/dev/null | grep -q ":$port->"; then
       if ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
@@ -103,6 +107,45 @@ free_port() {
     port=$((port + 1))
   done
   die "No free port between $BASE_PORT and $((BASE_PORT + 60))."
+}
+
+# Published on the loopback address only. The desktop in there has no password
+# and a real browser attached to it, and the rest of ChromiumStack is careful to
+# stay off the network; a plain -p put it in front of everyone on the wifi.
+#
+# Between choosing a port and binding it another container can take it, and that
+# is exactly what happens when two versions are started together: both saw 6080
+# free, the second lost the race and reported "Could not start the container".
+# Docker is the only thing that can answer for certain, so a refused binding
+# moves up a port and tries again instead of ending the launch.
+CONTAINER_PORT=""
+start_container() {
+  local image="$1" container="$2" volume="$3"
+  local floor="$BASE_PORT" attempt port output
+  for attempt in 1 2 3 4 5 6; do
+    port="$(free_port "$floor")"
+    if output="$(docker run -d --name "$container" --platform linux/amd64 \
+        -p "127.0.0.1:$port:6080" \
+        -v "$volume:/data" \
+        --add-host "host.docker.internal:host-gateway" \
+        --shm-size=1g \
+        "$image" 2>&1)"; then
+      CONTAINER_PORT="$port"
+      return 0
+    fi
+    # A named container that failed to start still exists, and the next attempt
+    # cannot reuse the name until it is gone.
+    docker rm -f "$container" >/dev/null 2>&1 || true
+    case "$output" in
+      *"already allocated"*|*"address already in use"*|*"Bind for"*)
+        floor=$((port + 1)) ;;
+      *)
+        printf '%s\n' "$output" >&2
+        return 1 ;;
+    esac
+  done
+  echo "  Every port tried was taken by something else." >&2
+  return 1
 }
 
 open_url() {
@@ -149,13 +192,8 @@ cmd_start() {
       --build-arg "REVISION=$DOCKER_REVISION" -t "$image" "$DOCKER_DIR" || die "Image build failed."
   fi
 
-  port="$(free_port)"
-  docker run -d --name "$container" --platform linux/amd64 \
-    -p "$port:6080" \
-    -v "$volume:/data" \
-    --add-host "host.docker.internal:host-gateway" \
-    --shm-size=1g \
-    "$image" >/dev/null || die "Could not start the container."
+  start_container "$image" "$container" "$volume" || die "Could not start the container."
+  port="$CONTAINER_PORT"
 
   url="http://localhost:$port/vnc.html?autoconnect=1&resize=scale"
   printf '  Waiting for the desktop'
@@ -175,6 +213,7 @@ cmd_start() {
 
   echo ""
   echo "  ${GRN}>${RST} ${B}$url${RST}"
+  echo "  ${DIM}Copy and paste work across the tab in both directions.${RST}"
   echo "  ${DIM}To reach a dev server on this machine, type${RST}"
   echo "  ${DIM}http://host.docker.internal:4173 in the Chromium address bar.${RST}"
   echo "  ${DIM}Stop it with: $0 stop $DOCKER_MILESTONE${RST}"
@@ -182,12 +221,20 @@ cmd_start() {
   open_url "$url"
 }
 
+# SIGTERM before SIGKILL, so the browser inside gets to close its profile. A
+# container removed outright left a lock in the profile volume that stopped the
+# next start of this version dead; the entrypoint clears a stale one now, but
+# stopping politely is still the right way round.
 cmd_stop() {
   resolve "${1:-}"
   ensure_docker
   local container; container="$(container_name "$DOCKER_REVISION")"
-  if docker rm -f "$container" >/dev/null 2>&1; then
+  if docker ps --format '{{.Names}}' | grep -qx "$container"; then
+    docker stop -t 12 "$container" >/dev/null 2>&1 || docker kill "$container" >/dev/null 2>&1 || true
+    docker rm -f "$container" >/dev/null 2>&1 || true
     echo "${GRN}v${RST} Stopped Chromium $DOCKER_VERSION."
+  elif docker rm -f "$container" >/dev/null 2>&1; then
+    echo "${DIM}Chromium $DOCKER_VERSION was not running; cleared its stopped container.${RST}"
   else
     echo "${DIM}Chromium $DOCKER_VERSION was not running.${RST}"
   fi

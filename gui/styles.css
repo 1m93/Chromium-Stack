@@ -179,6 +179,7 @@ svg.i { width: 16px; height: 16px; flex: none; display: block; }
 .gauge-bar i, .disk-bar i { display: block; height: 100%; }
 #disk-seg-browsers, #card-seg-browsers { background: var(--c-accent); }
 #disk-seg-profiles, #card-seg-profiles { background: color-mix(in srgb, var(--c-accent) 42%, var(--c-line)); }
+#disk-seg-docker, #card-seg-docker { background: var(--c-ok); }
 
 .check-btn { font-size: 12.5px; height: 28px; padding: 0 10px; }
 .check-btn.has-problem {
@@ -416,6 +417,9 @@ svg.i { width: 16px; height: 16px; flex: none; display: block; }
 .swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .swatch.browsers { background: var(--c-accent); }
 .swatch.profiles { background: color-mix(in srgb, var(--c-accent) 42%, var(--c-line)); }
+/* Docker holds a whole second copy of a browser, so it reads as its own thing
+   rather than a third shade of the same blue. */
+.swatch.docker { background: var(--c-ok); }
 
 /* ---------- shelf ---------- */
 
@@ -509,6 +513,12 @@ svg.i { width: 16px; height: 16px; flex: none; display: block; }
   color: var(--c-dim);
 }
 .badge.rosetta { background: color-mix(in srgb, var(--c-warn) 18%, transparent); color: var(--c-warn); }
+
+/* The Docker marker. When the container is up this is a link to its desktop -
+   the noVNC tab is easy to close by accident and there was no way back to it. */
+.badge.docker { background: color-mix(in srgb, var(--c-ok) 16%, transparent); color: var(--c-ok); }
+.badge.docker.is-live { text-decoration: none; }
+a.badge.docker:hover { background: color-mix(in srgb, var(--c-ok) 28%, transparent); text-decoration: underline; }
 
 /* Two fixed lines, never wrapped: the version identifies the build and the sizes
    are the answer to "can I delete this", so neither may be cut in half. */

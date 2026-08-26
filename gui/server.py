@@ -16,6 +16,7 @@ import json
 import mimetypes
 import os
 import platform
+import re
 import secrets
 import shutil
 import signal
@@ -204,21 +205,90 @@ def installed_builds():
     return builds
 
 
+# The names chromium-stack-docker.sh gives the things it creates. The manager
+# reads them back, which is the only way a version living in a container can look
+# like one living on disk; renaming any of them means changing both files.
 CONTAINER_PREFIX = "chromium-stack-"
+IMAGE_REPO = "chromium-stack"
+VOLUME_PREFIX = "chromium-stack-profile-"
 
 # `docker info` takes the best part of a second and the page asks for the state
 # every four; the answer does not change that fast.
 _docker_cache = {"at": 0.0, "value": None}
+_volume_cache = {"at": 0.0, "value": None}
+
+
+def docker_out(args, timeout=8):
+    """stdout of a docker command, or "" if it failed or docker is not there."""
+    try:
+        done = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return done.stdout if done.returncode == 0 else ""
+
+
+_DECIMAL = {"B": 1, "KB": 10 ** 3, "MB": 10 ** 6, "GB": 10 ** 9, "TB": 10 ** 12}
+
+
+def parse_human_bytes(text):
+    """"10.13MB" -> bytes. Docker's own read-outs use decimal units."""
+    found = re.match(r"^\s*([\d.]+)\s*([KMGT]?B)\s*$", str(text), re.I)
+    if not found:
+        return 0
+    return int(float(found.group(1)) * _DECIMAL[found.group(2).upper()])
+
+
+def published_port(mapping):
+    """"127.0.0.1:6081->6080/tcp" -> 6081.
+
+    The launcher takes whichever port it can get, so asking what a container
+    published is the only way to know where its desktop is listening.
+    """
+    for part in str(mapping).split(","):
+        found = re.search(r":(\d+)->6080/", part)
+        if found:
+            return int(found.group(1))
+    return None
+
+
+def docker_profile_sizes():
+    """Bytes in each version's profile volume, keyed by revision.
+
+    Only `docker system df -v` knows, and it takes over a second, so it gets a
+    longer cache than the rest: a profile grows by megabytes over a session, and
+    a slightly stale figure is cheaper than a page that stalls on every refresh.
+    """
+    now = time.time()
+    if _volume_cache["value"] is not None and now - _volume_cache["at"] < 60:
+        return _volume_cache["value"]
+    try:
+        listed = json.loads(docker_out(["system", "df", "-v", "--format",
+                                        "{{json .Volumes}}"], timeout=20) or "[]")
+    except ValueError:
+        listed = []
+    sizes = {}
+    for volume in listed or []:
+        name = str(volume.get("Name", ""))
+        if name.startswith(VOLUME_PREFIX):
+            sizes[name[len(VOLUME_PREFIX):]] = parse_human_bytes(volume.get("Size"))
+    _volume_cache.update(at=now, value=sizes)
+    return sizes
 
 
 def docker_status():
+    """What Docker is holding for ChromiumStack: images, their size, containers.
+
+    Without this the shelf could say nothing true about a version that runs in a
+    container: no size for an image costing a gigabyte, and no sign it was
+    running at all, because the job that starts a container exits as soon as the
+    desktop answers - leaving a row that looked untouched with a browser open.
+    """
     now = time.time()
     if _docker_cache["value"] and now - _docker_cache["at"] < 10:
         return _docker_cache["value"]
 
     cli = shutil.which("docker") is not None
     running = False
-    containers = []
     if cli:
         try:
             running = subprocess.run(
@@ -227,23 +297,76 @@ def docker_status():
             ).returncode == 0
         except (OSError, subprocess.SubprocessError):
             running = False
-    if running:
-        # One container per version, named chromium-stack-<revision>. The page
-        # needs these to know which rows can be stopped rather than started.
-        try:
-            listed = subprocess.run(
-                ["docker", "ps", "--format", "{{.Names}}"],
-                capture_output=True, text=True, timeout=6,
-            )
-            containers = [name[len(CONTAINER_PREFIX):] for name in listed.stdout.split()
-                          if name.startswith(CONTAINER_PREFIX)]
-        except (OSError, subprocess.SubprocessError):
-            containers = []
 
-    value = {"cli": cli, "running": running, "containers": containers,
-             "supported": os.path.exists(DOCKER_CLI)}
+    by_revision = {}
+    containers = []
+
+    def slot(revision):
+        return by_revision.setdefault(str(revision), {
+            "imageBytes": 0, "profileBytes": 0, "state": None, "status": "", "port": None,
+        })
+
+    if running:
+        # One image per version, tagged with the revision it was built from. The
+        # tag list is cheap; the exact byte count needs an inspect, and `docker
+        # images` only prints a rounded decimal string.
+        tags = [tag for tag in docker_out(["images", IMAGE_REPO, "--format", "{{.Tag}}"]).split()
+                if tag and tag != "<none>"]
+        if tags:
+            sizes = docker_out(["image", "inspect", "--format", "{{.Size}}",
+                                *[f"{IMAGE_REPO}:{tag}" for tag in tags]]).split()
+            for tag, size in zip(tags, sizes):
+                slot(tag)["imageBytes"] = int(size) if size.isdigit() else 0
+
+        # One container per version, named chromium-stack-<revision>. Stopped
+        # ones are listed too: a container that exits the moment it starts is a
+        # fault worth showing, not a row that quietly does nothing.
+        listing = docker_out(["ps", "-a", "--filter", f"name={CONTAINER_PREFIX}",
+                              "--format", "{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Ports}}"])
+        for line in listing.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 4 or not parts[0].startswith(CONTAINER_PREFIX):
+                continue
+            revision = parts[0][len(CONTAINER_PREFIX):]
+            entry = slot(revision)
+            entry["state"] = parts[1]
+            entry["status"] = parts[2]
+            entry["port"] = published_port(parts[3])
+            if parts[1] == "running":
+                containers.append(revision)
+
+        for revision, size in docker_profile_sizes().items():
+            slot(revision)["profileBytes"] = size
+
+    value = {
+        "cli": cli, "running": running, "containers": containers,
+        "supported": os.path.exists(DOCKER_CLI),
+        "byRevision": by_revision,
+        "imageBytes": sum(e["imageBytes"] for e in by_revision.values()),
+        "profileBytes": sum(e["profileBytes"] for e in by_revision.values()),
+    }
     _docker_cache.update(at=now, value=value)
     return value
+
+
+def docker_row(revision, status):
+    """The Docker side of one shelf row, or None if there is nothing to offer.
+
+    A container always runs the Linux x86_64 build, so its revision is not the
+    one this host installs natively - and comparing those two is exactly what
+    used to hide a running container from the row it belonged to.
+    """
+    if revision is None or not status.get("supported"):
+        return None
+    entry = status["byRevision"].get(str(revision), {})
+    return {
+        "revision": revision,
+        "imageBytes": entry.get("imageBytes", 0),
+        "profileBytes": entry.get("profileBytes", 0),
+        "state": entry.get("state"),
+        "status": entry.get("status", ""),
+        "port": entry.get("port"),
+    }
 
 
 _doctor_cache = {"at": 0.0, "value": None}
@@ -276,10 +399,29 @@ def doctor_report():
     return report
 
 
+def linux_revision(milestone, builds):
+    """The revision a container would run for this milestone, if there is one.
+
+    Rows with no Linux x86_64 build cannot go in a container at all, and the
+    manager used to offer it anyway - the launcher then died on "no Linux x86_64
+    build in the catalog" with the reason buried in a job log.
+    """
+    return (builds.get(milestone, {}).get("Linux_x64") or {}).get("revision")
+
+
+def milestone_of(revision, builds):
+    """Which milestone a raw revision belongs to, on any platform."""
+    for milestone, platforms in builds.items():
+        if any(build["revision"] == revision for build in platforms.values()):
+            return milestone
+    return None
+
+
 def build_state():
     versions, builds = read_catalog()
     hosts = host_platforms()
     installed = installed_builds()
+    docker = docker_status()
     catalogued = set()
     rows = []
 
@@ -291,6 +433,7 @@ def build_state():
         row["platformDir"] = chosen_platform
         row["supported"] = chosen_platform is not None
         row["native"] = chosen_platform != "Mac" or platform.machine() != "arm64"
+        row["docker"] = docker_row(linux_revision(milestone, builds), docker)
         if chosen_platform:
             build = available[chosen_platform]
             row["revision"] = build["revision"]
@@ -307,9 +450,17 @@ def build_state():
             row["installedAt"] = ""
         rows.append(row)
 
-    # Builds installed by raw revision that no catalogue row claims.
-    extra = [dict(info, note="Installed by revision.", supported=True, native=True)
-             for revision, info in sorted(installed.items()) if revision not in catalogued]
+    # Builds installed by raw revision that no catalogue row claims. A container
+    # for one of these still runs the Linux build of whatever milestone it
+    # belongs to, so it is looked up the same way the launcher looks it up.
+    extra = []
+    for revision, info in sorted(installed.items()):
+        if revision in catalogued:
+            continue
+        milestone = milestone_of(revision, builds)
+        drev = linux_revision(milestone, builds) if milestone is not None else revision
+        extra.append(dict(info, note="Installed by revision.", supported=True, native=True,
+                          docker=docker_row(drev, docker)))
 
     total = sum(i["sizeBytes"] + i["profileBytes"] for i in installed.values())
     return {
@@ -320,7 +471,10 @@ def build_state():
         "versions": rows,
         "extra": extra,
         "totalBytes": total,
-        "docker": docker_status(),
+        # Images and profile volumes are the other place gigabytes go, and they
+        # are invisible from the file tree the rest of this reads.
+        "dockerBytes": docker["imageBytes"] + docker["profileBytes"],
+        "docker": docker,
         "doctor": doctor_report(),
         "jobs": jobs.summary(),
     }
@@ -378,6 +532,7 @@ class Jobs:
         invalidate_sizes()
         forget_doctor()
         _docker_cache["value"] = None
+        _volume_cache["value"] = None
         with self._lock:
             job["code"] = code
             if job.get("stopping"):
@@ -552,10 +707,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/docker":
             action = str(body.get("action", "start"))
-            if action not in ("start", "stop", "logs"):
+            if action not in ("start", "stop", "rebuild", "purge"):
                 return self._json({"error": "bad action"}, 400)
-            job_id = jobs.start("docker", selector, ["bash", DOCKER_CLI, action, selector],
-                                f"Docker {action} {selector}")
+            argv = ["bash", DOCKER_CLI, action, selector]
+            # An image is a gigabyte, so removing one has to be possible from the
+            # shelf; otherwise the only way to get that disk back is raw docker.
+            if action == "purge" and body.get("withProfile"):
+                argv.append("--with-profile")
+            job_id = jobs.start("docker", selector, argv, f"Docker {action} {selector}")
             return self._json({"job": job_id})
 
         return self._json({"error": "no such endpoint"}, 404)
