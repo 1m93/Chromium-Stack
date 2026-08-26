@@ -375,8 +375,11 @@ resolve_missing() {
 #
 # Sets, for every engine:
 #   SEL_ENGINE   which engine
+#   SEL_ID       what identifies this build to its vendor - the thing the URL and
+#                the on-disk name are built from, unique within the engine
 #   SEL_KEY      the on-disk name for this build - what builds/ and profiles/ use
-#   SEL_VERSION  what to print
+#   SEL_VERSION  what to print, which is not always unique: two WebKit builds
+#                are both called 26.5
 #   SEL_PLATFORM the vendor's platform name this host resolved to
 #   SEL_URL      where to download it
 #   SEL_FORMAT   how to unpack it, for engine_extract
@@ -400,7 +403,7 @@ Which version? A bare number is Chromium: 74. Otherwise name the engine:
 
   SEL_ENGINE="$engine"
   SEL_MILESTONE=""; SEL_REVISION=""; SEL_ARCHIVE=""; SEL_ROOT=""
-  SEL_URL=""; SEL_FORMAT=""
+  SEL_URL=""; SEL_FORMAT=""; SEL_ID=""
 
   if [ "$engine" != "chromium" ]; then
     resolve_engine "$engine" "$token"
@@ -418,6 +421,7 @@ Which version? A bare number is Chromium: 74. Otherwise name the engine:
   fi
   # Chromium's identity on disk stays the bare revision it has always been, so
   # builds already downloaded are still found.
+  SEL_ID="$SEL_REVISION"
   SEL_KEY="$(engine_key chromium "$SEL_REVISION")"
   SEL_URL="$BASE_URL/$SEL_PLATFORM/$SEL_REVISION/$SEL_ARCHIVE"
   case "$SEL_PLATFORM" in

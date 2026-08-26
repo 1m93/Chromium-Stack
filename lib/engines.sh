@@ -64,7 +64,12 @@ engine_platforms() {
     # archive per macOS version, so the running system decides which.
     webkit:Darwin:arm64)   printf '%s\n' "$(webkit_mac_platforms arm64)" ;;
     webkit:Darwin:*)       printf '%s\n' "$(webkit_mac_platforms x64)" ;;
-    webkit:Linux:*)        printf 'ubuntu-24.04-x64 ubuntu-22.04-x64 ubuntu-20.04-x64\n' ;;
+    # Measured against the CDN, not guessed: x86_64 archives carry no arch
+    # suffix at all (webkit-ubuntu-24.04.zip), and only arm64 is spelled out.
+    # "ubuntu-24.04-x64" - the obvious name - does not exist and never did.
+    webkit:Linux:aarch64|webkit:Linux:arm64)
+                           printf 'ubuntu-24.04-arm64 ubuntu-22.04-arm64\n' ;;
+    webkit:Linux:*)        printf 'ubuntu-24.04 ubuntu-22.04 ubuntu-20.04\n' ;;
     *) return 1 ;;
   esac
 }
@@ -336,7 +341,12 @@ resolve_engine() {
     *)       die "No resolver for $engine." ;;
   esac
   [ -n "$SEL_URL" ] || die "Could not resolve $engine:$token."
-  SEL_KEY="$(engine_key "$engine" "$SEL_VERSION")"
+  # The key is built from SEL_ID, not from SEL_VERSION: the two are the same for
+  # Firefox and Edge, but a WebKit version name is not unique - 26.5 covers two
+  # different builds - and two builds sharing one directory would have them
+  # overwrite each other. Identity is the id; the version is what to print.
+  [ -n "${SEL_ID:-}" ] || SEL_ID="$SEL_VERSION"
+  SEL_KEY="$(engine_key "$engine" "$SEL_ID")"
 }
 
 # ---------- firefox ----------
@@ -562,7 +572,8 @@ No WebKit build known as $token.
     if net_exists "$WEBKIT_CDN/$revision/webkit-$platform.zip"; then
       SEL_PLATFORM="$platform"
       # Show the published name when there is one; the revision is what the URL
-      # needs, not what anyone calls it.
+      # needs, and what identifies the build on disk, not what anyone calls it.
+      SEL_ID="$revision"
       SEL_VERSION="$(shelf_label_for_id webkit "$revision")"
       [ -n "$SEL_VERSION" ] || SEL_VERSION="r$revision"
       SEL_URL="$WEBKIT_CDN/$revision/webkit-$platform.zip"
@@ -571,9 +582,10 @@ No WebKit build known as $token.
     fi
   done
   die "\
-WebKit $token (r$revision) is no longer published.
-   Playwright deletes old builds from its CDN, and it is the only place these
-   come from - measured, this shelf reaches back about two years, not to 2020.
-   Nothing can recover a build once it is pruned.
+No WebKit r$revision build for this system ($token).
+   Two different things cause this, and neither can be worked around:
+   Playwright deletes old builds from its CDN, and for older OS releases it pins
+   a different revision entirely - so a build can still exist for Linux while no
+   macOS archive of it was ever published. The CDN is the only source.
    Tried: $(engine_platforms webkit)"
 }

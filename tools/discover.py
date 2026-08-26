@@ -40,6 +40,8 @@ EDGE_POOL = ("https://packages.microsoft.com/repos/edge/pool/main/m/"
 EDGE_API = "https://edgeupdates.microsoft.com/api/products?view=enterprise"
 NPM_PLAYWRIGHT = "https://registry.npmjs.org/playwright-core"
 UNPKG_BROWSERS = "https://unpkg.com/playwright-core@%s/browsers.json"
+WEBKIT_CDN = ("https://cdn.playwright.dev/dbazure/download/playwright/builds/"
+              "webkit/%s/webkit-%s.zip")
 
 ENGINES = ("chromium", "firefox", "edge", "webkit")
 
@@ -234,7 +236,74 @@ def discover_webkit(schedule):
                 "label": browser.get("browserVersion") or ("r" + revision),
                 "date": date, "via": "playwright " + version,
             })
+
+    releases.sort(key=lambda r: r["sort"])
+    floor = webkit_floor(releases)
+    if floor:
+        dropped = len(releases) - len(floor)
+        if dropped:
+            print("webkit: %d of %d builds are no longer published, dropped"
+                  % (dropped, len(releases)), file=sys.stderr)
+        return floor
     return releases
+
+
+def webkit_floor(releases):
+    """Drop the WebKit builds Playwright has deleted from its CDN.
+
+    Playwright prunes old builds, so most of the history it names is no longer
+    downloadable - measured, the shelf reaches back about two years, not to 2020.
+    Listing a version that cannot be fetched is worse than not listing it: the
+    matrix would offer cells that fail on click.
+
+    Availability is monotonic - everything above the oldest surviving build
+    survives too - so a binary search finds the floor in about six requests
+    instead of one per release. That matters: probing all of them gets the CDN to
+    start refusing connections, which reads as "nothing is available".
+    """
+    if not releases:
+        return releases
+    if not webkit_available(releases[-1]):
+        return []                          # even the newest is gone; say nothing
+
+    low, high = 0, len(releases) - 1       # low unknown, high known-good
+    while low < high:
+        middle = (low + high) // 2
+        if webkit_available(releases[middle]):
+            high = middle
+        else:
+            low = middle + 1
+    return releases[low:]
+
+
+def webkit_available(release):
+    """Is this build still on the CDN?
+
+    Pruning is per revision, not per platform: Playwright removes the whole
+    directory, so one platform answering 200 proves the build is alive and there
+    is no need to enumerate the rest. The mac archives are named after the macOS
+    version they were built against and so change every year, but the Ubuntu ones
+    have kept the same names throughout - which makes them the cheap probe.
+
+    The names carry no arch suffix for x86_64: it is webkit-ubuntu-22.04.zip, not
+    -x64. The obvious spelling answers 400 for every revision, which would have
+    made every build look pruned.
+    """
+    for name in ("ubuntu-22.04", "ubuntu-20.04"):
+        url = WEBKIT_CDN % (release["id"], name)
+        request = urllib.request.Request(url, method="HEAD")
+        try:
+            with urllib.request.urlopen(request, timeout=25) as answer:
+                if answer.status == 200:
+                    return True
+        except urllib.error.HTTPError:
+            continue
+        except (urllib.error.URLError, OSError):
+            # A refused connection is not a missing file. Treating it as one
+            # would quietly empty the shelf, which is the failure that looks
+            # most like success.
+            return True
+    return False
 
 
 DISCOVER = {

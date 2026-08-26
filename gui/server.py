@@ -36,6 +36,39 @@ PROJECT = os.path.dirname(HERE)
 CATALOG = os.path.join(PROJECT, "catalog.tsv")
 CLI = os.path.join(PROJECT, "engineshelf.sh")
 
+# Kept in step with lib/engines.sh. The display names are what the page shows;
+# "WebKit" is never called Safari, for the reasons in that file.
+ENGINES = ("chromium", "firefox", "edge", "webkit")
+ENGINE_NAMES = {"chromium": "Chromium", "firefox": "Firefox",
+                "edge": "Edge", "webkit": "WebKit"}
+
+# Selectors reach the CLI as one argv element, so there is no shell to inject
+# into - but a bare `.isdigit()` was the whole guard before there was more than
+# one engine, and it has to widen without becoming "anything goes". Versions are
+# alphanumeric and dotted (115.0, 140.14.0esr, 26.5); nothing here can be a path,
+# an option, or a second word.
+SELECTOR_RE = re.compile(
+    r"^(?:(?:%s):)?[0-9A-Za-z][0-9A-Za-z.]{0,31}$" % "|".join(ENGINES))
+
+
+def engine_of_key(key):
+    """Which engine an on-disk build directory belongs to.
+
+    Chromium's directories are the bare snapshot revision, as they have always
+    been; every other engine prefixes its name. Same rule as engine_of_key in
+    lib/engines.sh, and it has to stay the same rule.
+    """
+    for engine in ENGINES:
+        if engine != "chromium" and key.startswith(engine + "-"):
+            return engine
+    return "chromium"
+
+
+def selector_label(selector):
+    """"firefox:115" -> "Firefox 115". What a job is called while it runs."""
+    engine, _, version = selector.rpartition(":")
+    return "%s %s" % (ENGINE_NAMES.get(engine or "chromium", "Chromium"), version)
+
 
 def augment_path():
     """A GUI launch inherits a bare PATH, so Homebrew and Docker's own CLI shim
@@ -121,6 +154,78 @@ def read_catalog():
                         "root": parts[5],
                     }
     return [versions[m] for m in sorted(versions)], builds
+
+
+def read_shelf():
+    """The S rows: every release tools/discover.py found, per engine.
+
+    Read separately from read_catalog because the two answer different questions
+    and have different owners. V and B rows are Chromium's snapshot bookkeeping,
+    written by refresh-catalog.py. S rows are the shelf itself, across all four
+    engines, and carry a release date - which is what lets the page arrange them
+    by year instead of by an engine's own version numbering, none of which line
+    up with each other.
+    """
+    shelf = {engine: [] for engine in ENGINES}
+    seen = set()
+    # Cache last, so a row learned at runtime replaces the shipped one.
+    for path in (CATALOG, catalog_cache()):
+        try:
+            handle = open(path)
+        except OSError:
+            continue
+        with handle:
+            for line in handle:
+                if line.startswith("#") or not line.strip():
+                    continue
+                parts = line.rstrip("\n").split("\t")
+                if parts[0] != "S" or len(parts) < 6:
+                    continue
+                engine = parts[1]
+                if engine not in shelf:
+                    continue
+                key = (engine, parts[3])
+                if key in seen:
+                    continue
+                seen.add(key)
+                shelf[engine].append({
+                    "engine": engine,
+                    "year": int(parts[2]),
+                    "id": parts[3],
+                    "label": parts[4],
+                    "date": parts[5],
+                })
+    for releases in shelf.values():
+        releases.sort(key=lambda r: r["date"], reverse=True)
+    return shelf
+
+
+def installed_by_key():
+    """Every installed build, keyed by its directory name, whatever the engine.
+
+    installed_builds() below stays as it was - numeric, Chromium-only - because
+    the Docker bookkeeping is built on revisions and reads it. This is the view
+    that can see all four engines.
+    """
+    builds = {}
+    base = os.path.join(root_dir(), "builds")
+    if not os.path.isdir(base):
+        return builds
+    for name in os.listdir(base):
+        path = os.path.join(base, name)
+        if not os.path.exists(os.path.join(path, ".complete")):
+            continue
+        meta = read_meta(os.path.join(path, ".meta"))
+        builds[name] = {
+            "key": name,
+            "engine": meta.get("META_ENGINE") or engine_of_key(name),
+            "version": meta.get("META_VERSION") or name,
+            "platformDir": meta.get("META_PLATFORM") or "?",
+            "installedAt": meta.get("META_INSTALLED") or "",
+            "sizeBytes": dir_size(path),
+            "profileBytes": dir_size(os.path.join(root_dir(), "profiles", name)),
+        }
+    return builds
 
 
 def refresh_catalog_cache():
@@ -884,12 +989,12 @@ class Handler(BaseHTTPRequestHandler):
 
         selector = str(body.get("selector", "")).strip()
 
-        if not selector.isdigit():
+        if not SELECTOR_RE.match(selector):
             return self._json({"error": "bad selector"}, 400)
 
         if path == "/api/install":
             job_id = jobs.start("install", selector, ["bash", CLI, "install", selector],
-                                f"Installing Chromium {selector}")
+                                f"Installing {selector_label(selector)}")
             return self._json({"job": job_id})
 
         if path == "/api/launch":
@@ -904,25 +1009,32 @@ class Handler(BaseHTTPRequestHandler):
                 argv.append("--gpu")
             elif body.get("gpu") is False:
                 argv.append("--no-gpu")
-            job_id = jobs.start("launch", selector, argv, f"Chromium {selector}")
+            job_id = jobs.start("launch", selector, argv, selector_label(selector))
             return self._json({"job": job_id})
 
         if path == "/api/remove":
             argv = ["bash", CLI, "remove", selector]
             if body.get("withProfile"):
                 argv.append("--with-profile")
-            job_id = jobs.start("remove", selector, argv, f"Removing {selector}")
+            job_id = jobs.start("remove", selector, argv,
+                                f"Removing {selector_label(selector)}")
             return self._json({"job": job_id})
 
         if path == "/api/clean":
             job_id = jobs.start("clean", selector, ["bash", CLI, "clean", selector],
-                                f"Resetting profile {selector}")
+                                f"Resetting profile {selector_label(selector)}")
             return self._json({"job": job_id})
 
         if path == "/api/docker":
             action = str(body.get("action", "start"))
             if action not in ("start", "stop", "rebuild", "purge"):
                 return self._json({"error": "bad action"}, 400)
+            # The container image is built around a Chromium snapshot revision;
+            # engineshelf-docker.sh has no idea what firefox:115 would mean, and
+            # would fail with the reason buried in a job log.
+            if ":" in selector and not selector.startswith("chromium:"):
+                return self._json(
+                    {"error": "Docker only runs Chromium versions."}, 400)
             argv = ["bash", DOCKER_CLI, action, selector]
             # An image is a gigabyte, so removing one has to be possible from the
             # shelf; otherwise the only way to get that disk back is raw docker.
