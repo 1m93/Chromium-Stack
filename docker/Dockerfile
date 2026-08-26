@@ -43,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # system stays honest, and registered with ldconfig rather than exported through
 # LD_LIBRARY_PATH: Chromium re-execs its own helpers with a scrubbed environment,
 # and those helpers were still failing to find it. A failure here is not fatal -
-# every milestone from 70 on links against nothing this old.
+# the milestones from 70 on link against nothing this old.
 RUN set -e; \
     url="https://archive.debian.org/debian/pool/main/g/gconf/libgconf-2-4_3.2.6-7_amd64.deb"; \
     if wget -q -O /tmp/gconf.deb "$url"; then \
@@ -52,7 +52,7 @@ RUN set -e; \
       echo /opt/legacy-libs/usr/lib/x86_64-linux-gnu > /etc/ld.so.conf.d/chromium-stack-legacy.conf; \
       ldconfig; \
     else \
-      echo "WARNING: could not fetch libgconf-2-4; Chromium 60 and 65 will not start." >&2; \
+      echo "WARNING: could not fetch libgconf-2-4; the oldest milestones will not start." >&2; \
     fi
 
 # Kept in the environment so the container can say which build it is running -
