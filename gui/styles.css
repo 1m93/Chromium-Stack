@@ -561,7 +561,37 @@ svg.i { width: 16px; height: 16px; flex: none; display: block; }
 .logpanel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .logpanel-head .side-title { padding: 0; }
 .logpanel-head strong { font-size: 13px; font-weight: 500; }
-.log-status { font-size: 12.5px; color: var(--c-faint); }
+
+/* One tab per running job. With a single job there is nothing to switch
+   between, so app.js swaps the strip for a plain title. */
+.log-tabs { display: flex; align-items: center; gap: 5px; min-width: 0; overflow-x: auto; padding-bottom: 2px; }
+.log-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  max-width: 190px;
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--c-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--c-dim);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.log-tab:hover { color: var(--c-text); border-color: var(--c-faint); }
+.log-tab.is-on {
+  background: color-mix(in srgb, var(--c-accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--c-accent) 45%, transparent);
+  color: var(--c-text);
+  cursor: default;
+}
+.log-tab .dot { width: 6px; height: 6px; }
+.log-tab .name { overflow: hidden; text-overflow: ellipsis; }
+.log-status { font-size: 12.5px; color: var(--c-faint); flex: none; }
 .logpanel pre {
   margin: 0;
   max-height: 150px;
@@ -596,6 +626,17 @@ svg.i { width: 16px; height: 16px; flex: none; display: block; }
 .job-bar { display: block; width: 180px; height: 4px; border-radius: 999px; background: var(--c-line); overflow: hidden; }
 .job-bar i { display: block; height: 100%; background: var(--c-accent); }
 .job-bar.indeterminate i { width: 35%; animation: slide 1.4s ease-in-out infinite; }
+.job-more {
+  font: inherit;
+  font-size: 12px;
+  color: var(--c-accent);
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.job-more:hover { text-decoration: underline; }
 .foot-path { font-size: 11.5px; color: var(--c-faint); }
 .rule { width: 1px; height: 16px; background: var(--c-line); }
 .foot-by { font-size: 11.5px; color: var(--c-accent); text-decoration: none; }

@@ -80,6 +80,7 @@ let TOKEN = null;
 let state = null;
 let openMenu = null;      // the row overflow menu, if one is open
 let watching = null;      // job id currently shown in the log panel
+let watchedTitle = "";    // its name, kept so a finished job keeps its tab
 let pollFailures = 0;     // consecutive failed polls of the watched job
 const jobInfo = new Map();    // job id -> {phase, percent, detail} read out of its output
 const dropdowns = [];
@@ -582,6 +583,7 @@ function render() {
   renderChrome(rows, counts);
   renderDoctor();
   renderStatusBar();
+  renderLogTabs();
 
   const query = view.query.trim().toLowerCase();
   const visible = rows.filter((row) => {
@@ -986,6 +988,13 @@ function renderStatusBar() {
   const job = activeJob();
   const bar = $("job-bar");
 
+  // Everything else that is busy, reachable in one click.
+  const others = (state ? state.jobs.length : 0) - (job ? 1 : 0);
+  const more = $("job-more");
+  more.hidden = others < 1;
+  more.textContent = others < 1 ? "" : `+${others} more`;
+  more.title = others < 1 ? "" : "Show the other running jobs";
+
   if (!job) {
     $("job-dot").dataset.state = "idle";
     $("job-title").textContent = "Ready";
@@ -1061,20 +1070,64 @@ function noteJob(job, output) {
   return info;
 }
 
-/* ---------- job log ---------- */
+/* ---------- job log ----------
+   Several versions can be busy at once - two browsers open while a third
+   downloads - so the panel is a switcher over the running jobs rather than one
+   slot that whichever job started last takes over. */
 
 function setLogOpen(open) {
   $("log-panel").hidden = !open;
   $("log-btn-label").textContent = open ? "Hide log" : "Show log";
 }
 
+function renderLogTabs() {
+  const tabs = $("log-tabs");
+  tabs.textContent = "";
+
+  const list = state ? [...state.jobs] : [];
+  // A job that has just finished keeps its tab: its output is usually the reason
+  // the panel is open in the first place.
+  if (watching && !list.some((job) => job.id === watching)) {
+    list.push({ id: watching, kind: "done", revision: null, label: watchedTitle });
+  }
+
+  // With one job there is nothing to switch between, so it reads as a title.
+  $("log-title").hidden = list.length > 1;
+  $("log-title").textContent = list.length > 1 ? "" : watchedTitle;
+  tabs.hidden = list.length < 2;
+  if (list.length < 2) return;
+
+  for (const job of list) {
+    const info = jobInfo.get(job.id) || null;
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = `log-tab${job.id === watching ? " is-on" : ""}`;
+
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.dataset.state = job.kind === "done" ? "idle"
+      : info && info.phase === "open" ? "running"
+      : info && info.phase === "downloading" ? "downloading" : "working";
+
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = jobName(job);
+
+    tab.append(dot, name);
+    tab.title = job.kind === "done" ? `${jobName(job)} — finished` : jobTitle(job, info);
+    if (job.id !== watching) tab.onclick = () => watch(job.id, jobName(job));
+    tabs.append(tab);
+  }
+}
+
 function watch(jobId, title) {
   watching = jobId;
+  watchedTitle = title;
   pollFailures = 0;
   setLogOpen(true);
-  $("log-title").textContent = title;
   $("log-status").textContent = "running…";
   $("log-out").textContent = "";
+  renderLogTabs();
   pollJob();
 }
 
@@ -1134,7 +1187,9 @@ async function pollJob() {
 // and the log panel is where the user is already looking for output.
 function showJobFailure(title, message) {
   watching = null;
+  watchedTitle = title;
   setLogOpen(true);
+  renderLogTabs();
   $("log-title").textContent = title;
   $("log-status").textContent = "failed";
   $("log-out").textContent = message;
@@ -1142,14 +1197,20 @@ function showJobFailure(title, message) {
 
 $("log-close").onclick = () => {
   watching = null;
+  watchedTitle = "";
   setLogOpen(false);
 };
 
 $("log-btn").onclick = () => {
   const open = $("log-panel").hidden;
   setLogOpen(open);
-  if (open && !$("log-title").textContent) {
-    $("log-title").textContent = "No job yet";
+  if (!open) return;
+  const job = activeJob();
+  if (!watching && job) {
+    watch(job.id, jobName(job));
+  } else if (!watching) {
+    watchedTitle = "No job yet";
+    renderLogTabs();
     $("log-status").textContent = "output from installs, launches and clean-ups shows up here";
   }
 };
@@ -1210,6 +1271,15 @@ $("add-revision").addEventListener("input", (event) => {
 });
 
 /* ---------- controls ---------- */
+
+$("job-more").onclick = () => {
+  setLogOpen(true);
+  if (!watching) {
+    const job = activeJob();
+    if (job) watch(job.id, jobName(job));
+  }
+  renderLogTabs();
+};
 
 $("theme-btn").onclick = () => {
   const root = document.documentElement;
