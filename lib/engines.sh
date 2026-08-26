@@ -123,8 +123,11 @@ engine_binary() {
       esac ;;
     edge)
       case "$platform" in
-        # The pkg payload is laid out as it would be installed, from /.
-        Mac_Universal) printf '%s\n' "$dir/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" ;;
+        # The pkg declares install-location="/Applications", so the payload root
+        # is what would land *in* Applications - the bundle itself, not a tree
+        # starting at /. A .deb has no such field and is always laid out from /,
+        # hence the two different shapes.
+        Mac_Universal) printf '%s\n' "$dir/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" ;;
         Linux_x64)     printf '%s\n' "$dir/opt/microsoft/msedge/msedge" ;;
         *)             printf '%s\n' "$dir/msedge.exe" ;;
       esac ;;
@@ -314,10 +317,14 @@ MOZ_RELEASES="https://ftp.mozilla.org/pub/firefox/releases"
 MOZ_VERSIONS="https://product-details.mozilla.org/1.0/firefox_versions.json"
 WEBKIT_CDN="https://cdn.playwright.dev/dbazure/download/playwright/builds/webkit"
 
-# Does this URL exist? Used where a vendor changed archive format partway
-# through a range and only the server knows where the switch happened.
+# Does this URL exist? Used where a vendor changed archive format partway through
+# a range, or prunes old builds, and only the server knows.
+#
+# -L matters more than it looks: Playwright's CDN answers 307 and puts the real
+# verdict behind the redirect, so without following it every URL looks present -
+# including revisions that were deleted years ago.
 net_exists() {
-  curl -fsSI -m 20 -o /dev/null "$1" 2>/dev/null
+  curl -fsSIL -m 25 -o /dev/null "$1" 2>/dev/null
 }
 
 resolve_engine() {
@@ -533,27 +540,40 @@ if best:
 # launch - see tools/discover.py. A revision given directly needs no map.
 resolve_webkit() {
   local token="$1" platform revision
+  # A bare revision is taken as given; anything else is a published version name
+  # like 18.2, which only the shelf can turn into a revision.
   case "$token" in
     ''|*[!0-9]*) revision="" ;;
     *)           [ "$token" -ge 1000 ] && revision="$token" || revision="" ;;
   esac
+  if [ -z "$revision" ]; then
+    revision="$(shelf_id_for_label webkit "$token")"
+  fi
   [ -n "$revision" ] || die "\
-WebKit needs a build revision, not a version name yet: $token
-   Revisions look like 2203. To see which revision is which WebKit version:
-       python3 tools/discover.py --tsv | grep webkit"
+No WebKit build known as $token.
+   WebKit versions come from the shelf, which tools/discover.py builds from the
+   Playwright releases that pin each build. Refresh it with:
+       python3 tools/discover.py --write
+   Known: $(shelf_labels webkit | sort -u | tr '\n' ' ')"
 
   # Playwright builds against a specific macOS SDK, so more than one archive can
   # fit this host; the first that exists wins.
   for platform in $(engine_platforms webkit); do
     if net_exists "$WEBKIT_CDN/$revision/webkit-$platform.zip"; then
       SEL_PLATFORM="$platform"
-      SEL_VERSION="r$revision"
+      # Show the published name when there is one; the revision is what the URL
+      # needs, not what anyone calls it.
+      SEL_VERSION="$(shelf_label_for_id webkit "$revision")"
+      [ -n "$SEL_VERSION" ] || SEL_VERSION="r$revision"
       SEL_URL="$WEBKIT_CDN/$revision/webkit-$platform.zip"
       SEL_FORMAT="zip"
       return 0
     fi
   done
   die "\
-No WebKit build r$revision for this machine.
+WebKit $token (r$revision) is no longer published.
+   Playwright deletes old builds from its CDN, and it is the only place these
+   come from - measured, this shelf reaches back about two years, not to 2020.
+   Nothing can recover a build once it is pruned.
    Tried: $(engine_platforms webkit)"
 }

@@ -99,6 +99,26 @@ catalog_note_of() {
 catalog_build() {       # milestone platform -> "revision archive root"
   catalog_query -F'\t' -v m="$1" -v p="$2" '$1=="B" && $2==m && $3==p {print $4, $5, $6; exit}'
 }
+# Shelf rows: S <engine> <year> <id> <label> <date>, written by
+# tools/discover.py from each vendor's own index.
+#
+# These answer "what is version 26.5 called on disk" for engines whose published
+# name and whose download identifier are different things - WebKit ships as a
+# Playwright build revision, and no URL anywhere contains the string "26.5".
+# Chromium, Firefox and Edge can be resolved without this; WebKit cannot.
+shelf_id_for_label() {  # engine label -> newest matching id
+  catalog_query -F'\t' -v e="$1" -v l="$2" \
+    '$1=="S" && $2==e && ($5==l || $4==l) {print $4}' | tail -1
+}
+
+shelf_label_for_id() {  # engine id -> its published name
+  catalog_query -F'\t' -v e="$1" -v i="$2" '$1=="S" && $2==e && $4==i {print $5; exit}'
+}
+
+shelf_labels() {        # engine -> every label it has, oldest first
+  catalog_query -F'\t' -v e="$1" '$1=="S" && $2==e {print $5}'
+}
+
 catalog_milestones() {
   catalog_query -F'\t' '$1=="V" {print $2}' | sort -un
 }
