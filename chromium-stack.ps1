@@ -68,28 +68,53 @@ foreach ($dir in @($Root, $BuildsDir, $ProfilesDir, $LogsDir)) {
 }
 
 # ---------- catalog ----------
-# catalog.tsv is two record types:
+# Two record types, in both the shipped catalog and the runtime cache:
 #   V <milestone> <version> <note>
 #   B <milestone> <platform> <revision> <archive> <root>
-if (-not (Test-Path $Catalog)) { Die "Missing catalog: $Catalog" }
+#
+# catalog.tsv ships inside the release and may sit somewhere unwritable, so
+# anything learned at runtime goes to the cache under $Root instead. The cache is
+# read second and therefore wins: it is the newer of the two answers.
+$CacheFile   = Join-Path $Root 'catalog.cache.tsv'
+$StableCache = Join-Path $Root 'stable.cache'
+$StableTtl   = 86400                 # how long "newest stable milestone" stays fresh
+$MaxDrift    = 3000                  # refuse a build this far past the branch point
+$DashApi     = 'https://chromiumdash.appspot.com/fetch_milestones'
+$CftStable   = 'https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json'
 
 $CatalogVersions = @{}
 $CatalogBuilds   = @{}
-$CatalogOrder    = New-Object System.Collections.ArrayList
-foreach ($line in Get-Content $Catalog) {
-    if ($line -match '^\s*#' -or $line.Trim() -eq '') { continue }
-    $f = $line -split "`t"
-    if ($f[0] -eq 'V') {
-        $m = [int]$f[1]
-        $note = ''
-        if ($f.Count -gt 3) { $note = $f[3] }
-        $CatalogVersions[$m] = @{ Version = $f[2]; Note = $note }
-        [void]$CatalogOrder.Add($m)
-    } elseif ($f[0] -eq 'B') {
-        $m = [int]$f[1]
-        if (-not $CatalogBuilds.ContainsKey($m)) { $CatalogBuilds[$m] = @{} }
-        $CatalogBuilds[$m][$f[2]] = @{ Revision = $f[3]; Archive = $f[4]; Root = $f[5] }
+$CatalogOrder    = @()
+
+function Import-CatalogFile {
+    param($path)
+    if (-not (Test-Path $path)) { return }
+    foreach ($line in Get-Content $path) {
+        if ($line -match '^\s*#' -or $line.Trim() -eq '') { continue }
+        $f = $line -split "`t"
+        if ($f[0] -eq 'V') {
+            $m = [int]$f[1]
+            $note = ''
+            if ($f.Count -gt 3) { $note = $f[3] }
+            $CatalogVersions[$m] = @{ Version = $f[2]; Note = $note }
+        } elseif ($f[0] -eq 'B') {
+            $m = [int]$f[1]
+            if (-not $CatalogBuilds.ContainsKey($m)) { $CatalogBuilds[$m] = @{} }
+            $CatalogBuilds[$m][$f[2]] = @{ Revision = $f[3]; Archive = $f[4]; Root = $f[5] }
+        }
     }
+}
+
+function Update-Catalog {
+    $script:CatalogVersions = @{}
+    $script:CatalogBuilds   = @{}
+    Import-CatalogFile $Catalog
+    Import-CatalogFile $CacheFile
+    $script:CatalogOrder = @($CatalogVersions.Keys | Sort-Object)
+}
+Update-Catalog
+if ($CatalogOrder.Count -eq 0 -and -not (Test-Path $Catalog)) {
+    Write-Warn "No catalog at $Catalog - milestones will be resolved from the archive."
 }
 
 # Windows-on-ARM runs the x64 build through the OS emulation layer, so there is
@@ -128,6 +153,186 @@ function Write-Meta {
     [IO.File]::WriteAllText((Join-Path (Get-BuildDir $rev) '.meta'), $body + "`n")
 }
 
+# ---------- runtime cache ----------
+# Written as a whole new file and moved into place: several versions can be
+# launched at once, each resolving something different, and a reader must never
+# see a half-written line.
+function Add-CacheRows {
+    param($rows)
+    if (-not $rows -or @($rows).Count -eq 0) { return }
+    $existing = @('# ChromiumStack cache - milestones resolved against the live archive.')
+    if (Test-Path $CacheFile) { $existing = @(Get-Content $CacheFile) }
+    $tmp = "$CacheFile.$PID"
+    try {
+        Set-Content -Path $tmp -Value ($existing + @($rows)) -Encoding UTF8
+        Move-Item -Path $tmp -Destination $CacheFile -Force
+    } catch {
+        Remove-Item -Force $tmp -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-CacheMilestone {
+    param($m)
+    if (-not (Test-Path $CacheFile)) { return $false }
+    foreach ($line in Get-Content $CacheFile) {
+        $f = $line -split "`t"
+        if ($f[0] -eq 'B' -and $f[1] -eq "$m") { return $true }
+    }
+    return $false
+}
+
+# A cached row goes stale in exactly one way: the bucket drops a revision. Forget
+# it and the next lookup asks the archive again instead of failing forever.
+function Remove-CacheMilestone {
+    param($m)
+    if (-not (Test-Path $CacheFile)) { return }
+    $kept = @(Get-Content $CacheFile | Where-Object {
+        $f = $_ -split "`t"
+        -not (($f[0] -eq 'V' -or $f[0] -eq 'B') -and $f[1] -eq "$m")
+    })
+    $tmp = "$CacheFile.$PID"
+    try {
+        Set-Content -Path $tmp -Value $kept -Encoding UTF8
+        Move-Item -Path $tmp -Destination $CacheFile -Force
+    } catch {
+        Remove-Item -Force $tmp -ErrorAction SilentlyContinue
+    }
+}
+
+# ---------- live resolution ----------
+# The shipped catalog freezes at whatever was current when the release was cut.
+# Everything below asks the archive the same questions instead, so a milestone
+# that shipped after this copy was built still runs. An answer is permanent - a
+# branch point never moves and the snapshot bucket only ever grows - so it is
+# cached without a TTL. Only "which milestone is stable now" gets one.
+
+function Get-MilestoneInfo {
+    param($m)
+    try { $data = Invoke-RestMethod -Uri "${DashApi}?mstone=$m" -TimeoutSec 30 } catch { return $null }
+    $entry = @($data)[0]
+    if (-not $entry -or -not $entry.chromium_main_branch_position) { return $null }
+    return @{ Position = [int64]$entry.chromium_main_branch_position; Branch = "$($entry.chromium_branch)" }
+}
+
+# First archived revision at or after target. Not every commit position is built
+# and the gap runs to tens of commits, so the bucket listing is what decides.
+# GCS lists lexicographically and the bucket still holds ancient short revision
+# folders - Linux_x64/97277 sorts after 972766 - so only tokens of the target's
+# own digit width are compared.
+function Get-NearestRevision {
+    param($platform, $target)
+    $width = "$target".Length
+    $low   = "$platform/$target"
+    $high  = "$platform/" + ('9' * $width)
+    for ($attempt = 0; $attempt -lt 6; $attempt++) {
+        try {
+            $listing = Invoke-RestMethod -TimeoutSec 30 `
+                -Uri "${ListApi}?delimiter=/&prefix=$platform/&startOffset=$low&endOffset=$high&maxResults=200"
+        } catch { return $null }
+        if (-not $listing.prefixes) { return $null }
+        $tokens = @($listing.prefixes | ForEach-Object { $_.TrimEnd('/').Split('/')[-1] })
+        $found = @($tokens |
+            Where-Object { $_ -match '^\d+$' -and $_.Length -eq $width -and [int64]$_ -ge $target } |
+            ForEach-Object { [int64]$_ } | Sort-Object)
+        if ($found.Count -gt 0) {
+            if (($found[0] - $target) -ge $MaxDrift) { return $null }
+            return $found[0]
+        }
+        $low = "$platform/" + $tokens[-1]
+    }
+    return $null
+}
+
+# Windows switched from chrome-win32.zip to chrome-win.zip partway through the
+# catalogued range, so the listing decides this too rather than a guess.
+function Get-ArchiveAt {
+    param($platform, $revision)
+    try {
+        $listing = Invoke-RestMethod -Uri "${ListApi}?delimiter=/&prefix=$platform/$revision/" -TimeoutSec 30
+    } catch { return $null }
+    if (-not $listing.items) { return $null }
+    $names = @($listing.items | ForEach-Object { $_.name.Split('/')[-1] })
+    foreach ($candidate in @('chrome-win.zip', 'chrome-win32.zip')) {
+        if ($names -contains $candidate) { return $candidate }
+    }
+    return $null
+}
+
+function Resolve-MilestoneLive {
+    param($m)
+    $info = Get-MilestoneInfo $m
+    if (-not $info) { return $null }
+    $revision = Get-NearestRevision $HostPlatform $info.Position
+    if (-not $revision) { return $null }
+    $archive = Get-ArchiveAt $HostPlatform $revision
+    if (-not $archive) { return $null }
+    $version = "$m.0.$($info.Branch).0"
+    $root = $archive -replace '\.zip$', ''
+    return @(
+        "V`t$m`t$version`tResolved from the live archive.",
+        "B`t$m`t$HostPlatform`t$revision`t$archive`t$root"
+    )
+}
+
+# Newest stable milestone. This is the one thing here that does go out of date,
+# roughly every four weeks, so it carries a TTL - and offline the last answer
+# stands rather than nothing.
+function Get-NewestStableMilestone {
+    $cached = $null
+    if (Test-Path $StableCache) {
+        $parts = (Get-Content $StableCache -First 1) -split '\s+'
+        if ($parts.Count -ge 2 -and $parts[0] -match '^\d+$') {
+            $age = [int64][Math]::Floor((Get-Date -UFormat %s)) - [int64]$parts[0]
+            $cached = $parts[1]
+            if ($age -lt $StableTtl) { return [int]$cached }
+        }
+    }
+    try { $data = Invoke-RestMethod -Uri $CftStable -TimeoutSec 30 } catch { $data = $null }
+    $version = $null
+    if ($data -and $data.channels -and $data.channels.Stable) { $version = $data.channels.Stable.version }
+    if ($version -match '^(\d+)\.') {
+        $milestone = [int]$Matches[1]
+        $stamp = [int64][Math]::Floor((Get-Date -UFormat %s))
+        try { Set-Content -Path $StableCache -Value "$stamp $milestone" -Encoding UTF8 } catch { }
+        return $milestone
+    }
+    if ($cached) { return [int]$cached }
+    return $null
+}
+
+# Milestones past the end of what is known, on the same five-milestone spacing,
+# plus the current stable itself.
+function Get-NewMilestones {
+    $newest = Get-NewestStableMilestone
+    if (-not $newest) { return @() }
+    $known = @($CatalogOrder)
+    $last = 60
+    if ($known.Count -gt 0) { $last = [int]($known[-1]) }
+    $out = @()
+    for ($m = [int](([Math]::Floor($last / 5) * 5) + 5); $m -le $newest; $m += 5) {
+        if ($known -notcontains $m) { $out += $m }
+    }
+    if ($known -notcontains $newest -and $out -notcontains $newest) { $out += $newest }
+    return $out
+}
+
+# Sequential rather than parallel: PowerShell background jobs cost more to start
+# than these requests take, and this runs once per newly released milestone.
+function Update-NewMilestones {
+    $missing = Get-NewMilestones
+    if ($missing.Count -eq 0) { return }
+    Write-Host "Resolving $($missing.Count) new milestone(s) against the archive - once only." -ForegroundColor DarkGray
+    $rows = @()
+    foreach ($m in $missing) {
+        $resolved = Resolve-MilestoneLive $m
+        if ($resolved) { $rows += $resolved }
+    }
+    if ($rows.Count -gt 0) {
+        Add-CacheRows $rows
+        Update-Catalog
+    }
+}
+
 # ---------- selector resolution ----------
 # A selector is a milestone (74, M74) or a raw archive revision (638880).
 # Milestones are small and revisions are six digits or more, so the split needs
@@ -140,9 +345,16 @@ function Resolve-Selector {
 
     if ([int64]$token -lt 1000) {
         $m = [int]$token
-        if (-not $CatalogVersions.ContainsKey($m)) { Die "Chromium $m is not in the catalog. Try: .\chromium-stack.ps1 catalog" }
         if (-not ($CatalogBuilds.ContainsKey($m) -and $CatalogBuilds[$m].ContainsKey($HostPlatform))) {
-            Die "No $HostPlatform build of Chromium $m in the catalog."
+            # Known to neither the cache nor the shipped catalog. Ask the archive,
+            # keep the answer, and try once more - this is how a milestone released
+            # after this copy was packaged becomes runnable without an update.
+            Write-Host "Chromium $m is not catalogued here - asking the archive..." -ForegroundColor DarkGray
+            $resolved = Resolve-MilestoneLive $m
+            if ($resolved) { Add-CacheRows $resolved; Update-Catalog }
+        }
+        if (-not ($CatalogBuilds.ContainsKey($m) -and $CatalogBuilds[$m].ContainsKey($HostPlatform))) {
+            Die "No $HostPlatform build of Chromium $m is available. It is in neither the catalog nor the cache, and the archive could not be reached to look it up. Try: .\chromium-stack.ps1 catalog"
         }
         $b = $CatalogBuilds[$m][$HostPlatform]
         return @{ Milestone = "$m"; Version = $CatalogVersions[$m].Version; Platform = $HostPlatform
@@ -250,6 +462,12 @@ function Install-Build {
     } catch {
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
         Remove-Item -Force $zip -ErrorAction SilentlyContinue
+        # The one way a cached row goes bad: the bucket dropped that revision.
+        # Drop the row too, so the retry resolves afresh instead of failing forever.
+        if ($sel.Milestone -and $sel.Milestone -ne '?' -and (Test-CacheMilestone $sel.Milestone)) {
+            Remove-CacheMilestone $sel.Milestone
+            Die "Download failed - r$rev is no longer in the archive. The stale entry has been forgotten; run the same command again to re-resolve."
+        }
         Die "Download failed: $($_.Exception.Message)"
     }
 
@@ -286,6 +504,9 @@ function Get-DirSize {
 
 # ---------- commands ----------
 function Invoke-Catalog {
+    # Anything Chrome has shipped since this copy was packaged gets resolved and
+    # cached here, so the list keeps growing without a new release of this tool.
+    Update-NewMilestones
     Write-Host ""
     Write-Host "Available Chromium versions (host: $HostPlatform)" -ForegroundColor White
     Write-Host ""
@@ -303,6 +524,9 @@ function Invoke-Catalog {
     }
     Write-Host ""
     Write-Host "Install and run:  .\chromium-stack.ps1 run <version>" -ForegroundColor DarkGray
+    if (Test-Path $CacheFile) {
+        Write-Host "Milestones newer than this release are resolved live and cached in $CacheFile" -ForegroundColor DarkGray
+    }
 }
 
 function Invoke-List {

@@ -73,3 +73,28 @@ B	130	Mac	1356019	chrome-mac.zip	chrome-mac
 B	130	Mac_Arm	1356025	chrome-mac.zip	chrome-mac
 B	130	Linux_x64	1356035	chrome-linux.zip	chrome-linux
 B	130	Win_x64	1356075	chrome-win.zip	chrome-win
+V	135	135.0.7049.0	2025. Added automatically as Chrome released it.
+B	135	Mac	1427290	chrome-mac.zip	chrome-mac
+B	135	Mac_Arm	1427274	chrome-mac.zip	chrome-mac
+B	135	Linux_x64	1427282	chrome-linux.zip	chrome-linux
+B	135	Win_x64	1427268	chrome-win.zip	chrome-win
+V	140	140.0.7339.0	2025. Added automatically as Chrome released it.
+B	140	Mac	1496489	chrome-mac.zip	chrome-mac
+B	140	Mac_Arm	1496485	chrome-mac.zip	chrome-mac
+B	140	Linux_x64	1496495	chrome-linux.zip	chrome-linux
+B	140	Win_x64	1496524	chrome-win.zip	chrome-win
+V	145	145.0.7632.0	2026. Added automatically as Chrome released it.
+B	145	Mac	1568204	chrome-mac.zip	chrome-mac
+B	145	Mac_Arm	1568193	chrome-mac.zip	chrome-mac
+B	145	Linux_x64	1568190	chrome-linux.zip	chrome-linux
+B	145	Win_x64	1568195	chrome-win.zip	chrome-win
+V	150	150.0.7871.0	2026. Added automatically as Chrome released it.
+B	150	Mac	1639811	chrome-mac.zip	chrome-mac
+B	150	Mac_Arm	1639818	chrome-mac.zip	chrome-mac
+B	150	Linux_x64	1639829	chrome-linux.zip	chrome-linux
+B	150	Win_x64	1639827	chrome-win.zip	chrome-win
+V	152	152.0.7977.0	2026. Added automatically as Chrome released it.
+B	152	Mac	1669032	chrome-mac.zip	chrome-mac
+B	152	Mac_Arm	1669021	chrome-mac.zip	chrome-mac
+B	152	Linux_x64	1669021	chrome-linux.zip	chrome-linux
+B	152	Win_x64	1669035	chrome-win.zip	chrome-win

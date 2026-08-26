@@ -34,6 +34,7 @@ $Token = [Convert]::ToBase64String([Guid]::NewGuid().ToByteArray()) -replace '[^
 if ($env:CHROMIUM_STACK_HOME)   { $Root = $env:CHROMIUM_STACK_HOME }
 elseif ($env:BROWSERS_EMU_HOME) { $Root = $env:BROWSERS_EMU_HOME }
 else                          { $Root = Join-Path $env:USERPROFILE '.chromium-stack' }
+$CacheFile   = Join-Path $Root 'catalog.cache.tsv'
 $BuildsDir   = Join-Path $Root 'builds'
 $ProfilesDir = Join-Path $Root 'profiles'
 $JobsDir     = Join-Path $Root 'jobs'
@@ -44,23 +45,41 @@ New-Item -ItemType Directory -Force -Path $JobsDir | Out-Null
 $HostPlatform = 'Win_x64'
 
 # ---------- catalog ----------
+# Same precedence the CLI uses: the shipped catalog, then the runtime cache over
+# the top of it. catalog.tsv freezes at the release; the cache holds whatever has
+# been resolved against the live archive since.
 function Read-Catalog {
-    $versions = New-Object System.Collections.ArrayList
+    $versions = @{}
     $builds = @{}
-    foreach ($line in Get-Content $Catalog) {
-        if ($line -match '^\s*#' -or $line.Trim() -eq '') { continue }
-        $f = $line -split "`t"
-        if ($f[0] -eq 'V') {
-            $note = ''
-            if ($f.Count -gt 3) { $note = $f[3] }
-            [void]$versions.Add(@{ milestone = [int]$f[1]; version = $f[2]; note = $note })
-        } elseif ($f[0] -eq 'B') {
-            $m = [int]$f[1]
-            if (-not $builds.ContainsKey($m)) { $builds[$m] = @{} }
-            $builds[$m][$f[2]] = @{ revision = [int]$f[3]; archive = $f[4]; root = $f[5] }
+    foreach ($path in @($Catalog, $CacheFile)) {
+        if (-not (Test-Path $path)) { continue }
+        foreach ($line in Get-Content $path) {
+            if ($line -match '^\s*#' -or $line.Trim() -eq '') { continue }
+            $f = $line -split "`t"
+            if ($f[0] -eq 'V') {
+                $note = ''
+                if ($f.Count -gt 3) { $note = $f[3] }
+                $versions[[int]$f[1]] = @{ milestone = [int]$f[1]; version = $f[2]; note = $note }
+            } elseif ($f[0] -eq 'B') {
+                $m = [int]$f[1]
+                if (-not $builds.ContainsKey($m)) { $builds[$m] = @{} }
+                $builds[$m][$f[2]] = @{ revision = [int]$f[3]; archive = $f[4]; root = $f[5] }
+            }
         }
     }
-    return @{ versions = $versions; builds = $builds }
+    $ordered = New-Object System.Collections.ArrayList
+    foreach ($m in ($versions.Keys | Sort-Object)) { [void]$ordered.Add($versions[$m]) }
+    return @{ versions = $ordered; builds = $builds }
+}
+
+# Let the CLI discover and cache milestones released since this build. Delegated
+# rather than reimplemented: `catalog` is the command that knows how to walk the
+# archive. Failure is silent - the shipped catalog is still a complete answer.
+function Update-CatalogCache {
+    try {
+        Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Cli, 'catalog') | Out-Null
+    } catch { }
 }
 
 function Get-DirSize {
@@ -508,6 +527,10 @@ Write-Host "  ChromiumStack manager  ->  $url"
 Write-Host "  Files: $Root"
 Write-Host "  Press Ctrl-C to stop the manager (running browsers stay open)."
 Write-Host ""
+
+# Off the startup path: it talks to the network, and the page is perfectly usable
+# from the shipped catalog while it runs. The next refresh picks up what it found.
+Update-CatalogCache
 
 if (-not $NoOpen) { Start-Process $url | Out-Null }
 

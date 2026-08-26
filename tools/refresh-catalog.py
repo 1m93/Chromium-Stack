@@ -17,13 +17,26 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 LIST_API = "https://www.googleapis.com/storage/v1/b/chromium-browser-snapshots/o"
 CATALOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "catalog.tsv")
 
-MILESTONES = [60, 65, 70, 74, 76, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130]
+# Hand-picked history: each of these was chosen because something interesting
+# lands there, and the note below says what. Past the end of the list the catalog
+# extends itself on the same five-milestone spacing up to whatever is stable now,
+# so a new Chrome release does not need this file edited.
+#
+# 60 is the floor for three independent reasons: Mac builds below it are 32-bit
+# i386 and cannot start on any macOS since Catalina, the Win_x64 bucket has
+# nothing before ~r389148, and chromiumdash has no branch position below 59. That
+# floor is quoted in the README and in the landing page copy - move it here and
+# those want updating too.
+ANCHORS = [60, 65, 70, 74, 76, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130]
+STEP = 5
+CFT_STABLE = "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json"
 
 # Snapshot platform directory -> archives to accept, best first. Windows switched
 # from chrome-win32.zip to chrome-win.zip partway through the range.
@@ -58,14 +71,65 @@ NOTES = {
 MAX_DRIFT = 3000
 
 
-def fetch_json(url):
-    with urllib.request.urlopen(url, timeout=30) as response:
-        return json.load(response)
+def generated_note(year):
+    """Note for a milestone added after the hand-written ones ran out.
+
+    Deliberately plain: an editorial note is a claim about what changed in the
+    engine, and inventing one automatically would be inventing the claim too.
+    """
+    return f"{year}. Added automatically as Chrome released it.".lstrip(". ")
+
+
+def fetch_json(url, attempts=4):
+    """GET and decode, retrying transient failures.
+
+    Sixteen workers open sixteen TLS connections at once and Google occasionally
+    drops one mid-handshake. Unattended, that would fail a whole run over a fault
+    that clears on the next try.
+    """
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                return json.load(response)
+        except Exception:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(1.5 * (attempt + 1))
 
 
 def milestone_info(milestone):
     data = fetch_json(f"https://chromiumdash.appspot.com/fetch_milestones?mstone={milestone}")[0]
     return data["chromium_main_branch_position"], data["chromium_branch"]
+
+
+def branch_year(milestone):
+    """Calendar year the milestone branched, for the generated note."""
+    try:
+        schedule = fetch_json(
+            f"https://chromiumdash.appspot.com/fetch_milestone_schedule?mstone={milestone}"
+        )["mstones"][0]
+        return str(schedule["branch_point"])[:4]
+    except (OSError, KeyError, IndexError, ValueError):
+        return ""
+
+
+def milestones():
+    """The anchors, then every STEP-th milestone up to the current stable.
+
+    Falls back to the anchors alone when the stable channel cannot be reached, so
+    an offline run still rewrites a valid catalog rather than truncating one.
+    """
+    try:
+        stable = int(fetch_json(CFT_STABLE)["channels"]["Stable"]["version"].split(".")[0])
+    except (OSError, KeyError, ValueError):
+        print("could not reach the stable channel; using the anchors alone", file=sys.stderr)
+        return list(ANCHORS)
+    extended = list(ANCHORS)
+    for milestone in range(ANCHORS[-1] // STEP * STEP + STEP, stable + 1, STEP):
+        extended.append(milestone)
+    if stable not in extended:
+        extended.append(stable)
+    return sorted(set(extended))
 
 
 def nearest_revision(platform, target):
@@ -118,11 +182,15 @@ def resolve(job):
 
 
 def build_rows():
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        info = dict(zip(MILESTONES, pool.map(milestone_info, MILESTONES)))
+    selected = milestones()
+    generated = [m for m in selected if m not in NOTES]
 
-    jobs = [(m, p, info[m][0]) for m in MILESTONES for p in PLATFORMS]
-    builds = {m: {} for m in MILESTONES}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        info = dict(zip(selected, pool.map(milestone_info, selected)))
+        years = dict(zip(generated, pool.map(branch_year, generated)))
+
+    jobs = [(m, p, info[m][0]) for m in selected for p in PLATFORMS]
+    builds = {m: {} for m in selected}
     with ThreadPoolExecutor(max_workers=16) as pool:
         for milestone, platform, result in pool.map(resolve, jobs):
             builds[milestone][platform] = result
@@ -132,10 +200,10 @@ def build_rows():
         "# V<TAB>milestone<TAB>version<TAB>note",
         "# B<TAB>milestone<TAB>platform<TAB>revision<TAB>archive<TAB>root",
     ]
-    for milestone in MILESTONES:
+    for milestone in selected:
         position, branch = info[milestone]
         version = f"{milestone}.0.{branch}.0"
-        note = NOTES.get(milestone, "")
+        note = NOTES.get(milestone) or generated_note(years.get(milestone, ""))
         lines.append(f"V\t{milestone}\t{version}\t{note}")
         for platform in PLATFORMS:
             result = builds[milestone].get(platform)
@@ -163,7 +231,8 @@ def main():
     with open(CATALOG, "w") as handle:
         handle.write(text)
     builds = sum(1 for line in text.splitlines() if line.startswith("B\t"))
-    print(f"wrote {CATALOG}: {len(MILESTONES)} milestones, {builds} builds")
+    versions = sum(1 for line in text.splitlines() if line.startswith("V\t"))
+    print(f"wrote {CATALOG}: {versions} milestones, {builds} builds")
     return 0
 
 

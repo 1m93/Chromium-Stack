@@ -59,26 +59,59 @@ def root_dir():
     return override or os.path.join(os.path.expanduser("~"), ".chromium-stack")
 
 
+def catalog_cache():
+    """Milestones chromium-stack.sh has resolved against the live archive.
+
+    It lives under the user's root rather than next to catalog.tsv, which ships
+    inside the release and is often read-only.
+    """
+    return os.path.join(root_dir(), "catalog.cache.tsv")
+
+
 def read_catalog():
-    versions, builds = [], {}
-    with open(CATALOG) as handle:
-        for line in handle:
-            if line.startswith("#") or not line.strip():
-                continue
-            parts = line.rstrip("\n").split("\t")
-            if parts[0] == "V":
-                versions.append({
-                    "milestone": int(parts[1]),
-                    "version": parts[2],
-                    "note": parts[3] if len(parts) > 3 else "",
-                })
-            elif parts[0] == "B":
-                builds.setdefault(int(parts[1]), {})[parts[2]] = {
-                    "revision": int(parts[3]),
-                    "archive": parts[4],
-                    "root": parts[5],
-                }
-    return versions, builds
+    """Merge the runtime cache over the shipped catalog, newest answer winning.
+
+    Same precedence the CLI uses, so the two cannot show different revisions for
+    the same milestone.
+    """
+    versions, builds = {}, {}
+    for path in (CATALOG, catalog_cache()):
+        try:
+            handle = open(path)
+        except OSError:
+            continue
+        with handle:
+            for line in handle:
+                if line.startswith("#") or not line.strip():
+                    continue
+                parts = line.rstrip("\n").split("\t")
+                if parts[0] == "V":
+                    versions[int(parts[1])] = {
+                        "milestone": int(parts[1]),
+                        "version": parts[2],
+                        "note": parts[3] if len(parts) > 3 else "",
+                    }
+                elif parts[0] == "B":
+                    builds.setdefault(int(parts[1]), {})[parts[2]] = {
+                        "revision": int(parts[3]),
+                        "archive": parts[4],
+                        "root": parts[5],
+                    }
+    return [versions[m] for m in sorted(versions)], builds
+
+
+def refresh_catalog_cache():
+    """Let the CLI discover and cache milestones released since this build.
+
+    Delegated rather than reimplemented: `catalog` is the command that knows how
+    to walk the archive, and doing it here would be a second copy to keep honest.
+    Failure is silent - the shipped catalog is still a complete answer.
+    """
+    try:
+        subprocess.run(["bash", CLI, "catalog"], cwd=PROJECT, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -512,6 +545,11 @@ def main():
                        stderr=subprocess.DEVNULL, timeout=30)
     except (OSError, subprocess.SubprocessError):
         pass
+
+    # Off the startup path: it talks to the network, and the page is perfectly
+    # usable from the shipped catalog while it runs. The next refresh picks up
+    # whatever it found.
+    threading.Thread(target=refresh_catalog_cache, daemon=True).start()
 
     port = pick_port(args.port)
     url = f"http://127.0.0.1:{port}/"

@@ -35,6 +35,16 @@ BUILDS_DIR="$ROOT/builds"
 PROFILES_DIR="$ROOT/profiles"
 LOGS_DIR="$ROOT/logs"
 
+# catalog.tsv ships inside the release and often lands on a read-only volume - it
+# does inside ChromiumStack.app - so anything learned at runtime is written here
+# instead. The cache is the newer of the two and is always consulted first.
+CACHE="$ROOT/catalog.cache.tsv"
+STABLE_CACHE="$ROOT/stable.cache"
+STABLE_TTL=86400                 # how long "newest stable milestone" stays fresh
+MAX_DRIFT=3000                   # refuse a build this far past the branch point
+DASH_API="https://chromiumdash.appspot.com/fetch_milestones"
+CFT_STABLE="https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json"
+
 if [ -t 1 ]; then
   B=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GRN=$'\033[32m'; YLW=$'\033[33m'; RST=$'\033[0m'
 else
@@ -61,25 +71,37 @@ case "$(uname -s)" in
 esac
 
 # ---------- catalog ----------
-# catalog.tsv is two record types:
+# Two record types, in both the shipped catalog and the runtime cache:
 #   V <milestone> <version> <note>
 #   B <milestone> <platform> <revision> <archive> <root>
-[ -f "$CATALOG" ] || die "Missing catalog: $CATALOG"
+#
+# Every lookup reads the cache first and the shipped catalog second, so an answer
+# learned after this copy was packaged beats the frozen one. Neither file has to
+# exist: a milestone in neither is resolved against the archive on demand.
+
+catalog_query() {       # awk args... -> first match across cache, then catalog
+  local files=()
+  [ -f "$CACHE" ] && files+=("$CACHE")
+  [ -f "$CATALOG" ] && files+=("$CATALOG")
+  [ "${#files[@]}" -gt 0 ] || return 0
+  # awk exits at the first match, and the cache is listed first, so it wins.
+  awk "$@" "${files[@]}"
+}
 
 catalog_version_of() {  # milestone -> version string
-  awk -F'\t' -v m="$1" '$1=="V" && $2==m {print $3; exit}' "$CATALOG"
+  catalog_query -F'\t' -v m="$1" '$1=="V" && $2==m {print $3; exit}'
 }
 catalog_note_of() {
-  awk -F'\t' -v m="$1" '$1=="V" && $2==m {print $4; exit}' "$CATALOG"
+  catalog_query -F'\t' -v m="$1" '$1=="V" && $2==m {print $4; exit}'
 }
 catalog_build() {       # milestone platform -> "revision archive root"
-  awk -F'\t' -v m="$1" -v p="$2" '$1=="B" && $2==m && $3==p {print $4, $5, $6; exit}' "$CATALOG"
+  catalog_query -F'\t' -v m="$1" -v p="$2" '$1=="B" && $2==m && $3==p {print $4, $5, $6; exit}'
 }
 catalog_milestones() {
-  awk -F'\t' '$1=="V" {print $2}' "$CATALOG"
+  catalog_query -F'\t' '$1=="V" {print $2}' | sort -un
 }
 catalog_milestone_for_revision() {
-  awk -F'\t' -v r="$1" '$1=="B" && $4==r {print $2; exit}' "$CATALOG"
+  catalog_query -F'\t' -v r="$1" '$1=="B" && $4==r {print $2; exit}'
 }
 
 # Pick the best platform this host can run for a milestone.
@@ -92,6 +114,199 @@ platform_for_milestone() {
     fi
   done
   return 1
+}
+
+# ---------- runtime cache ----------
+# Rows are only ever appended, and through a whole new file that is moved into
+# place: several versions can be launched at once, each resolving something
+# different, and a reader must never see a half-written line.
+cache_add() {           # rows on stdin
+  local rows tmp
+  rows="$(cat)"
+  [ -n "$rows" ] || return 0
+  tmp="$CACHE.$$"
+  {
+    if [ -f "$CACHE" ]; then cat "$CACHE"; else
+      printf '%s\n' "# ChromiumStack cache - milestones resolved against the live archive."
+    fi
+    printf '%s\n' "$rows"
+  } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$CACHE" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
+cache_has() {           # milestone -> is it in the cache rather than the catalog
+  [ -f "$CACHE" ] || return 1
+  awk -F'\t' -v m="$1" '$1=="B" && $2==m {found=1} END {exit !found}' "$CACHE"
+}
+
+# A cached row goes stale in exactly one way: the bucket drops a revision. Forget
+# it and the next lookup asks the archive again instead of failing forever.
+cache_forget() {        # milestone
+  local tmp
+  [ -f "$CACHE" ] || return 0
+  tmp="$CACHE.$$"
+  awk -F'\t' -v m="$1" '!(($1=="V" || $1=="B") && $2==m)' "$CACHE" > "$tmp" 2>/dev/null \
+    || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$CACHE" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
+# ---------- live resolution ----------
+# The shipped catalog freezes at whatever was current when the release was cut.
+# Everything below asks the archive the same questions instead, so a milestone
+# that shipped after this copy was built still runs. An answer is permanent - a
+# branch point never moves and the snapshot bucket only ever grows - so it is
+# cached without a TTL. Only "which milestone is stable now" gets one.
+
+net_get() { curl -fsS -m 30 "$1" 2>/dev/null || true; }
+
+# milestone -> "<branch-position> <branch>"
+live_milestone_info() {
+  local body position branch
+  body="$(net_get "$DASH_API?mstone=$1")"
+  [ -n "$body" ] || return 1
+  body="$(printf '%s' "$body" | tr ',' '\n')"
+  position="$(printf '%s\n' "$body" | grep -o '"chromium_main_branch_position":[[:space:]]*[0-9]*' \
+              | grep -o '[0-9]*$' | head -1)"
+  branch="$(printf '%s\n' "$body" | grep -o '"chromium_branch":[[:space:]]*"[0-9]*"' \
+            | grep -o '[0-9][0-9]*' | head -1)"
+  [ -n "$position" ] && [ -n "$branch" ] || return 1
+  printf '%s %s\n' "$position" "$branch"
+}
+
+# First archived revision at or after target. Not every commit position is built
+# and the gap runs to tens of commits, so the bucket listing is what decides.
+# GCS lists lexicographically and the bucket still holds ancient short revision
+# folders - Linux_x64/97277 sorts after 972766 - so only tokens of the target's
+# own digit width are compared.
+live_nearest_revision() {
+  local platform="$1" target="$2" width low high body found attempt=0
+  width="${#target}"
+  low="$platform/$target"
+  high="$platform/$(printf '%s' "$target" | sed 's/./9/g')"
+  while [ "$attempt" -lt 6 ]; do
+    attempt=$((attempt + 1))
+    body="$(net_get "$LIST_API?delimiter=/&prefix=$platform/&startOffset=$low&endOffset=$high&maxResults=200")"
+    [ -n "$body" ] || return 1
+    body="$(printf '%s' "$body" | tr ',' '\n' | grep -o "\"$platform/[0-9]*/\"" \
+            | sed "s|.*/\([0-9]*\)/\"|\1|")"
+    [ -n "$body" ] || return 1
+    found="$(printf '%s\n' "$body" | awk -v w="$width" -v t="$target" \
+             'length($0)==w && $0+0>=t' | sort -n | head -1)"
+    if [ -n "$found" ]; then
+      [ "$((found - target))" -lt "$MAX_DRIFT" ] || return 1
+      printf '%s\n' "$found"
+      return 0
+    fi
+    low="$platform/$(printf '%s\n' "$body" | tail -1)"
+  done
+  return 1
+}
+
+# Windows switched from chrome-win32.zip to chrome-win.zip partway through the
+# catalogued range, so the listing decides this too rather than a guess.
+platform_archives() {
+  case "$1" in
+    Mac|Mac_Arm) printf 'chrome-mac.zip\n' ;;
+    Linux_x64)   printf 'chrome-linux.zip\n' ;;
+    *)           printf 'chrome-win.zip\nchrome-win32.zip\n' ;;
+  esac
+}
+
+live_archive_at() {
+  local platform="$1" revision="$2" names candidate
+  names="$(net_get "$LIST_API?delimiter=/&prefix=$platform/$revision/" \
+           | tr ',' '\n' | grep -o '"name":[[:space:]]*"[^"]*"' | sed 's|.*/\([^"/]*\)"$|\1|')"
+  [ -n "$names" ] || return 1
+  for candidate in $(platform_archives "$platform"); do
+    if printf '%s\n' "$names" | grep -qx "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Resolve a milestone and print its catalog rows. Only the platforms this host
+# can run are tried, and only until one works: the cache is per-machine, so a
+# row for a platform this machine cannot launch would never be read back.
+live_resolve_milestone() {
+  local milestone="$1" info position branch version platform revision archive
+  info="$(live_milestone_info "$milestone")" || return 1
+  position="${info%% *}"
+  branch="${info##* }"
+  version="$milestone.0.$branch.0"
+  for platform in $HOST_PLATFORMS; do
+    revision="$(live_nearest_revision "$platform" "$position")" || continue
+    archive="$(live_archive_at "$platform" "$revision")" || continue
+    printf 'V\t%s\t%s\t%s\n' "$milestone" "$version" "Resolved from the live archive."
+    printf 'B\t%s\t%s\t%s\t%s\t%s\n' "$milestone" "$platform" "$revision" "$archive" "${archive%.zip}"
+    return 0
+  done
+  return 1
+}
+
+# Newest stable milestone. This is the one thing here that does go out of date,
+# roughly every four weeks, so it carries a TTL - and offline the last answer
+# stands rather than nothing.
+newest_stable_milestone() {
+  local stamp="" cached="" now body milestone tmp
+  now="$(date +%s)"
+  if [ -f "$STABLE_CACHE" ]; then
+    read -r stamp cached < "$STABLE_CACHE" 2>/dev/null || true
+    case "$stamp" in ''|*[!0-9]*) stamp=0 ;; esac
+    if [ -n "$cached" ] && [ "$((now - stamp))" -lt "$STABLE_TTL" ]; then
+      printf '%s\n' "$cached"
+      return 0
+    fi
+  fi
+  body="$(net_get "$CFT_STABLE" | tr ',' '\n')"
+  milestone="$(printf '%s\n' "$body" | sed -n '/"Stable"/,/"Beta"/p' \
+               | grep -o '"version":[[:space:]]*"[0-9]*' | grep -o '[0-9]*$' | head -1)"
+  if [ -n "$milestone" ]; then
+    tmp="$STABLE_CACHE.$$"
+    printf '%s %s\n' "$now" "$milestone" > "$tmp" 2>/dev/null \
+      && mv "$tmp" "$STABLE_CACHE" 2>/dev/null || rm -f "$tmp"
+    printf '%s\n' "$milestone"
+    return 0
+  fi
+  [ -n "$cached" ] || return 1
+  printf '%s\n' "$cached"
+}
+
+# Milestones past the end of what is known, on the same five-milestone spacing,
+# plus the current stable itself.
+discover_new_milestones() {
+  local newest known last milestone out=""
+  newest="$(newest_stable_milestone)" || return 0
+  known="$(catalog_milestones)"
+  last="$(printf '%s\n' "$known" | tail -1)"
+  case "$last" in ''|*[!0-9]*) last=60 ;; esac
+  milestone=$(( (last / 5) * 5 + 5 ))
+  while [ "$milestone" -le "$newest" ]; do
+    printf '%s\n' "$known" | grep -qx "$milestone" || out="$out $milestone"
+    milestone=$((milestone + 5))
+  done
+  if ! printf '%s\n' "$known" | grep -qx "$newest"; then
+    case " $out " in *" $newest "*) ;; *) out="$out $newest" ;; esac
+  fi
+  printf '%s\n' "${out# }"
+}
+
+# Resolving is a handful of requests per milestone, so they go out together. This
+# is a one-off: the answers land in the cache and every later run is offline-fast.
+resolve_missing() {
+  local milestone tmpdir running=0
+  [ $# -gt 0 ] || return 0
+  tmpdir="$(mktemp -d "$ROOT/.resolve.XXXXXX" 2>/dev/null)" || return 0
+  info "${DIM}Resolving $# new milestone(s) against the archive - once only.${RST}"
+  for milestone in "$@"; do
+    ( live_resolve_milestone "$milestone" > "$tmpdir/$milestone" 2>/dev/null || true ) &
+    running=$((running + 1))
+    if [ "$running" -ge 6 ]; then wait; running=0; fi
+  done
+  wait
+  cat "$tmpdir"/* 2>/dev/null | cache_add || true
+  rm -rf "$tmpdir"
 }
 
 # ---------- selector resolution ----------
@@ -117,10 +332,18 @@ resolve_selector() {
 
 resolve_milestone() {
   local milestone="$1" platform build
+  if ! platform="$(platform_for_milestone "$milestone")"; then
+    # Known to neither the cache nor the shipped catalog. Ask the archive, keep
+    # the answer, and try once more - this is how a milestone released after
+    # this copy was packaged becomes runnable without an update.
+    info "${DIM}Chromium $milestone is not catalogued here - asking the archive...${RST}"
+    live_resolve_milestone "$milestone" | cache_add || true
+    platform="$(platform_for_milestone "$milestone")" || die "\
+No $(printf '%s' "$HOST_PLATFORMS" | tr ' ' '/') build of Chromium $milestone is available.
+   It is in neither the catalog nor the cache, and the archive could not be
+   reached to look it up. Try: $0 catalog"
+  fi
   SEL_VERSION="$(catalog_version_of "$milestone")"
-  [ -n "$SEL_VERSION" ] || die "Chromium $milestone is not in the catalog. Try: $0 catalog"
-  platform="$(platform_for_milestone "$milestone")" \
-    || die "No $(printf '%s' "$HOST_PLATFORMS" | tr ' ' '/') build of Chromium $milestone in the catalog."
   build="$(catalog_build "$milestone" "$platform")"
   SEL_MILESTONE="$milestone"
   SEL_PLATFORM="$platform"
@@ -280,8 +503,17 @@ install_build() {
   mkdir -p "$dir"
   zip="$ROOT/.download-$revision.zip"
 
-  curl -fL --progress-bar -o "$zip" "$BASE_URL/$platform/$revision/$archive" \
-    || { rm -rf "$dir" "$zip"; die "Download failed. Check your connection or proxy."; }
+  if ! curl -fL --progress-bar -o "$zip" "$BASE_URL/$platform/$revision/$archive"; then
+    rm -rf "$dir" "$zip"
+    # The one way a cached row goes bad: the bucket dropped that revision. Drop
+    # the row too, so the retry resolves afresh instead of failing forever.
+    if [ -n "$milestone" ] && [ "$milestone" != "?" ] && cache_has "$milestone"; then
+      cache_forget "$milestone"
+      die "Download failed - r$revision is no longer in the archive.
+   The stale entry has been forgotten; run the same command again to re-resolve."
+    fi
+    die "Download failed. Check your connection or proxy."
+  fi
 
   info "Extracting..."
   case "$platform" in
@@ -329,7 +561,14 @@ META
 
 # ---------- commands ----------
 cmd_catalog() {
-  local milestone version platform build revision state
+  local milestone version platform build revision state new
+  # Anything Chrome has shipped since this copy was packaged gets resolved and
+  # cached here, so the list keeps growing without a new release of this tool.
+  new="$(discover_new_milestones)"
+  if [ -n "$new" ]; then
+    # shellcheck disable=SC2086
+    resolve_missing $new
+  fi
   printf '%s\n' "${B}Available Chromium versions${RST} ${DIM}(host: $(printf '%s' "$HOST_PLATFORMS" | cut -d' ' -f1))${RST}"
   printf '\n'
   for milestone in $(catalog_milestones); do
@@ -344,6 +583,8 @@ cmd_catalog() {
     printf '  %-6s %-16s r%-9s %-12s %b\n' "$milestone" "$version" "$revision" "$platform" "$state"
   done
   printf '\n%s\n' "${DIM}Install and run:  $0 run <version>${RST}"
+  [ -f "$CACHE" ] && printf '%s\n' "${DIM}Milestones newer than this release are resolved live and cached in $CACHE${RST}"
+  return 0
 }
 
 cmd_list() {
@@ -575,7 +816,9 @@ Commands:
         --fix                ...and offer to install what is missing
   gui                        Open the graphical manager
 
-<version> is a milestone (74) or a raw snapshot revision (638880).
+<version> is a milestone (74) or a raw snapshot revision (638880). A milestone
+this copy has never heard of is looked up in the snapshot archive and remembered,
+so newly released Chromium versions work without updating ChromiumStack.
 
 Options for run:
   --size WxH                 Fixed window size, e.g. --size 1280x800

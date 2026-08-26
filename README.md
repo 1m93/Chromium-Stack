@@ -5,13 +5,13 @@
 <p align="center">
   <a href="https://github.com/1m93/Chromium-Stack/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/1m93/Chromium-Stack?style=flat-square&color=2f6df6&label=release"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-ready-2b3444?style=flat-square">
-  <img alt="Chromium 60 to 130" src="https://img.shields.io/badge/Chromium-60%20%E2%86%92%20130-4b83ff?style=flat-square">
+  <img alt="Chromium 60 and up" src="https://img.shields.io/badge/Chromium-60%20and%20up-4b83ff?style=flat-square">
   <img alt="No install required" src="https://img.shields.io/badge/setup-double--click-1d9a5a?style=flat-square">
   <a href="https://github.com/1m93/Chromium-Stack/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/1m93/Chromium-Stack/total?style=flat-square&color=5b6472&label=downloads"></a>
 </p>
 
 <p align="center">
-  <b>A shelf of real browsers, eight years deep.</b><br>
+  <b>A shelf of real browsers, going back to 2017.</b><br>
   Pick a Chromium version, press Launch, and it opens as an ordinary desktop browser —<br>
   tabs, bookmarks, DevTools and all. No account, no build step, nothing to configure.
 </p>
@@ -145,8 +145,11 @@ Closing the launcher window stops the manager; browsers it opened keep running.
 
 ## The version shelf
 
-Sixteen milestones are catalogued and verified against the live archive — and any other
-snapshot revision works too.
+Every catalogued milestone is verified against the live archive — and any other snapshot
+revision works too. The shelf is not frozen at whatever shipped in your copy:
+a milestone this build has never heard of is looked up in the archive the first time you
+ask for it, and remembered afterwards, so a newly released Chromium runs without updating
+ChromiumStack. See [Keeping up with Chrome](#keeping-up-with-chrome).
 
 | Era | Versions | What changes here |
 |---|---|---|
@@ -156,6 +159,10 @@ snapshot revision works too.
 | **2021–2022** | `95` `100` `105` | Container queries and `:has()` arrive in 105. |
 | **2023** | `110` `115` `120` | `dvh`, CSS nesting, view transitions, `subgrid`. |
 | **2024** | `125` `130` | Near-current — the control when you are bisecting. |
+
+Those are the hand-picked ones, each chosen because something interesting lands there.
+Newer milestones are added on the same spacing as Chrome releases them — run
+`./chromium-stack.sh catalog` for what your machine can actually launch today.
 
 <details>
 <summary><b>Running a version that is not on the shelf</b></summary>
@@ -174,6 +181,21 @@ curl -s "https://chromiumdash.appspot.com/fetch_milestones?mstone=74" \
 Then `./chromium-stack.sh run 638880`. Not every commit position is archived; if that exact
 one was never built for your platform, the tool says so — try one a few commits later.
 
+**Older than 60 is not a limit we chose.** The snapshot bucket does hold builds going back
+to 2011, and you are welcome to pass one of those revisions — but three separate walls sit
+just below M60, and none of them can be worked around from here:
+
+- macOS builds from that era are **32-bit i386**. macOS dropped 32-bit support in Catalina
+  and Rosetta 2 only translates x86_64, so they cannot start at all — `bad CPU type in
+  executable`, not a bug you can fix.
+- The `Win_x64` bucket has nothing before roughly r389148 (~M52). Only 32-bit `Win` goes
+  further back.
+- chromiumdash has no branch position below **M59**, so a milestone number cannot be
+  resolved to a revision automatically — you would have to know the revision yourself.
+
+Linux is the one platform where the old builds are still 64-bit, and even there Chromium
+below ~M64 wants `libgconf-2.so.4`, which modern distributions no longer ship.
+
 `catalog.tsv` pins one *verified* build per milestone per platform, because the nearest
 archived build is sometimes tens of commits away from the branch point. Regenerate it
 against the live archive any time:
@@ -183,9 +205,56 @@ python3 tools/refresh-catalog.py           # rewrite catalog.tsv
 python3 tools/refresh-catalog.py --check   # verify without writing
 ```
 
-To add a milestone, put it in `MILESTONES` in that script and rerun.
+The historical milestones are hand-picked and live in `ANCHORS`; past the end of that list
+the script extends itself on the same five-milestone spacing up to whatever Chrome has
+stable, so a new release does not need the file edited. Add an out-of-band milestone by
+putting it in `ANCHORS` and rerunning.
 
 </details>
+
+---
+
+## Keeping up with Chrome
+
+Chrome branches a new milestone roughly every four weeks. Nothing here needs a new release
+of ChromiumStack for that to show up.
+
+**On the command line.** Ask for any milestone. If it is not in `catalog.tsv`, the archive
+is asked instead — the branch point from chromiumdash, then the nearest revision the
+snapshot bucket actually built — and the answer is written to
+`~/.chromium-stack/catalog.cache.tsv`. That file is read *before* the shipped catalog, so
+the newest answer always wins:
+
+```bash
+./chromium-stack.sh run 152        # never heard of it? looked up once, then cached
+./chromium-stack.sh catalog        # also picks up anything released since your build
+```
+
+A resolved milestone never expires: a branch point does not move, and the snapshot bucket
+only ever grows. The cache carries no TTL, and only "which milestone is stable right now"
+is re-checked, once a day. Offline, the last answer stands — the cache and the shipped
+catalog are both still there, and every milestone you have used before still launches.
+The one thing that can go stale is a revision the bucket later drops; if a download 404s,
+that row is forgotten and the next run re-resolves it.
+
+The cache lives under your home rather than beside `catalog.tsv` on purpose: the shipped
+catalog is often on a read-only volume — inside `ChromiumStack.app`, for one.
+
+**In the manager.** Same cache, same precedence. It asks the CLI to refresh in the
+background at startup, so the list fills in without blocking the page.
+
+**On the landing page.** It renders the milestones it shipped with, then asks the same
+public sources and remembers the result in `localStorage`. A fetch that fails, is blocked,
+or is simply offline changes nothing on screen.
+
+**In the repository.** A weekly workflow reruns `tools/refresh-catalog.py` and
+`tools/sync-landing.py` and commits the result. That is an optimisation, not the mechanism:
+it keeps the copy everyone downloads current, so a fresh install starts from a recent
+catalogue instead of resolving its way there.
+
+Nothing in the prose — here, on the site, or in the page metadata — names a count or a
+version range. Those are the sentences that quietly go wrong four weeks later, and there
+is no number worth writing down that the tool cannot show you itself.
 
 ---
 
@@ -507,8 +576,11 @@ chromium-stack.sh / .ps1              the launcher everything else drives
 chromium-stack-docker.sh / .ps1       Docker launcher, one image per version
 lib/preflight.sh, preflight.ps1       dependency checks and the install offers,
                                       shared by the CLI, Docker and the manager
-catalog.tsv                           verified revisions per milestone per platform
+catalog.tsv                           verified revisions per milestone per platform,
+                                      as of the release - the seed, not the last word
+~/.chromium-stack/catalog.cache.tsv   milestones resolved live since then; read first
 tools/refresh-catalog.py              regenerate catalog.tsv from the archive
+tools/sync-landing.py                 bring docs/index.html into step with catalog.tsv
 docker/Dockerfile                     Chromium + Xvfb + fluxbox + x11vnc + noVNC
 docker/entrypoint.sh                  brings up X and supervises the browser
 assets/icon.svg, icon-small.svg       icon sources: full detail, and reduced for

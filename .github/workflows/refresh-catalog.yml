@@ -1,0 +1,48 @@
+# Chrome branches a new milestone about every four weeks. The CLI and the landing
+# page both resolve new ones against the live archive on their own, so this is not
+# what makes them appear - it refreshes the copies that ship: catalog.tsv inside
+# the release, and the seed the landing page paints before its first fetch comes
+# back. Neither is load-bearing; both save a round trip.
+name: Refresh Chromium catalog
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-catalog
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Resolve milestones against the snapshot archive
+        run: python3 tools/refresh-catalog.py
+
+      - name: Bring the landing page into step
+        run: python3 tools/sync-landing.py
+
+      - name: Commit when it changed
+        run: |
+          if git diff --quiet -- catalog.tsv docs/index.html; then
+            echo "catalog and landing page already current — nothing to do"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add catalog.tsv docs/index.html
+          git commit -m "chore: refresh Chromium catalog"
+          git push
