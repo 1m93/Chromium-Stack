@@ -9,7 +9,11 @@ read straight off disk, which is cheap and needs no subprocess.
 Bound to 127.0.0.1 and gated on a per-run token, so a web page you happen to have
 open cannot drive your browser installs.
 
-    python3 gui/server.py [--port N] [--no-open]
+The manager is its own window, not a page that outlives you: closing it stops
+this server, the browsers it launched and the containers it brought up. See
+"lifetime" below for how the window and the server keep track of each other.
+
+    python3 gui/server.py [--port N] [--no-open] [--tab] [--keep-alive]
 """
 import argparse
 import json
@@ -581,6 +585,202 @@ jobs = Jobs()
 
 
 # --------------------------------------------------------------------------- #
+# lifetime
+#
+# The manager used to be a tab you closed and a server you forgot about, still
+# holding a port and still parenting every browser it had launched. Now the
+# window is the app: when it goes, everything it started goes with it.
+#
+# Two things can say the window is gone, and both are needed. The browser process
+# hosting it exits - immediate and certain, but only when we own that process.
+# And the page stops asking: any authorised request counts as a heartbeat, so a
+# tab in someone's own browser is covered too, at the cost of a grace period long
+# enough that a reload does not read as a goodbye.
+# --------------------------------------------------------------------------- #
+
+# Long enough to ride out a reload, a sleeping laptop's first second back, or a
+# slow render; short enough that closing the window does not leave a stray server
+# holding the port.
+GRACE_SECONDS = 12
+
+_life = {
+    "seen": 0.0,        # last authorised request from a page
+    "shell": None,      # the browser process hosting the window, if we own it
+    "auto": True,       # quit when the window is gone
+    "quitting": False,
+    "server": None,
+}
+
+
+def find_app_browser():
+    """A Chromium-family browser to host the manager's own window.
+
+    Only Chromium-family: --app is what turns a tab into a window with no
+    address bar and no session of its own, and nothing else understands it.
+    Without one the manager opens as an ordinary tab instead.
+    """
+    override = os.environ.get("CHROMIUM_STACK_APP_BROWSER")
+    if override:
+        return override if os.access(override, os.X_OK) else None
+    if platform.system() == "Darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        ]
+    else:
+        candidates = [shutil.which(name) for name in
+                      ("google-chrome", "chromium", "chromium-browser",
+                       "microsoft-edge", "brave-browser")]
+    for path in candidates:
+        if path and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+def open_app_window(url):
+    """Open the manager in a window of its own; return the process behind it.
+
+    The separate profile directory is not tidiness. Pointed at the browser's
+    normal profile, the window is handed to the copy of Chrome already running
+    and this process exits immediately - taking away the one signal that says
+    for certain when the window has closed. It also keeps a manager window out
+    of the user's own session, history and extensions.
+    """
+    browser = find_app_browser()
+    if not browser:
+        return None
+    argv = [
+        browser,
+        f"--app={url}",
+        f"--user-data-dir={os.path.join(root_dir(), 'manager-window')}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--window-size=1440,920",
+        # A window showing one local page needs none of this, and an update
+        # check or a restore-pages prompt in it would be pure noise.
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-features=Translate",
+    ]
+    try:
+        # Its own session, so a crash here does not take the window with it and
+        # Ctrl-C in a terminal does not land on the browser sideways.
+        return subprocess.Popen(argv, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return None
+
+
+def stop_containers():
+    """Stop and remove the containers this project runs, if any are up.
+
+    Named the way chromium-stack-docker.sh names them, and stopped the way it
+    stops them: SIGTERM first, because killed outright the browser inside leaves
+    a lock in its profile volume that breaks the next start.
+    """
+    listed = docker_out(["ps", "--filter", f"name={CONTAINER_PREFIX}",
+                         "--format", "{{.Names}}"], timeout=8)
+    names = [name for name in listed.split() if name.startswith(CONTAINER_PREFIX)]
+    if not names:
+        return
+    print(f"  Stopping {len(names)} Docker container{'s' if len(names) > 1 else ''}...",
+          flush=True)
+    docker_out(["stop", "-t", "10", *names], timeout=90)
+    docker_out(["rm", "-f", *names], timeout=30)
+
+
+def tidy_cut_off(revisions):
+    """Clear up after downloads the shutdown interrupted.
+
+    chromium-stack.sh removes both of these itself when a download fails, but a
+    job killed outright never reaches that code - and closing the window is now
+    an ordinary way for a download to end, so an 80 MB orphan every time is not
+    acceptable. The zip cannot be resumed either: the CLI fetches it whole.
+
+    Only revisions this process was working on. Another manager may be running
+    against the same directory, and its download is not ours to delete.
+    """
+    root = root_dir()
+    for revision in revisions:
+        try:
+            os.remove(os.path.join(root, f".download-{revision}.zip"))
+        except OSError:
+            pass
+        build = os.path.join(root, "builds", str(revision))
+        # Absent .complete, this is a half-unpacked build that nothing will use.
+        if os.path.isdir(build) and not os.path.exists(os.path.join(build, ".complete")):
+            shutil.rmtree(build, ignore_errors=True)
+
+
+def stop_everything():
+    """Every browser and every job this manager started, closed.
+
+    Jobs are killed by process group, which is what brings a launched browser
+    down along with the launcher watching it.
+    """
+    running = jobs.summary()
+    if running:
+        print(f"  Stopping {len(running)} running job{'s' if len(running) > 1 else ''}...",
+              flush=True)
+        for job in running:
+            jobs.stop(job["id"])
+        # Let SIGTERM land before clearing up after what it interrupted.
+        time.sleep(0.6)
+    tidy_cut_off([job["revision"] for job in running
+                  if job["kind"] in ("install", "launch")])
+    stop_containers()
+
+    shell = _life["shell"]
+    if shell is not None and shell.poll() is None:
+        # Quitting from the page, so the window is still there to close.
+        try:
+            shell.terminate()
+        except OSError:
+            pass
+
+
+def quit_now(reason):
+    if _life["quitting"]:
+        return
+    _life["quitting"] = True
+    print(f"\n  Closing ({reason}).", flush=True)
+    stop_everything()
+    server = _life["server"]
+    if server is not None:
+        # From another thread: shutdown() cannot be called from the one serving.
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+
+def watch_window():
+    """Quit once the window is gone, by either of the two signals above."""
+    last_tick = time.time()
+    while not _life["quitting"]:
+        time.sleep(1)
+        now = time.time()
+        slept, last_tick = now - last_tick, now
+        # A second that took much longer than a second means the machine was
+        # suspended, not that the window closed - and on wake the page has had no
+        # chance to say anything yet. Without this, shutting a laptop lid for a
+        # minute took the manager and everything it was running down with it.
+        if slept > 5:
+            _life["seen"] = now
+            continue
+        if not _life["auto"]:
+            continue
+        shell = _life["shell"]
+        if shell is not None and shell.poll() is not None:
+            return quit_now("the manager window was closed")
+        # Nothing has connected yet: the browser may still be starting, and a
+        # manager that quit before its own window opened would be a fine joke.
+        if not _life["seen"]:
+            continue
+        if time.time() - _life["seen"] > GRACE_SECONDS:
+            return quit_now("the manager page stopped answering")
+
+
+# --------------------------------------------------------------------------- #
 # http
 # --------------------------------------------------------------------------- #
 
@@ -602,11 +802,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authorised(self):
         """Loopback binding alone does not stop a page in your browser from
-        POSTing here, so every API call must carry the token printed at start."""
+        POSTing here, so every API call must carry the token printed at start.
+
+        A call that gets through is also proof the window is still open, which is
+        what keeps the manager alive - see "lifetime" above.
+        """
         host = (self.headers.get("Host") or "").split(":")[0]
         if host not in ("127.0.0.1", "localhost", "[::1]", "::1"):
             return False
-        return secrets.compare_digest(self.headers.get("X-ChromiumStack-Token", ""), TOKEN)
+        if not secrets.compare_digest(self.headers.get("X-ChromiumStack-Token", ""), TOKEN):
+            return False
+        _life["seen"] = time.time()
+        return True
 
     def _body(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -631,6 +838,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "unauthorised"}, 403)
             job = jobs.get(path.rsplit("/", 1)[-1])
             return self._json(job or {"error": "no such job"}, 200 if job else 404)
+
+        if path == "/api/ping":
+            # _authorised() has already noted the time; the body is only so the
+            # page can tell whether closing it will end the session.
+            if not self._authorised():
+                return self._json({"error": "unauthorised"}, 403)
+            return self._json({"autoQuit": _life["auto"], "grace": GRACE_SECONDS})
 
         if path == "/api/token":
             # Handed to the page once, from the loopback origin it was opened on.
@@ -752,7 +966,12 @@ def pick_port(preferred):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=7411)
-    parser.add_argument("--no-open", action="store_true")
+    parser.add_argument("--no-open", action="store_true",
+                        help="start the server without opening anything")
+    parser.add_argument("--tab", action="store_true",
+                        help="open a tab in the default browser instead of a window")
+    parser.add_argument("--keep-alive", action="store_true",
+                        help="keep serving after the window closes")
     args = parser.parse_args()
 
     if not os.path.exists(CLI):
@@ -775,19 +994,42 @@ def main():
     port = pick_port(args.port)
     url = f"http://127.0.0.1:{port}/"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    _life["server"] = server
+
+    # Nothing was opened, so there is no window whose closing could mean anything;
+    # this is the shape a script or a remote session asks for, and it waits.
+    _life["auto"] = not (args.keep_alive or args.no_open)
+
+    shell = None
+    if not args.no_open and not args.tab:
+        shell = open_app_window(url)
+        _life["shell"] = shell
+    elif not args.no_open:
+        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
 
     print()
     print(f"  ChromiumStack manager  ->  {url}")
     print(f"  Files: {root_dir()}")
-    print("  Press Ctrl-C to stop the manager (running browsers stay open).")
+    if shell is not None:
+        print("  Closing the window quits the manager, the browsers it opened")
+        print("  and any Docker containers it started.")
+    elif not _life["auto"]:
+        print("  Press Ctrl-C to stop the manager.")
+    else:
+        # No window of our own: the page's heartbeat is the only thing that can
+        # say it is still there, so say what silence will be taken to mean.
+        print("  Opened as a browser tab. Closing it quits the manager, the")
+        print(f"  browsers it opened and any containers it started, {GRACE_SECONDS}s later.")
+    print("  Ctrl-C does the same.", flush=True)
     print(flush=True)
 
-    if not args.no_open:
-        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+    threading.Thread(target=watch_window, daemon=True).start()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n  Manager stopped.")
+        quit_now("Ctrl-C")
+    print("  Manager stopped.", flush=True)
 
 
 if __name__ == "__main__":

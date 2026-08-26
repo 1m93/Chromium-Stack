@@ -2,13 +2,18 @@
 #
 # ChromiumStack - open the graphical manager (macOS / Linux)
 #
-# Starts a small local web server and opens it in your normal browser. Nothing
+# Starts a small local web server and opens it in a window of its own. Nothing
 # is installed and nothing listens outside this machine: the server binds to
 # 127.0.0.1 and every request has to carry a token generated for this run.
 #
-#   ./gui.sh              # open the manager
-#   ./gui.sh --port 8080  # use a specific port
-#   ./gui.sh --no-open    # start it but do not open a browser tab
+# Closing the window quits the manager, the browsers it launched and any Docker
+# containers it started.
+#
+#   ./gui.sh                # open the manager
+#   ./gui.sh --port 8080    # use a specific port
+#   ./gui.sh --tab          # a tab in your default browser instead of a window
+#   ./gui.sh --no-open      # start it but open nothing
+#   ./gui.sh --keep-alive   # keep serving after the window closes
 #
 set -euo pipefail
 

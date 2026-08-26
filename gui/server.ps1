@@ -13,10 +13,16 @@
 # Bound to 127.0.0.1 and gated on a per-run token, so a web page you happen to
 # have open cannot drive your browser installs.
 #
+# The manager is its own window, not a page that outlives you: closing it stops
+# this server, the browsers it launched and the containers it brought up. See
+# "lifetime" below for how the window and the server keep track of each other.
+#
 [CmdletBinding()]
 param(
     [int]$Port = 7411,
-    [switch]$NoOpen
+    [switch]$NoOpen,       # start the server without opening anything
+    [switch]$Tab,          # a tab in the default browser instead of a window
+    [switch]$KeepAlive     # keep serving after the window closes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -584,11 +590,16 @@ function Test-Authorised {
     param($Request)
     # Loopback binding alone does not stop a page in your browser from POSTing
     # here, so every API call has to carry the token generated for this run.
+    #
+    # A call that gets through is also proof the window is still open, which is
+    # what keeps the manager alive - see "lifetime" below.
     $hostHeader = ''
     if ($Request.headers.ContainsKey('host')) { $hostHeader = ($Request.headers['host'] -split ':')[0] }
     if ($hostHeader -ne '127.0.0.1' -and $hostHeader -ne 'localhost') { return $false }
     if (-not $Request.headers.ContainsKey('x-chromiumstack-token')) { return $false }
-    return $Request.headers['x-chromiumstack-token'] -ceq $Token
+    if ($Request.headers['x-chromiumstack-token'] -cne $Token) { return $false }
+    $script:LastSeen = Get-Date
+    return $true
 }
 
 function Get-Body {
@@ -605,6 +616,155 @@ function Get-Field {
     return $prop.Value
 }
 
+# ---------- lifetime ----------
+#
+# The manager used to be a tab you closed and a server you forgot about, still
+# holding a port and still parenting every browser it had launched. Now the
+# window is the app: when it goes, everything it started goes with it.
+#
+# Two things can say the window is gone, and both are needed. The browser process
+# hosting it exits - immediate and certain, but only when we own that process.
+# And the page stops asking: any authorised request counts as a heartbeat, so a
+# tab in someone's own browser is covered too, at the cost of a grace period long
+# enough that a reload does not read as a goodbye.
+
+# Long enough to ride out a reload, a sleeping laptop's first second back, or a
+# slow render; short enough that closing the window does not leave a stray server
+# holding the port.
+$GraceSeconds = 12
+
+$script:LastSeen   = $null     # last authorised request from a page
+$script:Shell      = $null     # the browser process hosting the window, if ours
+$script:AutoQuit   = $true     # quit when the window is gone
+$script:QuitReason = $null     # set by the watchdog, read by the serve loop
+
+function Find-AppBrowser {
+    <#
+      A Chromium-family browser to host the manager's own window.
+
+      Only Chromium-family: --app is what turns a tab into a window with no
+      address bar and no session of its own, and nothing else understands it.
+      Without one the manager opens as an ordinary tab instead.
+    #>
+    if ($env:CHROMIUM_STACK_APP_BROWSER) {
+        if (Test-Path $env:CHROMIUM_STACK_APP_BROWSER) { return $env:CHROMIUM_STACK_APP_BROWSER }
+        return $null
+    }
+    $candidates = @()
+    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+        if (-not $base) { continue }
+        $candidates += Join-Path $base 'Google\Chrome\Application\chrome.exe'
+        $candidates += Join-Path $base 'Microsoft\Edge\Application\msedge.exe'
+        $candidates += Join-Path $base 'Chromium\Application\chrome.exe'
+        $candidates += Join-Path $base 'BraveSoftware\Brave-Browser\Application\brave.exe'
+    }
+    foreach ($path in $candidates) {
+        if ($path -and (Test-Path $path -PathType Leaf)) { return $path }
+    }
+    return $null
+}
+
+function Open-AppWindow {
+    <#
+      Open the manager in a window of its own; return the process behind it.
+
+      The separate profile directory is not tidiness. Pointed at the browser's
+      normal profile, the window is handed to the copy of Chrome already running
+      and that process exits immediately - taking away the one signal that says
+      for certain when the window has closed. It also keeps a manager window out
+      of the user's own session, history and extensions.
+    #>
+    param([string]$Url)
+    $browser = Find-AppBrowser
+    if (-not $browser) { return $null }
+    $argv = @(
+        "--app=$Url"
+        "--user-data-dir=$(Join-Path $Root 'manager-window')"
+        '--no-first-run'
+        '--no-default-browser-check'
+        '--window-size=1440,920'
+        # A window showing one local page needs none of this, and an update check
+        # or a restore-pages prompt in it would be pure noise.
+        '--disable-background-networking'
+        '--disable-component-update'
+        '--disable-features=Translate'
+    )
+    try {
+        return Start-Process -FilePath $browser -ArgumentList $argv -PassThru
+    } catch {
+        return $null
+    }
+}
+
+function Stop-Containers {
+    <#
+      Stop and remove the containers this project runs, if any are up.
+
+      Named the way chromium-stack-docker.ps1 names them, and stopped the way it
+      stops them: SIGTERM first, because killed outright the browser inside
+      leaves a lock in its profile volume that breaks the next start.
+    #>
+    $names = @(docker ps --filter "name=$ContainerPrefix" --format '{{.Names}}' 2>$null |
+               Where-Object { $_ -like "$ContainerPrefix*" })
+    if (-not $names.Count) { return }
+    $plural = if ($names.Count -gt 1) { 's' } else { '' }
+    Write-Host "  Stopping $($names.Count) Docker container$plural..."
+    docker stop -t 10 @names 2>&1 | Out-Null
+    docker rm -f @names 2>&1 | Out-Null
+}
+
+function Clear-CutOff {
+    <#
+      Clear up after downloads the shutdown interrupted.
+
+      chromium-stack.ps1 removes both of these itself when a download fails, but
+      a job killed outright never reaches that code - and closing the window is
+      now an ordinary way for a download to end, so an 80 MB orphan every time is
+      not acceptable. The archive cannot be resumed either: it is fetched whole.
+
+      Only revisions this process was working on. Another manager may be running
+      against the same directory, and its download is not ours to delete.
+    #>
+    param([string[]]$Revisions)
+    foreach ($revision in $Revisions) {
+        $partial = Join-Path $Root ".download-$revision.zip"
+        if (Test-Path $partial) { Remove-Item $partial -Force -ErrorAction SilentlyContinue }
+        $build = Join-Path $BuildsDir $revision
+        # Absent .complete, this is a half-unpacked build that nothing will use.
+        if ((Test-Path $build) -and -not (Test-Path (Join-Path $build '.complete'))) {
+            Remove-Item $build -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Stop-Everything {
+    <#
+      Every browser and every job this manager started, closed.
+
+      Jobs are killed with taskkill /T, which is what brings a launched browser
+      down along with the launcher watching it.
+    #>
+    $running = @(Get-JobSummary)
+    $cutOff = @()
+    if ($running.Count) {
+        $plural = if ($running.Count -gt 1) { 's' } else { '' }
+        Write-Host "  Stopping $($running.Count) running job$plural..."
+        foreach ($job in $running) {
+            if ($job.kind -eq 'install' -or $job.kind -eq 'launch') { $cutOff += [string]$job.revision }
+            Stop-Job2 ([string]$job.id) | Out-Null
+        }
+        # Let the kill land before clearing up after what it interrupted.
+        Start-Sleep -Milliseconds 600
+    }
+    Clear-CutOff $cutOff
+    Stop-Containers
+
+    if ($script:Shell -and -not $script:Shell.HasExited) {
+        # Quitting from the page, so the window is still there to close.
+        try { $script:Shell.CloseMainWindow() | Out-Null } catch { }
+    }
+}
+
 # ---------- routing ----------
 function Invoke-Route {
     param($Stream, $Request)
@@ -613,6 +773,13 @@ function Invoke-Route {
 
     if ($Request.method -eq 'GET') {
         if ($path -eq '/api/token') { Send-Json $Stream @{ token = $Token }; return }
+
+        if ($path -eq '/api/ping') {
+            # Test-Authorised has already noted the time; the body is only so the
+            # page can tell whether closing it will end the session.
+            if (-not (Test-Authorised $Request)) { Send-Json $Stream @{ error = 'unauthorised' } 403; return }
+            Send-Json $Stream @{ autoQuit = $script:AutoQuit; grace = $GraceSeconds }; return
+        }
 
         if ($path -eq '/api/state') {
             if (-not (Test-Authorised $Request)) { Send-Json $Stream @{ error = 'unauthorised' } 403; return }
@@ -716,20 +883,63 @@ for ($candidate = $Port; $candidate -lt $Port + 40; $candidate++) {
 if (-not $listener) { throw "No free port between $Port and $($Port + 40)" }
 
 $url = "http://127.0.0.1:$Port/"
+
+# Nothing was opened, so there is no window whose closing could mean anything;
+# this is the shape a script or a remote session asks for, and it waits.
+$script:AutoQuit = -not ($KeepAlive -or $NoOpen)
+
+if (-not $NoOpen -and -not $Tab) { $script:Shell = Open-AppWindow $url }
+elseif (-not $NoOpen)            { Start-Process $url | Out-Null }
+
 Write-Host ""
 Write-Host "  ChromiumStack manager  ->  $url"
 Write-Host "  Files: $Root"
-Write-Host "  Press Ctrl-C to stop the manager (running browsers stay open)."
+if ($script:Shell) {
+    Write-Host "  Closing the window quits the manager, the browsers it opened"
+    Write-Host "  and any Docker containers it started."
+} elseif (-not $script:AutoQuit) {
+    Write-Host "  Press Ctrl-C to stop the manager."
+} else {
+    # No window of our own: the page's heartbeat is the only thing that can say
+    # it is still there, so say what silence will be taken to mean.
+    Write-Host "  Opened as a browser tab. Closing it quits the manager, the"
+    Write-Host "  browsers it opened and any containers it started, ${GraceSeconds}s later."
+}
+Write-Host "  Ctrl-C does the same."
 Write-Host ""
 
 # Off the startup path: it talks to the network, and the page is perfectly usable
 # from the shipped catalog while it runs. The next refresh picks up what it found.
 Update-CatalogCache
 
-if (-not $NoOpen) { Start-Process $url | Out-Null }
-
+# Pending() instead of a blocking accept, so the watchdog below gets a turn: this
+# loop is the only thread there is.
+$lastTick = Get-Date
 try {
-    while ($true) {
+    while (-not $script:QuitReason) {
+        if (-not $listener.Pending()) {
+            Start-Sleep -Milliseconds 120
+            $now = Get-Date
+            if (($now - $lastTick).TotalSeconds -lt 1) { continue }
+            $slept = ($now - $lastTick).TotalSeconds
+            $lastTick = $now
+            # A second that took much longer than a second means the machine was
+            # suspended, not that the window closed - and on wake the page has
+            # had no chance to say anything yet. Without this, shutting a laptop
+            # lid for a minute took the manager and everything it was running.
+            if ($slept -gt 5) { $script:LastSeen = $now; continue }
+            if (-not $script:AutoQuit) { continue }
+            if ($script:Shell -and $script:Shell.HasExited) {
+                $script:QuitReason = 'the manager window was closed'
+            } elseif ($script:LastSeen -and
+                      ((Get-Date) - $script:LastSeen).TotalSeconds -gt $GraceSeconds) {
+                # Nothing has connected yet ($LastSeen still null) means the
+                # browser may still be starting, and a manager that quit before
+                # its own window opened would be a fine joke.
+                $script:QuitReason = 'the manager page stopped answering'
+            }
+            continue
+        }
         $client = $listener.AcceptTcpClient()
         $stream = $client.GetStream()
         try {
@@ -744,6 +954,9 @@ try {
     }
 } finally {
     $listener.Stop()
+    if (-not $script:QuitReason) { $script:QuitReason = 'Ctrl-C' }
     Write-Host ""
+    Write-Host "  Closing ($script:QuitReason)."
+    Stop-Everything
     Write-Host "  Manager stopped."
 }

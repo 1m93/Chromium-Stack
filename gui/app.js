@@ -660,6 +660,7 @@ function render() {
 
   for (const group of groupRows(visible)) list.append(renderGroup(group));
   lastPaint = paintSignature();
+  setCloseGuard();
 }
 
 // Header, sidebar and the disk read-outs: everything outside the shelf itself.
@@ -1471,6 +1472,45 @@ for (const button of document.querySelectorAll("[data-filter]")) {
   };
 }
 
+/* ---------- guarding an accidental close ----------
+   Closing the window ends the session: the server stops, the browsers it
+   launched close, and the containers it started come down. That is the point,
+   but not something a stray click on the X should be able to do while a download
+   is halfway through.
+
+   The prompt is the browser's own. Nothing else can stop a window from closing,
+   and its wording belongs to the browser - so it is registered for exactly what
+   it is good for, and only while there is something to lose. Idle, the window
+   closes as cleanly as any other. One limit worth knowing: a browser only shows
+   that prompt if the page has been interacted with, so a window opened and never
+   clicked in closes without asking. */
+
+function runningNow() {
+  const rows = state ? [...state.versions, ...state.extra].map(decorate) : [];
+  return {
+    browsers: rows.filter((row) => row.running).length,
+    containers: rows.filter((row) => row.dockerRunning).length,
+    jobs: state ? state.jobs.filter((job) => job.kind !== "launch").length : 0,
+  };
+}
+
+let guarded = false;
+
+function guardClose(event) {
+  event.preventDefault();
+  event.returnValue = "";      // the older spelling, still what some engines read
+  return "";
+}
+
+function setCloseGuard() {
+  const { browsers, containers, jobs: busy } = runningNow();
+  const worth = browsers + containers + busy > 0;
+  if (worth === guarded) return;
+  guarded = worth;
+  if (worth) window.addEventListener("beforeunload", guardClose);
+  else window.removeEventListener("beforeunload", guardClose);
+}
+
 /* ---------- refresh loop ---------- */
 
 async function refresh() {
@@ -1539,4 +1579,11 @@ async function refresh() {
     // Keep the running dots honest without fighting an open menu or a dialog.
     if (!popoverOpen() && !document.querySelector("dialog[open]")) refresh();
   }, 4000);
+
+  // The heartbeat that tells the server this window still exists. Deliberately
+  // not folded into the refresh above: that one pauses while a menu or a dialog
+  // is open, which is long enough for the server to decide nobody is home.
+  setInterval(() => {
+    api("/api/ping").catch(() => { /* the next one will do */ });
+  }, 2500);
 })();

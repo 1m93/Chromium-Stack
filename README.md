@@ -74,7 +74,7 @@ install, nothing to keep together, no loose folder of files to lose.
 
 ### 1 · Open it
 
-Double-click the launcher. The **manager** opens in your normal browser: every version,
+Double-click the launcher. The **manager** opens in a window of its own: every version,
 what is installed, what each one costs in disk.
 
 </td>
@@ -133,10 +133,21 @@ One page, served locally, with everything on it.
 | **Add by revision** | Any build in the Chromium snapshot archive, not just the catalogued milestones. |
 | **System check** | Tells you what is missing before it matters, with buttons that install it. |
 | **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job when several are in flight. |
-| **Honest disk accounting** | A running total split between browsers and profiles, so it is obvious when to clear something out. |
+| **Honest disk accounting** | A running total split between browsers, profiles and Docker images, so it is obvious when to clear something out. |
 | **Light or dark** | Follows the system theme, or pin it either way from the header. |
+| **Closes like an app** | Closing the window stops the manager, the browsers it launched and the containers it started — with a confirmation first if any of them are running. Nothing is left holding a port or a gigabyte. |
 
-Closing the launcher window stops the manager; browsers it opened keep running.
+**Closing the window quits everything.** The manager is the app, not a page that outlives it:
+close it and the server stops, the browsers it launched close, and any Docker container it
+started comes down. Ctrl-C in a terminal does the same. If something is still running when
+you close it, the browser asks you to confirm first — a stray click on the X cannot take a
+download with it.
+
+It opens in a window of its own — a Chromium-family browser in `--app` mode with a profile
+of its own, which is what makes closing it unambiguous and keeps the manager out of your own
+browsing session. Without such a browser installed it falls back to a tab, and then it is the
+tab closing that ends the session, twelve seconds later. `--tab` asks for that on purpose;
+`--keep-alive` leaves the server running whatever the window does.
 
 > [!NOTE]
 > **Nothing listens outside your machine.** The server binds to `127.0.0.1` and every
@@ -517,6 +528,7 @@ there.
 | `~/.chromium-stack/builds/<revision>/` | a downloaded browser |
 | `~/.chromium-stack/profiles/<revision>/` | that version's profile (cookies, logins, storage) |
 | `~/.chromium-stack/logs/<revision>.log` | that version's stderr from its last run |
+| `~/.chromium-stack/manager-window/` | the browser profile behind the manager's own window — a few tens of MB of browser plumbing, not something ChromiumStack downloaded. Safe to delete when the manager is closed; it is rebuilt on the next start. |
 | `%USERPROFILE%\.chromium-stack\` | the same, on Windows |
 | docker volume `chromium-stack-profile-<revision>` | the Docker edition's profile |
 
