@@ -19,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CATALOG="$SCRIPT_DIR/catalog.tsv"
 # shellcheck source=lib/preflight.sh
 . "$SCRIPT_DIR/lib/preflight.sh"
+# shellcheck source=lib/engines.sh
+. "$SCRIPT_DIR/lib/engines.sh"
 BASE_URL="https://commondatastorage.googleapis.com/chromium-browser-snapshots"
 LIST_API="https://www.googleapis.com/storage/v1/b/chromium-browser-snapshots/o"
 
@@ -57,20 +59,18 @@ warn() { printf '%s\n' "${YLW}!  $*${RST}" >&2; }
 die()  { printf '%s\n' "${RED}x  $*${RST}" >&2; exit 1; }
 
 # ---------- platform ----------
-# Apple Silicon can run two different builds: the native arm64 snapshot (only
-# published from ~M92 on) and the x86_64 one under Rosetta. HOST_PLATFORMS lists
-# them in preference order, so an old milestone silently falls back to Rosetta.
+# Which builds this host can run is an engine's own answer - see
+# engine_platforms in lib/engines.sh. HOST_PLATFORMS stays as the Chromium
+# answer, in preference order, because the Chromium resolver below is built
+# around it: on Apple Silicon that is the native arm64 snapshot (published only
+# from ~M92 on) and then the x86_64 one under Rosetta, so an old milestone
+# silently falls back rather than failing.
 case "$(uname -s)" in
-  Darwin)
-    if [ "$(uname -m)" = "arm64" ]; then
-      HOST_PLATFORMS="Mac_Arm Mac"
-    else
-      HOST_PLATFORMS="Mac"
-    fi
-    ;;
-  Linux) HOST_PLATFORMS="Linux_x64" ;;
+  Darwin|Linux) ;;
   *) die "Unsupported OS: $(uname -s). On Windows use engineshelf.ps1 or EngineShelf.bat." ;;
 esac
+HOST_PLATFORMS="$(engine_platforms chromium)" \
+  || die "Unsupported machine: $(uname -s)/$(uname -m)."
 
 # ---------- catalog ----------
 # Two record types, in both the shipped catalog and the runtime cache:
@@ -312,24 +312,63 @@ resolve_missing() {
 }
 
 # ---------- selector resolution ----------
-# A selector is a milestone (74, M74) or a raw archive revision (638880, r638880).
-# Milestones are small and revisions are six digits or more, so the split is
-# unambiguous without asking the user which they meant.
+# A selector names an engine and a version: firefox:115, edge:151, webkit:18.2.
+# A bare number means Chromium, which is every selector this tool accepted before
+# there was more than one engine - 74, M74, or a raw archive revision like
+# 638880. Milestones are small and revisions are six digits or more, so those two
+# stay distinguishable without asking which was meant.
 #
-# Sets: SEL_MILESTONE SEL_VERSION SEL_PLATFORM SEL_REVISION SEL_ARCHIVE SEL_ROOT
+# Sets, for every engine:
+#   SEL_ENGINE   which engine
+#   SEL_KEY      the on-disk name for this build - what builds/ and profiles/ use
+#   SEL_VERSION  what to print
+#   SEL_PLATFORM the vendor's platform name this host resolved to
+#   SEL_URL      where to download it
+#   SEL_FORMAT   how to unpack it, for engine_extract
+#   SEL_ROOT     the directory inside the archive, "" when it unpacks flat
+# and, for Chromium only, SEL_MILESTONE SEL_REVISION SEL_ARCHIVE, which the
+# snapshot archive needs and no other engine has an equivalent of.
 resolve_selector() {
-  local raw="${1:-}" token
-  [ -n "$raw" ] || die "Which version? e.g. 74, or a revision like 638880. Try: $0 catalog"
-  token="${raw#[MmRr]}"
-  case "$token" in
-    ''|*[!0-9]*) die "Not a version or revision: $raw" ;;
-  esac
+  local raw="${1:-}" engine token
+  [ -n "$raw" ] || die "\
+Which version? A bare number is Chromium: 74. Otherwise name the engine:
+   firefox:115   edge:151   webkit:18.2   chromium:120
+   Try: $0 catalog"
 
+  case "$raw" in
+    *:*) engine="${raw%%:*}"; token="${raw#*:}" ;;
+    *)   engine="chromium";   token="$raw" ;;
+  esac
+  engine="$(printf '%s' "$engine" | tr '[:upper:]' '[:lower:]')"
+  engine_known "$engine" || die "Unknown engine: $engine. Known: $ENGINES"
+  [ -n "$token" ] || die "Which version of $(engine_display "$engine")?"
+
+  SEL_ENGINE="$engine"
+  SEL_MILESTONE=""; SEL_REVISION=""; SEL_ARCHIVE=""; SEL_ROOT=""
+  SEL_URL=""; SEL_FORMAT=""
+
+  if [ "$engine" != "chromium" ]; then
+    resolve_engine "$engine" "$token"
+    return 0
+  fi
+
+  token="${token#[MmRr]}"
+  case "$token" in
+    ''|*[!0-9]*) die "Not a Chromium version or revision: $raw" ;;
+  esac
   if [ "$token" -lt 1000 ]; then
     resolve_milestone "$token"
   else
     resolve_revision "$token"
   fi
+  # Chromium's identity on disk stays the bare revision it has always been, so
+  # builds already downloaded are still found.
+  SEL_KEY="$(engine_key chromium "$SEL_REVISION")"
+  SEL_URL="$BASE_URL/$SEL_PLATFORM/$SEL_REVISION/$SEL_ARCHIVE"
+  case "$SEL_PLATFORM" in
+    Mac|Mac_Arm) SEL_FORMAT="zip-ditto" ;;
+    *)           SEL_FORMAT="zip" ;;
+  esac
 }
 
 resolve_milestone() {
@@ -402,12 +441,10 @@ build_dir()   { printf '%s\n' "$BUILDS_DIR/$1"; }
 profile_dir() { printf '%s\n' "$PROFILES_DIR/$1"; }
 log_file()    { printf '%s\n' "$LOGS_DIR/$1.log"; }
 
-binary_path() {  # revision root platform
-  local dir; dir="$(build_dir "$1")"
-  case "$3" in
-    Mac|Mac_Arm) printf '%s\n' "$dir/$2/Chromium.app/Contents/MacOS/Chromium" ;;
-    *)           printf '%s\n' "$dir/$2/chrome" ;;
-  esac
+# key root platform [engine] -> the executable, asked of the engine itself.
+binary_path() {
+  local engine="${4:-$(engine_of_key "$1")}"
+  engine_binary "$engine" "$(build_dir "$1")" "$2" "$3"
 }
 
 is_installed() { [ -f "$(build_dir "$1")/.complete" ]; }
@@ -494,84 +531,90 @@ META
 }
 
 # ---------- install ----------
+# Downloads and unpacks whatever resolve_selector settled on. It reads the SEL_*
+# variables rather than taking eight positional arguments, because six of the
+# eight differed per engine and the call sites all had to know which.
 install_build() {
-  local revision="$1" platform="$2" archive="$3" root="$4" version="$5" milestone="$6"
-  local dir zip binary failed=0
-  dir="$(build_dir "$revision")"
-  is_installed "$revision" && return 0
+  local dir archive binary failed=0 engine key
+  engine="$SEL_ENGINE"; key="$SEL_KEY"
+
+  # A build directory is removed before it is written, so an empty key here would
+  # mean rm -rf on builds/ itself and every browser already downloaded. That is
+  # a resolver bug rather than user input, so it is a hard stop, not a warning.
+  case "$key" in
+    ''|*/*) die "Internal error: refusing to install with build key '$key'." ;;
+  esac
+
+  dir="$(build_dir "$key")"
+  is_installed "$key" && return 0
 
   info ""
-  info "${B}Downloading Chromium $version${RST} ${DIM}($platform r$revision, one time only)${RST}"
+  info "${B}Downloading $(engine_display "$engine") $SEL_VERSION${RST} ${DIM}($SEL_PLATFORM, one time only)${RST}"
   info "${DIM}-> $dir${RST}"
   info ""
 
   rm -rf "$dir"
   mkdir -p "$dir"
-  zip="$ROOT/.download-$revision.zip"
+  archive="$ROOT/.download-$key"
 
   # A bar reads better for a person watching a terminal, but curl's plain meter
   # carries the byte counts and the time left, which is what the graphical
   # manager puts in its status bar. Colours switch on the same test.
   if [ -t 1 ]; then
-    curl -fL --progress-bar -o "$zip" "$BASE_URL/$platform/$revision/$archive" || failed=1
+    curl -fL --progress-bar -o "$archive" "$SEL_URL" || failed=1
   else
-    curl -fL -o "$zip" "$BASE_URL/$platform/$revision/$archive" || failed=1
+    curl -fL -o "$archive" "$SEL_URL" || failed=1
   fi
 
   if [ "$failed" -eq 1 ]; then
-    rm -rf "$dir" "$zip"
-    # The one way a cached row goes bad: the bucket dropped that revision. Drop
-    # the row too, so the retry resolves afresh instead of failing forever.
-    if [ -n "$milestone" ] && [ "$milestone" != "?" ] && cache_has "$milestone"; then
-      cache_forget "$milestone"
-      die "Download failed - r$revision is no longer in the archive.
+    rm -rf "$dir" "$archive"
+    # The one way a cached Chromium row goes bad: the bucket dropped that
+    # revision. Drop the row too, so the retry resolves afresh rather than
+    # failing forever. No other engine has a cache to invalidate.
+    if [ "$engine" = "chromium" ] && [ -n "$SEL_MILESTONE" ] \
+       && [ "$SEL_MILESTONE" != "?" ] && cache_has "$SEL_MILESTONE"; then
+      cache_forget "$SEL_MILESTONE"
+      die "Download failed - r$SEL_REVISION is no longer in the archive.
    The stale entry has been forgotten; run the same command again to re-resolve."
     fi
     die "Download failed. Check your connection or proxy."
   fi
 
   info "Extracting..."
-  case "$platform" in
-    Mac|Mac_Arm)
-      # ditto preserves the symlinks and permissions inside the .app bundle;
-      # plain unzip corrupts the framework and the browser will not start.
-      ditto -x -k "$zip" "$dir" || { rm -rf "$dir" "$zip"; die "Extraction failed."; }
-      ;;
-    *)
-      if command -v unzip >/dev/null 2>&1; then
-        unzip -q "$zip" -d "$dir" || { rm -rf "$dir" "$zip"; die "Extraction failed."; }
-      elif command -v python3 >/dev/null 2>&1; then
-        python3 -m zipfile -e "$zip" "$dir" || { rm -rf "$dir" "$zip"; die "Extraction failed."; }
-      else
-        rm -rf "$dir" "$zip"
-        die "Need 'unzip' or 'python3' to extract. Install one: sudo apt install unzip"
-      fi
-      chmod +x "$dir/$root/chrome" 2>/dev/null || true
-      chmod +x "$dir/$root/chrome_sandbox" 2>/dev/null || true
-      ;;
-  esac
-  rm -f "$zip"
+  engine_extract "$SEL_FORMAT" "$archive" "$dir" \
+    || { rm -rf "$dir" "$archive"; die "Extraction failed."; }
+  rm -f "$archive"
 
-  binary="$(binary_path "$revision" "$root" "$platform")"
-  [ -x "$binary" ] || { rm -rf "$dir"; die "Expected browser binary missing: $binary"; }
+  # Tarballs and zips do not always carry the executable bit through, and the
+  # Linux sandbox helper needs it too.
+  binary="$(binary_path "$key" "$SEL_ROOT" "$SEL_PLATFORM" "$engine")"
+  chmod +x "$binary" 2>/dev/null || true
+  chmod +x "$dir/$SEL_ROOT/chrome_sandbox" 2>/dev/null || true
+  [ -f "$dir/pw_run.sh" ] && chmod +x "$dir/pw_run.sh" 2>/dev/null || true
 
-  case "$platform" in
-    Mac|Mac_Arm)
-      # Gatekeeper refuses to run an unsigned downloaded bundle without this.
-      xattr -dr com.apple.quarantine "$dir/$root/Chromium.app" 2>/dev/null || true
-      ;;
+  [ -x "$binary" ] || { rm -rf "$dir"; die "\
+Expected browser binary missing: $binary
+   The archive unpacked, but not into the shape this engine expects. Please
+   report the engine and version."; }
+
+  # Gatekeeper refuses to run an unsigned downloaded bundle without this, and
+  # every mac build here is downloaded and unsigned as far as it is concerned.
+  case "$SEL_PLATFORM" in
+    Mac|Mac_Arm|mac|mac-*|Mac_Universal)
+      xattr -dr com.apple.quarantine "$dir" 2>/dev/null || true ;;
   esac
 
   cat > "$dir/.meta" <<META
-META_MILESTONE='$milestone'
-META_VERSION='$version'
-META_PLATFORM='$platform'
-META_ARCHIVE='$archive'
-META_ROOT='$root'
+META_ENGINE='$engine'
+META_MILESTONE='$SEL_MILESTONE'
+META_VERSION='$SEL_VERSION'
+META_PLATFORM='$SEL_PLATFORM'
+META_ARCHIVE='$SEL_ARCHIVE'
+META_ROOT='$SEL_ROOT'
 META_INSTALLED='$(date -u +%Y-%m-%dT%H:%M:%SZ)'
 META
   touch "$dir/.complete"
-  info "${GRN}v${RST} Chromium $version ready."
+  info "${GRN}v${RST} $(engine_display "$engine") $SEL_VERSION ready."
 }
 
 # ---------- commands ----------
@@ -603,23 +646,26 @@ cmd_catalog() {
 }
 
 cmd_list() {
-  local dir revision size profile total=0 any=0
+  local dir key size profile total=0 any=0 engine
   mkdir -p "$BUILDS_DIR"
   printf '%s\n\n' "${B}Installed browsers${RST} ${DIM}($ROOT)${RST}"
   for dir in "$BUILDS_DIR"/*/; do
     [ -d "$dir" ] || continue
-    revision="$(basename "$dir")"
-    is_installed "$revision" || continue
+    key="$(basename "$dir")"
+    is_installed "$key" || continue
     any=1
-    [ -f "$dir/.meta" ] || write_meta_for "$revision" || true
-    META_VERSION=""; META_PLATFORM=""; META_MILESTONE=""
+    # A build that predates .meta only exists for Chromium; write_meta_for knows
+    # how to reconstruct one from the catalog.
+    [ -f "$dir/.meta" ] || write_meta_for "$key" || true
+    META_ENGINE=""; META_VERSION=""; META_PLATFORM=""; META_MILESTONE=""
     [ -f "$dir/.meta" ] && . "$dir/.meta"
+    engine="${META_ENGINE:-$(engine_of_key "$key")}"
     size=$(du -sk "$dir" 2>/dev/null | cut -f1); size=${size:-0}
     profile=0
-    [ -d "$(profile_dir "$revision")" ] && profile=$(du -sk "$(profile_dir "$revision")" 2>/dev/null | cut -f1)
+    [ -d "$(profile_dir "$key")" ] && profile=$(du -sk "$(profile_dir "$key")" 2>/dev/null | cut -f1)
     total=$((total + size + profile))
-    printf '  %-16s r%-9s %-10s %6s MB browser  %6s MB profile\n' \
-      "${META_VERSION:-r$revision}" "$revision" "${META_PLATFORM:-?}" \
+    printf '  %-9s %-14s %-16s %6s MB browser  %6s MB profile\n' \
+      "$(engine_display "$engine")" "${META_VERSION:-$key}" "${META_PLATFORM:-?}" \
       "$((size / 1024))" "$((profile / 1024))"
   done
   if [ "$any" -eq 0 ]; then
@@ -631,29 +677,61 @@ cmd_list() {
 }
 
 cmd_install() {
-  resolve_selector "${1:-}"
-  install_build "$SEL_REVISION" "$SEL_PLATFORM" "$SEL_ARCHIVE" "$SEL_ROOT" "$SEL_VERSION" "$SEL_MILESTONE"
+  local dry=0 selector=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry=1; shift ;;
+      *)         selector="$1"; shift ;;
+    esac
+  done
+  resolve_selector "$selector"
+  # Resolution is the part that talks to four different vendors and gets things
+  # wrong; being able to see its answer without spending 400 MB to find out is
+  # what makes it testable, and is what the manager asks for before it offers a
+  # download.
+  if [ "$dry" -eq 1 ]; then
+    printf 'engine    %s\n' "$SEL_ENGINE"
+    printf 'version   %s\n' "$SEL_VERSION"
+    printf 'platform  %s\n' "$SEL_PLATFORM"
+    printf 'key       %s\n' "$SEL_KEY"
+    printf 'format    %s\n' "$SEL_FORMAT"
+    printf 'url       %s\n' "$SEL_URL"
+    printf 'installed %s\n' "$(is_installed "$SEL_KEY" && echo yes || echo no)"
+    return 0
+  fi
+  install_build
+}
+
+# Both of these delete a directory built from the resolved key, so both check it
+# first: an empty key would make the path builds/ itself.
+require_key() {
+  case "${SEL_KEY:-}" in
+    ''|*/*) die "Internal error: refusing to act on build key '${SEL_KEY:-}'." ;;
+  esac
 }
 
 cmd_remove() {
   resolve_selector "${1:-}"
-  local dir profile removed=0
-  dir="$(build_dir "$SEL_REVISION")"
-  profile="$(profile_dir "$SEL_REVISION")"
+  require_key
+  local dir profile removed=0 label
+  label="$(engine_display "$SEL_ENGINE") $SEL_VERSION"
+  dir="$(build_dir "$SEL_KEY")"
+  profile="$(profile_dir "$SEL_KEY")"
   if [ -d "$dir" ]; then rm -rf "$dir"; removed=1; fi
   if [ "${2:-}" = "--with-profile" ] && [ -d "$profile" ]; then rm -rf "$profile"; fi
-  rm -f "$(log_file "$SEL_REVISION")"
+  rm -f "$(log_file "$SEL_KEY")"
   if [ "$removed" -eq 1 ]; then
-    info "${GRN}v${RST} Removed Chromium $SEL_VERSION (r$SEL_REVISION)."
+    info "${GRN}v${RST} Removed $label."
   else
-    warn "Chromium $SEL_VERSION (r$SEL_REVISION) was not installed."
+    warn "$label was not installed."
   fi
 }
 
 cmd_clean() {
   resolve_selector "${1:-}"
-  rm -rf "$(profile_dir "$SEL_REVISION")"
-  info "${GRN}v${RST} Profile reset for Chromium $SEL_VERSION (r$SEL_REVISION)."
+  require_key
+  rm -rf "$(profile_dir "$SEL_KEY")"
+  info "${GRN}v${RST} Profile reset for $(engine_display "$SEL_ENGINE") $SEL_VERSION."
 }
 
 cmd_run() {
@@ -674,13 +752,14 @@ cmd_run() {
   done
 
   resolve_selector "$selector"
-  install_build "$SEL_REVISION" "$SEL_PLATFORM" "$SEL_ARCHIVE" "$SEL_ROOT" "$SEL_VERSION" "$SEL_MILESTONE"
+  install_build
 
   local binary profile log
-  binary="$(binary_path "$SEL_REVISION" "$SEL_ROOT" "$SEL_PLATFORM")"
-  profile="$(profile_dir "$SEL_REVISION")"
-  log="$(log_file "$SEL_REVISION")"
+  binary="$(binary_path "$SEL_KEY" "$SEL_ROOT" "$SEL_PLATFORM" "$SEL_ENGINE")"
+  profile="$(profile_dir "$SEL_KEY")"
+  log="$(log_file "$SEL_KEY")"
   mkdir -p "$profile" "$LOGS_DIR"
+  engine_prepare_profile "$SEL_ENGINE" "$profile"
 
   # Bare host:port typed by hand - be forgiving.
   if [ -n "$url" ]; then
@@ -695,14 +774,15 @@ cmd_run() {
     warn "If the browser fails to start, run: softwareupdate --install-rosetta"
   fi
 
-  local args=(
-    "--user-data-dir=$profile"
-    --no-first-run
-    --no-default-browser-check
-    --disable-background-networking
-    --disable-component-update
-    --disable-features=TranslateUI
-  )
+  # The flags that isolate the profile and disable the updater are the engine's
+  # own answer: Chromium and Edge take --user-data-dir, Firefox takes -profile,
+  # and the WebKit MiniBrowser takes neither.
+  local args=()
+  while IFS= read -r line; do
+    [ -n "$line" ] && args+=("$line")
+  done <<ARGS
+$(engine_launch_args "$SEL_ENGINE" "$profile")
+ARGS
 
   # Under Rosetta, Chromium's GPU process cannot read the system memory size from
   # the Apple AGX driver, crashes, and takes the browser with it. Software
@@ -711,13 +791,23 @@ cmd_run() {
   if [ -z "$use_gpu" ]; then
     if [ "$SEL_PLATFORM" = "Mac" ] && [ "$(uname -m)" = "arm64" ]; then use_gpu=0; else use_gpu=1; fi
   fi
-  [ "$use_gpu" -eq 0 ] && args+=(--disable-gpu)
-  [ -n "$window_size" ] && args+=("--window-size=${window_size/x/,}")
-  # The setuid sandbox in these builds does not survive modern kernels/AppArmor.
-  [ "$SEL_PLATFORM" = "Linux_x64" ] && args+=(--no-sandbox --test-type)
+  # These are all Chromium switches. Firefox has no equivalent worth forcing,
+  # and passing an unknown -flag to it opens a dialog instead of being ignored.
+  case "$SEL_ENGINE" in
+    chromium|edge)
+      [ "$use_gpu" -eq 0 ] && args+=(--disable-gpu)
+      [ -n "$window_size" ] && args+=("--window-size=${window_size/x/,}")
+      # The setuid sandbox in these builds does not survive modern
+      # kernels/AppArmor.
+      case "$SEL_PLATFORM" in
+        Linux_x64) args+=(--no-sandbox --test-type) ;;
+      esac ;;
+    firefox)
+      [ -n "$window_size" ] && args+=(-width "${window_size%%x*}" -height "${window_size##*x}") ;;
+  esac
 
   info ""
-  info "  ${GRN}>${RST} ${B}Chromium $SEL_VERSION${RST} ${DIM}(r$SEL_REVISION, $SEL_PLATFORM)${RST}"
+  info "  ${GRN}>${RST} ${B}$(engine_display "$SEL_ENGINE") $SEL_VERSION${RST} ${DIM}($SEL_PLATFORM)${RST}"
   if [ -n "$url" ]; then
     info "  ${GRN}>${RST} $url"
   else
@@ -735,11 +825,19 @@ cmd_run() {
   local launch_args=("$url")
   [ -z "$url" ] && launch_args=()
 
+  local env_args=()
+  while IFS= read -r line; do
+    [ -n "$line" ] && env_args+=("$line")
+  done <<ENVV
+$(engine_launch_env "$SEL_ENGINE" "$(build_dir "$SEL_KEY")")
+ENVV
+
   while :; do
     started=$(date +%s)
     set +e
-    "$binary" "${args[@]}" "${extra_args[@]+"${extra_args[@]}"}" "${launch_args[@]+"${launch_args[@]}"}" \
-      >>"$log" 2>&1
+    env "${env_args[@]+"${env_args[@]}"}" \
+      "$binary" "${args[@]+"${args[@]}"}" "${extra_args[@]+"${extra_args[@]}"}" \
+      "${launch_args[@]+"${launch_args[@]}"}" >>"$log" 2>&1
     status=$?
     set -e
 
