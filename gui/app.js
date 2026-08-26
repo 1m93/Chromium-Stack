@@ -29,6 +29,7 @@ const ICONS = {
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
   sort: '<path d="M7 4v16M7 20l-3-3M7 20l3-3"/><path d="M17 20V4M17 4l-3 3M17 4l3 3"/>',
   grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
+  rows: '<rect x="4" y="5" width="16" height="4" rx="1.4"/><rect x="4" y="12.5" width="16" height="4" rx="1.4"/>',
   'play-circle':
     '<circle cx="12" cy="12" r="9"/><path d="M10.3 9.2l4.7 2.8-4.7 2.8z" fill="currentColor" stroke="none"/>',
   dots: '<circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
@@ -102,7 +103,29 @@ let pollFailures = 0; // consecutive failed polls of the watched job
 const jobInfo = new Map(); // job id -> {phase, percent, detail} read out of its output
 const dropdowns = [];
 
-const view = { filter: 'all', query: '', sort: 'old', gpu: 'auto' };
+const VIEW_KEY = 'engineshelf.view';
+
+// Which of the two shelf views is showing. Remembered per browser, and wrapped
+// because storage throws outright in a private window rather than returning null.
+function storedView() {
+  // ?view=matrix wins, so a view can be linked to and so this is testable
+  // without driving the toggle.
+  const asked = new URLSearchParams(location.search).get('view');
+  if (asked === 'matrix' || asked === 'list') return asked;
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'matrix' ? 'matrix' : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
+const view = {
+  filter: 'all',
+  query: '',
+  sort: 'old',
+  gpu: 'auto',
+  mode: storedView(),
+};
 
 const stopping = new Set(); // launch jobs the user has asked to stop
 
@@ -764,6 +787,20 @@ function render() {
   renderDoctor();
   renderStatusBar();
   renderLogTabs();
+  renderViewSwitch();
+
+  // The matrix has no filtering or sorting of its own - a year is a year - so it
+  // returns before any of that runs, rather than pretending those controls apply.
+  if (view.mode === 'matrix') {
+    $('list').hidden = true;
+    $('matrix').hidden = false;
+    renderMatrix();
+    lastPaint = paintSignature();
+    setCloseGuard();
+    return;
+  }
+  $('matrix').hidden = true;
+  $('list').hidden = false;
 
   const query = view.query.trim().toLowerCase();
   const visible = rows.filter((row) => {
@@ -816,14 +853,211 @@ function render() {
   setCloseGuard();
 }
 
+/* ---------- the matrix ---------- */
+
+function renderViewSwitch() {
+  for (const [mode, id] of [['matrix', 'view-matrix'], ['list', 'view-list']]) {
+    const button = $(id);
+    if (!button) continue;
+    const on = view.mode === mode;
+    button.setAttribute('aria-pressed', String(on));
+    button.classList.toggle('on', on);
+  }
+  // Sorting, filtering and the era jumps only mean something for the list. In
+  // the matrix they would show counts for rows nobody can see - "Installed 2"
+  // over a shelf with five installed builds, because the list is Chromium only.
+  const matrix = view.mode === 'matrix';
+  for (const id of ['sort-drop', 'filters-group']) {
+    const el = $(id);
+    if (el) el.hidden = matrix;
+  }
+  // renderChrome decides whether the era list is worth showing at all, so this
+  // only ever hides it - forcing it visible again would override that.
+  if (matrix) $('eras-group').hidden = true;
+  const sortLabel = document.querySelector('.sort-label');
+  if (sortLabel) sortLabel.hidden = matrix;
+  const search = document.querySelector('.search');
+  if (search) search.hidden = matrix;
+}
+
+function setView(mode) {
+  if (view.mode === mode) return;
+  view.mode = mode;
+  try {
+    localStorage.setItem(VIEW_KEY, mode);
+  } catch {
+    /* a private window forbids it; the choice just does not outlive the tab */
+  }
+  render();
+}
+
+// Years down, engines across. Chromium 120, Firefox 121, Edge 120 and WebKit
+// 17.4 shipped within weeks of each other and not one of those numbers says so,
+// so the only axis on which four engines can be compared is when they came out.
+// The server does the grouping; this draws it and nothing more.
+function renderMatrix() {
+  const host = $('matrix');
+  host.textContent = '';
+  const rows = state.matrix || [];
+  const engines = state.engines || [];
+  if (!rows.length || !engines.length) {
+    host.append(
+      note(
+        'No shelf rows yet. Build them from each vendor’s own index with:  ' +
+          'python3 tools/discover.py --write',
+      ),
+    );
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.className = 'matrix';
+
+  const head = table.createTHead().insertRow();
+  head.append(th(''));
+  for (const engine of engines) head.append(th(engine.name));
+
+  const body = table.createTBody();
+  for (const row of rows) {
+    const line = body.insertRow();
+    const year = document.createElement('th');
+    year.scope = 'row';
+    year.className = 'myear';
+    year.textContent = row.year;
+    line.append(year);
+    for (const engine of engines) {
+      line.append(matrixCell(row.cells[engine.id], row.year, engine));
+    }
+  }
+
+  host.append(table);
+  host.append(
+    note(
+      'A cell opens that version — downloading it first if this is the first ' +
+        'time. “+N” is the rest of that year.',
+    ),
+  );
+}
+
+function th(text) {
+  const cell = document.createElement('th');
+  cell.textContent = text;
+  return cell;
+}
+
+function note(text) {
+  const el = document.createElement('p');
+  el.className = 'mnote';
+  el.textContent = text;
+  return el;
+}
+
+function matrixCell(entry, year, engine) {
+  const cell = document.createElement('td');
+  if (!entry) {
+    cell.className = 'mcell empty';
+    // Not a failure: no build of this engine existed that year, or none was ever
+    // published for this machine. Said with a dot rather than a word, because
+    // there are a lot of them and none of them are actionable.
+    cell.textContent = '·';
+    cell.title = `No ${engine.name} build for ${year}`;
+    return cell;
+  }
+
+  cell.className = 'mcell' + (entry.installed ? ' on' : '');
+  if (!entry.supported) cell.classList.add('unsupported');
+
+  const button = document.createElement('button');
+  button.className = 'mbtn';
+  button.append(spanWith('mlabel', entry.label));
+
+  const foot = spanWith('mfoot', '');
+  if (entry.installed) {
+    foot.append(spanWith('mdot', ''));
+    foot.append(document.createTextNode(mb(entry.sizeBytes)));
+  } else if (!entry.supported) {
+    foot.textContent = 'not for this machine';
+  } else {
+    foot.textContent = 'download';
+  }
+  button.append(foot);
+
+  if (entry.supported) {
+    button.title = `${engine.name} ${entry.label} · ${entry.date}`;
+    button.onclick = () => start(button, {
+      selector: entry.selector,
+      name: `${engine.name} ${entry.label}`,
+    });
+  } else {
+    button.disabled = true;
+    button.title =
+      `The catalog has no ${engine.name} ${entry.label} build for ` +
+      `${state.hostPlatforms.join(' or ') || 'this machine'}`;
+  }
+  cell.append(button);
+
+  if (entry.others && entry.others.length) {
+    const more = document.createElement('button');
+    more.className = 'mmore';
+    more.textContent = `+${entry.others.length}`;
+    more.title = `The other ${engine.name} releases of ${year}`;
+    more.onclick = (event) => {
+      event.stopPropagation();
+      toggleOthers(cell, entry, engine);
+    };
+    cell.append(more);
+  }
+  return cell;
+}
+
+function spanWith(className, text) {
+  const span = document.createElement('span');
+  span.className = className;
+  if (text) span.textContent = text;
+  return span;
+}
+
+// Expanded in place rather than in a popover: the cell is already in the right
+// column, and a floating panel would cover the years around it.
+function toggleOthers(cell, entry, engine) {
+  const open = cell.querySelector('.mothers');
+  if (open) {
+    open.remove();
+    return;
+  }
+  const box = document.createElement('div');
+  box.className = 'mothers';
+  for (const other of entry.others) {
+    const item = document.createElement('button');
+    item.className = 'mother' + (other.installed ? ' on' : '');
+    item.textContent = other.label;
+    if (other.installed) item.append(spanWith('mdot', ''));
+    if (other.supported) {
+      item.title = `${engine.name} ${other.label} · ${other.date}`;
+      item.onclick = () => start(item, {
+        selector: other.selector,
+        name: `${engine.name} ${other.label}`,
+      });
+    } else {
+      item.disabled = true;
+      item.title = 'No build for this machine';
+    }
+    box.append(item);
+  }
+  cell.append(box);
+}
+
 // Header, sidebar and the disk read-outs: everything outside the shelf itself.
 function renderChrome(rows, counts) {
   $('host').textContent =
     `${state.os}/${state.arch} · ${state.hostPlatforms[0] || '?'}`;
   $('foot-path').textContent = `Files in ${state.root}`;
 
-  const browsers = rows.reduce((total, row) => total + row.sizeBytes, 0);
-  const profiles = rows.reduce((total, row) => total + row.profileBytes, 0);
+  // From the server, which walks the whole builds directory. Summing the rows
+  // below instead only ever saw Chromium, and under-reported a 2.2 GB directory
+  // as 589 MB once Firefox, Edge and WebKit could live there too.
+  const browsers = state.browserBytes || 0;
+  const profiles = state.profileBytes || 0;
   // Images and their profile volumes live inside Docker rather than under the
   // EngineShelf directory, so nothing that walks the file tree can see them -
   // and at a gigabyte each they were the largest thing this gauge left out.
@@ -1698,6 +1932,9 @@ function askConfirm({ title, body, label }) {
 /* ---------- add by revision ---------- */
 
 $('add-btn').onclick = () => $('add-dialog').showModal();
+
+$('view-matrix').onclick = () => setView('matrix');
+$('view-list').onclick = () => setView('list');
 
 $('add-dialog').addEventListener('close', async (event) => {
   const dialog = event.target;

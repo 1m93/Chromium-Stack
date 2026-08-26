@@ -91,7 +91,10 @@
 
       <div class="split">
         <nav class="side">
-          <div class="side-group">
+          <!-- Filters and eras describe the list; the matrix has neither, so both
+               groups are hidden there rather than left showing counts that
+               belong to a view nobody is looking at. -->
+          <div class="side-group" id="filters-group">
             <div class="side-title">Shelf</div>
             <button class="side-btn is-on" data-filter="all">
               <span data-icon="grid"></span
@@ -174,6 +177,17 @@
             </div>
             <span class="summary" id="summary"></span>
             <div class="spacer"></div>
+            <!-- Four engines number their releases differently and none of the
+                 numbers line up, so the matrix compares them by year instead.
+                 The list stays for filtering and for the per-row actions. -->
+            <div class="viewswitch" role="group" aria-label="View">
+              <button class="btn viewbtn" id="view-matrix" aria-pressed="false">
+                <span class="control-icon" data-icon="grid"></span>By year
+              </button>
+              <button class="btn viewbtn" id="view-list" aria-pressed="true">
+                <span class="control-icon" data-icon="rows"></span>List
+              </button>
+            </div>
             <span class="sort-label">Sort</span>
             <div class="drop" id="sort-drop">
               <button class="btn drop-btn" id="sort-btn">
@@ -185,6 +199,7 @@
             </div>
           </div>
 
+          <div id="matrix" hidden></div>
           <div id="list" aria-busy="true"></div>
           <div class="tail"></div>
         </main>

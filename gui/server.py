@@ -526,6 +526,89 @@ def milestone_of(revision, builds):
     return None
 
 
+def chromium_cell(milestone, builds, hosts):
+    """(directory name, is it offerable) for a Chromium milestone on this host.
+
+    Chromium is the one engine whose on-disk name is not derived from its version:
+    it is the snapshot revision, and which revision depends on which platform this
+    machine can run.
+
+    The distinction that matters here is unknown versus unavailable. B rows exist
+    only for the curated milestones the catalog ships; the other seventy are
+    resolved against the live archive the first time one is launched. So a
+    milestone with no B row has no key yet - it cannot be reported as installed -
+    but it is perfectly launchable, and marking it unavailable took most of the
+    shelf off the page.
+    """
+    available = builds.get(milestone)
+    if not available:
+        return None, True
+    for host in hosts:
+        if host in available:
+            return str(available[host]["revision"]), True
+    return None, False              # catalogued, but not built for this host
+
+
+def build_matrix(installed, builds, hosts):
+    """The shelf as years x engines, which is how the page draws it.
+
+    Version numbering does not line up across engines - Chromium 120, Firefox
+    121, Edge 120 and WebKit 17.4 are contemporaries and none of those numbers
+    say so - so release date is the only axis on which they can be compared. A
+    year holds the newest release of each engine, with the rest of that year
+    behind it: the shelf is ~290 releases, and a flat list of that is unreadable.
+    """
+    shelf = read_shelf()
+    years, cells = set(), {}
+
+    for engine, releases in shelf.items():
+        for release in releases:                # already newest-first
+            if engine == "chromium":
+                key, supported = chromium_cell(int(release["id"]), builds, hosts)
+            else:
+                # Every other engine names its build after its own version, so
+                # the key is known before anything is resolved. Whether the
+                # vendor still publishes it is settled at launch.
+                key, supported = "%s-%s" % (engine, release["id"]), True
+            local = installed.get(key) if key else None
+            entry = {
+                "engine": engine,
+                "label": release["label"],
+                "id": release["id"],
+                "date": release["date"],
+                # What to post back. The id, not the label: two WebKit builds
+                # are both called 26.5 and only the id says which.
+                "selector": "%s:%s" % (engine, release["id"]),
+                "key": key,
+                # False only when the catalog positively says this host has no
+                # build - not merely when nothing has resolved one yet.
+                "supported": supported,
+                "installed": local is not None,
+                "sizeBytes": local["sizeBytes"] if local else 0,
+                "profileBytes": local["profileBytes"] if local else 0,
+            }
+            years.add(release["year"])
+            cells.setdefault(release["year"], {}).setdefault(engine, []).append(entry)
+
+    rows = []
+    for year in sorted(years, reverse=True):
+        row = {"year": year, "cells": {}}
+        for engine in ENGINES:
+            bucket = cells.get(year, {}).get(engine) or []
+            if not bucket:
+                row["cells"][engine] = None
+                continue
+            # An installed build is what someone opening the manager is looking
+            # for, so it leads its year even when it is not the newest.
+            lead = next((e for e in bucket if e["installed"]), bucket[0])
+            others = [e for e in bucket if e is not lead]
+            row["cells"][engine] = dict(lead, others=others,
+                                        installedCount=sum(1 for e in bucket
+                                                           if e["installed"]))
+        rows.append(row)
+    return rows
+
+
 def build_state():
     versions, builds = read_catalog()
     hosts = host_platforms()
@@ -571,7 +654,13 @@ def build_state():
         extra.append(dict(info, note="Installed by revision.", supported=True, native=True,
                           docker=docker_row(drev, docker)))
 
-    total = sum(i["sizeBytes"] + i["profileBytes"] for i in installed.values())
+    # Summed over every engine, not over the rows above: those are Chromium's
+    # catalogue, so a gauge built from them reported a 2.2 GB directory as 589 MB
+    # the moment anything other than Chromium was installed.
+    everything = installed_by_key()
+    browser_bytes = sum(i["sizeBytes"] for i in everything.values())
+    profile_bytes = sum(i["profileBytes"] for i in everything.values())
+    total = browser_bytes + profile_bytes
     return {
         "root": root_dir(),
         "os": platform.system().lower(),
@@ -579,6 +668,11 @@ def build_state():
         "hostPlatforms": hosts,
         "versions": rows,
         "extra": extra,
+        "matrix": build_matrix(everything, builds, hosts),
+        "engines": [{"id": e, "name": ENGINE_NAMES[e]} for e in ENGINES],
+        "installedCount": len(everything),
+        "browserBytes": browser_bytes,
+        "profileBytes": profile_bytes,
         "totalBytes": total,
         # Images and profile volumes are the other place gigabytes go, and they
         # are invisible from the file tree the rest of this reads.
