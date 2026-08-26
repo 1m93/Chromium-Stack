@@ -123,11 +123,22 @@ function Get-InstalledBuilds {
 function Get-DockerStatus {
     $cli = $null -ne (Get-Command docker -ErrorAction SilentlyContinue)
     $running = $false
+    $containers = @()
     if ($cli) {
         docker info 2>&1 | Out-Null
         $running = ($LASTEXITCODE -eq 0)
     }
-    return @{ cli = $cli; running = $running; supported = (Test-Path $DockerCli) }
+    if ($running) {
+        # One container per version, named chromium-stack-<revision>. The page
+        # needs these to know which rows can be stopped rather than started.
+        $names = docker ps --format '{{.Names}}' 2>$null
+        foreach ($name in $names) {
+            if ($name -like 'chromium-stack-*') {
+                $containers += $name.Substring('chromium-stack-'.Length)
+            }
+        }
+    }
+    return @{ cli = $cli; running = $running; containers = @($containers); supported = (Test-Path $DockerCli) }
 }
 
 function Get-DoctorReport {

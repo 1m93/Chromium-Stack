@@ -30,6 +30,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.dirname(HERE)
 CATALOG = os.path.join(PROJECT, "catalog.tsv")
 CLI = os.path.join(PROJECT, "chromium-stack.sh")
+
+
+def augment_path():
+    """A GUI launch inherits a bare PATH, so Homebrew and Docker's own CLI shim
+    are invisible to shutil.which and to everything this starts. lib/preflight.sh
+    does the same for the shell side; without it a machine with Docker installed
+    was told Docker was missing."""
+    extra = ["/opt/homebrew/bin", "/usr/local/bin",
+             os.path.expanduser("~/.docker/bin"),
+             "/Applications/Docker.app/Contents/Resources/bin"]
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    for directory in extra:
+        if os.path.isdir(directory) and directory not in parts:
+            parts.append(directory)
+    os.environ["PATH"] = os.pathsep.join(parts)
+
+
+augment_path()
 DOCKER_CLI = os.path.join(PROJECT, "chromium-stack-docker.sh")
 
 TOKEN = secrets.token_urlsafe(24)
@@ -186,9 +204,21 @@ def installed_builds():
     return builds
 
 
+CONTAINER_PREFIX = "chromium-stack-"
+
+# `docker info` takes the best part of a second and the page asks for the state
+# every four; the answer does not change that fast.
+_docker_cache = {"at": 0.0, "value": None}
+
+
 def docker_status():
+    now = time.time()
+    if _docker_cache["value"] and now - _docker_cache["at"] < 10:
+        return _docker_cache["value"]
+
     cli = shutil.which("docker") is not None
     running = False
+    containers = []
     if cli:
         try:
             running = subprocess.run(
@@ -197,23 +227,53 @@ def docker_status():
             ).returncode == 0
         except (OSError, subprocess.SubprocessError):
             running = False
-    return {"cli": cli, "running": running, "supported": os.path.exists(DOCKER_CLI)}
+    if running:
+        # One container per version, named chromium-stack-<revision>. The page
+        # needs these to know which rows can be stopped rather than started.
+        try:
+            listed = subprocess.run(
+                ["docker", "ps", "--format", "{{.Names}}"],
+                capture_output=True, text=True, timeout=6,
+            )
+            containers = [name[len(CONTAINER_PREFIX):] for name in listed.stdout.split()
+                          if name.startswith(CONTAINER_PREFIX)]
+        except (OSError, subprocess.SubprocessError):
+            containers = []
+
+    value = {"cli": cli, "running": running, "containers": containers,
+             "supported": os.path.exists(DOCKER_CLI)}
+    _docker_cache.update(at=now, value=value)
+    return value
+
+
+_doctor_cache = {"at": 0.0, "value": None}
+
+
+def forget_doctor():
+    """Called when a job ends: installing a dependency should show up at once."""
+    _doctor_cache["value"] = None
 
 
 def doctor_report():
     """Whatever `chromium-stack.sh doctor --json` says.
 
     The checks live in lib/preflight.sh so the CLI, the Docker launcher and this
-    page cannot disagree about what is missing or how to fix it.
+    page cannot disagree about what is missing or how to fix it. Cached briefly:
+    it shells out and probes the machine, and the page polls every four seconds.
     """
+    now = time.time()
+    if _doctor_cache["value"] and now - _doctor_cache["at"] < 12:
+        return _doctor_cache["value"]
     try:
         result = subprocess.run(
             ["bash", CLI, "doctor", "--json"], cwd=PROJECT, capture_output=True,
             text=True, timeout=25,
         )
-        return json.loads(result.stdout)
+        report = json.loads(result.stdout)
     except (OSError, subprocess.SubprocessError, ValueError):
         return {"os": platform.system().lower(), "arch": platform.machine(), "components": []}
+    _doctor_cache.update(at=now, value=report)
+    return report
 
 
 def build_state():
@@ -316,6 +376,8 @@ class Jobs:
                     del job["lines"][:200]
         code = process.wait()
         invalidate_sizes()
+        forget_doctor()
+        _docker_cache["value"] = None
         with self._lock:
             job["code"] = code
             if job.get("stopping"):

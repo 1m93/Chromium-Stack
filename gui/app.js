@@ -1,6 +1,92 @@
-/* chromium-stack manager — talks to gui/server.py (or gui/server.ps1 on Windows). */
+/* chromium-stack manager — talks to gui/server.py (or gui/server.ps1 on Windows).
+
+   The page is an app shell rather than a scrolling document: header, launch
+   options, sidebar and status bar are fixed, and only the shelf in the middle
+   scrolls. That is what keeps the running-job bar and the filters on screen
+   while a 140 MB download crawls along. */
 
 const $ = (id) => document.getElementById(id);
+
+/* ---------- icons ----------
+   Drawn inline rather than pulled from an icon font: the manager has to render
+   before the machine has any network, and a missing glyph would leave unlabelled
+   buttons. Every icon is a 24-grid stroke drawing so they share one weight. */
+
+const ICONS = {
+  disk: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01"/><path d="M7 16.5h.01"/>',
+  warn: '<circle cx="12" cy="12" r="9"/><path d="M12 8v4.5"/><path d="M12 16.2v.01"/>',
+  ok: '<circle cx="12" cy="12" r="9"/><path d="M8.2 12.3l2.6 2.6 5-5.2"/>',
+  theme: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  link: '<path d="M9.5 14.5l5-5"/><path d="M11 7.6l1.4-1.4a3.5 3.5 0 0 1 5 5L16 12.5"/><path d="M13 16.4l-1.4 1.4a3.5 3.5 0 0 1-5-5L8 11.5"/>',
+  frame: '<path d="M4 9V5h4"/><path d="M20 9V5h-4"/><path d="M4 15v4h4"/><path d="M20 15v4h-4"/>',
+  gpu: '<rect x="5" y="5" width="14" height="14" rx="3"/><rect x="9" y="9" width="6" height="6" rx="1.5"/><path d="M9 2.6V5M15 2.6V5M9 19v2.4M15 19v2.4M2.6 9H5M2.6 15H5M19 9h2.4M19 15h2.4"/>',
+  "caret-down": '<path d="M6 9.5l6 6 6-6"/>',
+  check: '<path d="M20 6.5L9.5 17 4 11.5"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  sort: '<path d="M7 4v16M7 20l-3-3M7 20l3-3"/><path d="M17 20V4M17 4l-3 3M17 4l3 3"/>',
+  grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
+  "play-circle": '<circle cx="12" cy="12" r="9"/><path d="M10.3 9.2l4.7 2.8-4.7 2.8z" fill="currentColor" stroke="none"/>',
+  dots: '<circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
+  download: '<path d="M12 4v10"/><path d="M8 10.5l4 4 4-4"/><path d="M4.5 18.5h15"/>',
+  play: '<path d="M8 5.5l11 6.5-11 6.5z" fill="currentColor" stroke="none"/>',
+  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/>',
+  reset: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20.5 4v5h-5"/>',
+  cube: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 21v-9"/><path d="M4 7.5l8 4.5 8-4.5"/>',
+  trash: '<path d="M4.5 7h15"/><path d="M9.5 7V4.8h5V7"/><path d="M6.5 7l1 12.2h9l1-12.2"/>',
+  terminal: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7.5 9.5l3 2.7-3 2.7"/><path d="M12.5 15.5h4"/>',
+  empty: '<rect x="3" y="6" width="18" height="14" rx="3"/><path d="M3 10h18"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3 2"/>',
+  "down-circle": '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v8"/><path d="M8.5 12l3.5 3.5 3.5-3.5"/>',
+};
+
+const icon = (name) =>
+  `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ` +
+  `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.empty}</svg>`;
+
+function paintIcons(root) {
+  for (const holder of (root || document).querySelectorAll("[data-icon]")) {
+    holder.innerHTML = icon(holder.dataset.icon);
+  }
+}
+
+const iconSpan = (name) => {
+  const span = document.createElement("span");
+  span.innerHTML = icon(name);
+  span.style.display = "flex";
+  return span;
+};
+
+/* ---------- theme ---------- */
+
+const THEME_KEY = "chromiumstack.theme";
+
+function readStored(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function writeStored(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* private mode: not worth failing over */ }
+}
+
+(function bootTheme() {
+  const stored = readStored(THEME_KEY);
+  if (stored === "light" || stored === "dark") document.documentElement.dataset.theme = stored;
+})();
+
+/* ---------- shared state ---------- */
+
+let TOKEN = null;
+let state = null;
+let openMenu = null;      // the row overflow menu, if one is open
+let watching = null;      // job id currently shown in the log panel
+let pollFailures = 0;     // consecutive failed polls of the watched job
+const jobInfo = new Map();    // job id -> {phase, percent, detail} read out of its output
+const dropdowns = [];
+
+const view = { filter: "all", query: "", sort: "old", gpu: "auto" };
+
+const stopping = new Set();   // launch jobs the user has asked to stop
 
 const PLATFORM_LABELS = {
   Mac_Arm: "native arm64",
@@ -9,11 +95,35 @@ const PLATFORM_LABELS = {
   Win_x64: "Windows x86_64",
 };
 
-let TOKEN = null;
-let state = null;
-let openMenu = null;
-let watching = null;      // job id currently shown in the drawer
-let pollFailures = 0;     // consecutive failed polls of the watched job
+// What a job is doing, in the words the row and the status bar use. The phase
+// read from the output wins; the endpoint that started the job is the fallback.
+const WORK_WORD = {
+  downloading: "downloading", extracting: "extracting", ready: "starting", open: "running",
+  install: "installing", launch: "starting", remove: "removing", clean: "resetting", docker: "docker",
+};
+
+const workWord = (job, info) => (info && WORK_WORD[info.phase]) || WORK_WORD[job.kind] || "working";
+const capitalise = (word) => word.charAt(0).toUpperCase() + word.slice(1);
+
+// Job labels are built by the server, which only knows the revision it was given;
+// the page knows which milestone that is.
+function jobName(job) {
+  const rows = state ? [...state.versions, ...state.extra] : [];
+  const row = rows.find((entry) => String(entry.revision) === String(job.revision));
+  if (!row) return job.label;
+  return row.milestone && row.milestone !== "?" ? `Chromium ${row.milestone}` : row.version || `r${row.revision}`;
+}
+
+function jobTitle(job, info) {
+  if (job.kind === "doctor") return job.label;
+  const name = jobName(job);
+  if (info && info.phase === "open") return name;
+  if (info && info.phase === "ready") return `Starting ${name}`;
+  if (job.kind === "docker") return `Docker · ${name}`;
+  // A launch downloads and unpacks first, so both endpoints read as "Installing".
+  if (job.kind === "launch" || job.kind === "install") return `Installing ${name}`;
+  return `${capitalise(workWord(job, info))} ${name}`;
+}
 
 // The server is the source of truth for what is running, so this survives a reload.
 const runningJobFor = (selector) =>
@@ -25,8 +135,6 @@ const runningJobFor = (selector) =>
 const busyJobFor = (selector) =>
   state.jobs.find((job) => job.kind !== "launch" && job.kind !== "doctor" &&
                            String(job.revision) === selector);
-
-const JOB_VERB = { install: "Installing…", remove: "Removing…", clean: "Resetting…", docker: "Docker…" };
 
 // Dependency installs are jobs too, filed under the component they are fixing.
 // Asking the server rather than remembering locally is what keeps the row honest
@@ -66,37 +174,260 @@ function mb(bytes) {
 }
 
 function launchOptions() {
-  const gpu = $("gpu").value;
   return {
     url: $("url").value.trim(),
     size: $("size").value.trim(),
-    gpu: gpu === "auto" ? null : gpu === "on",
+    gpu: view.gpu === "auto" ? null : view.gpu === "on",
   };
 }
 
+/* ---------- reading a job's output ----------
+   The CLI announces each phase in plain text and lets curl draw the meter, so
+   what a job is actually doing is read back out of its log. It cannot come from
+   which endpoint started it: a launch downloads and unpacks a missing build
+   before any window appears, which is why one used to say "browser open" over a
+   download that was still at 30%. */
+
+const CURL_CLOCK = /^(?:\d+:\d\d:\d\d|--:--:--)$/;
+
+// curl's plain meter is twelve columns wide:
+//   %Total Total %Recd Recd %Xferd Xferd Dload Upload TimeTotal TimeSpent TimeLeft Speed
+function meterFrom(frame) {
+  const columns = frame.trim().split(/\s+/);
+  if (columns.length !== 12 || !/^\d{1,3}$/.test(columns[0])) return null;
+  if (!CURL_CLOCK.test(columns[8]) || !CURL_CLOCK.test(columns[10])) return null;
+  return { percent: Number(columns[0]), total: columns[1], done: columns[3], left: columns[10] };
+}
+
+// "86.4M" -> bytes. curl writes k/M/G/T suffixes, and nothing for plain bytes.
+function curlBytes(text) {
+  const found = String(text).match(/^([\d.]+)([kMGT]?)$/);
+  if (!found) return null;
+  return Number(found[1]) * { "": 1, k: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 }[found[2]];
+}
+
+// "0:00:11" -> "11s left". A dashed clock means curl has nothing to estimate from.
+function curlLeft(text) {
+  const found = String(text).match(/^(\d+):(\d\d):(\d\d)$/);
+  if (!found) return null;
+  const seconds = Number(found[1]) * 3600 + Number(found[2]) * 60 + Number(found[3]);
+  if (!seconds) return null;
+  if (seconds < 60) return `${seconds}s left`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return seconds % 60 ? `${minutes}m ${seconds % 60}s left` : `${minutes}m left`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m left`;
+}
+
+// Each line the CLI prints to mark a step, latest one wins.
+const PHASE_MARKS = [
+  [/^\s*Downloading Chromium\b/, "downloading"],
+  [/^\s*Extracting\b/, "extracting"],
+  [/\bready\.\s*$/, "ready"],
+  [/^\s*>\s+Chromium\b/, "open"],
+];
+
+function readJob(output) {
+  // Every meter redraw is a carriage-return frame; only the last frame of a line
+  // still says anything true.
+  const frames = String(output || "").split("\n").map((line) => line.split("\r").pop());
+
+  const info = { phase: null, percent: null, detail: null };
+  for (const frame of frames) {
+    for (const [pattern, name] of PHASE_MARKS) {
+      if (pattern.test(frame)) { info.phase = name; break; }
+    }
+  }
+  if (info.phase !== "downloading") return info;
+
+  for (let index = frames.length - 1; index >= 0; index--) {
+    const meter = meterFrom(frames[index]);
+    if (meter) {
+      const done = curlBytes(meter.done);
+      const total = curlBytes(meter.total);
+      info.percent = Math.min(100, meter.percent);
+      info.detail = [done != null && total ? `${mb(done)} / ${mb(total)}` : null, curlLeft(meter.left)]
+        .filter(Boolean).join(" · ") || null;
+      return info;
+    }
+    // A terminal-style bar - an older CLI, or an install run by hand - still
+    // carries a percentage even though it has no byte counts.
+    const bar = frames[index].match(/(\d{1,3}(?:\.\d+)?)%\s*$/);
+    if (bar) {
+      info.percent = Math.min(100, Math.round(Number(bar[1])));
+      return info;
+    }
+  }
+  return info;
+}
+
+/* ---------- eras ----------
+   The shelf is grouped by what a version is *for* rather than by number. Notes in
+   catalog.tsv start with the release year, so the grouping follows the catalog
+   instead of a table that would go stale as milestones are added. */
+
+const ERAS = [
+  { id: "era-1", label: "2017 – 2019", blurb: "the hard floors — kiosks, old WebViews", until: 2019 },
+  { id: "era-2", label: "2020 – 2021", blurb: "flexbox gap, aspect-ratio, :is()", until: 2021 },
+  { id: "era-3", label: "2022 – 2023", blurb: "container queries, :has(), nesting", until: 2023 },
+  { id: "era-4", label: "2024 – today", blurb: "controls for bisecting", until: 9999 },
+];
+
+// Milestones roughly bracket the same years, and cover rows whose note has no year.
+const MILESTONE_YEARS = [[76, 2019], [95, 2021], [120, 2023]];
+
+function yearOf(row) {
+  const stamped = String(row.note || "").match(/^\s*(\d{4})\./);
+  if (stamped) return Number(stamped[1]);
+  const milestone = Number(row.milestone);
+  if (!Number.isFinite(milestone)) return null;
+  for (const [ceiling, year] of MILESTONE_YEARS) if (milestone <= ceiling) return year;
+  return 2024;
+}
+
+const eraFor = (row) => {
+  const year = yearOf(row);
+  return year === null ? null : ERAS.find((era) => year <= era.until);
+};
+
+/* ---------- shaping a catalog row for the shelf ---------- */
+
+function decorate(row) {
+  const selector = row.revision == null ? null : String(row.revision);
+  const version = row.version || (selector ? `r${selector}` : "?");
+  const milestone = row.milestone && row.milestone !== "?" ? row.milestone : null;
+  const raw = row.note || "";
+
+  // Notes name the features in backticks; those double as the row's tags, so the
+  // shelf gains a scannable index without a second column in catalog.tsv.
+  const tags = [...raw.matchAll(/`([^`]+)`/g)].map((match) => match[1]).slice(0, 3);
+  const note = raw.replace(/^\s*\d{4}\.\s*/, "").replace(/`/g, "");
+
+  const rosetta = row.platformDir === "Mac" && state.arch === "arm64";
+  const launchJob = selector ? runningJobFor(selector) : null;
+  const job = launchJob || (selector ? busyJobFor(selector) : null);
+  const info = (job && jobInfo.get(job.id)) || null;
+
+  // Only the banner the CLI prints at exec time means the browser is up. Until
+  // then a launch job is a download, and the row has to say so.
+  const open = Boolean(launchJob) && Boolean(info) && info.phase === "open";
+  const busy = open ? null : job;
+
+  return {
+    raw: row, selector, version, milestone, note, tags, rosetta,
+    job, info, busy, running: open,
+    name: milestone ? `Chromium ${milestone}` : version,
+    installed: Boolean(row.installed),
+    supported: row.supported !== false,
+    sizeBytes: row.sizeBytes || 0,
+    profileBytes: row.profileBytes || 0,
+    era: row.extra ? null : eraFor(row),
+    status: open ? "running"
+      : busy ? (info && info.phase === "downloading" ? "downloading" : "working")
+      : row.installed ? "installed" : "absent",
+    search: [milestone, version, selector ? `r${selector}` : "", raw].join(" ").toLowerCase(),
+  };
+}
+
+/* ---------- dropdowns ---------- */
+
+function buildDropdown(rootId, buttonId, menuId, labelId, options, get, set) {
+  const root = $(rootId);
+  const menu = $(menuId);
+
+  const close = () => { menu.hidden = true; root.classList.remove("is-open"); };
+
+  const paint = () => {
+    const current = options.find((option) => option.value === get()) || options[0];
+    $(labelId).textContent = current.label;
+    menu.textContent = "";
+    for (const option of options) {
+      const item = document.createElement("button");
+      item.type = "button";
+      if (option.value === get()) item.className = "is-on";
+      const tick = iconSpan("check");
+      tick.className = "tick";
+      item.append(tick, option.label);
+      item.onclick = (event) => {
+        event.stopPropagation();
+        close();
+        set(option.value);
+        paint();
+      };
+      menu.append(item);
+    }
+  };
+
+  $(buttonId).onclick = (event) => {
+    event.stopPropagation();
+    const wasOpen = !menu.hidden;
+    closePopovers();
+    if (!wasOpen) {
+      menu.hidden = false;
+      root.classList.add("is-open");
+    }
+  };
+
+  paint();
+  const handle = { close, paint, isOpen: () => !menu.hidden };
+  dropdowns.push(handle);
+  return handle;
+}
+
+function closePopovers() {
+  for (const handle of dropdowns) handle.close();
+  if (openMenu) {
+    openMenu.remove();
+    openMenu = null;
+  }
+}
+
+const popoverOpen = () => Boolean(openMenu) || dropdowns.some((handle) => handle.isOpen());
+
+document.addEventListener("click", closePopovers);
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePopovers(); });
+
 /* ---------- system check ---------- */
 
-let doctorPinned = false;   // shown because the user asked, not because of a fault
+let doctorPinned = false;     // shown because the user asked, not because of a fault
+let doctorDismissed = false;  // hidden because the user asked, faults and all
 
 const STATUS_WORD = { ok: "ok", missing: "missing", inactive: "not running", na: "not needed" };
+
+const doctorProblems = () => {
+  const report = state && state.doctor;
+  if (!report || !report.components) return [];
+  // "na" means this machine does not need it, so it is not something to act on.
+  return report.components.filter((c) => c.status === "missing" || c.status === "inactive");
+};
+
+// Only what ChromiumStack cannot work without. The recommended and optional ones
+// are worth knowing about, but not worth a panel in front of the shelf on every
+// launch - the header button carries the count for those.
+const doctorBlockers = () => doctorProblems().filter((c) => c.need === "required");
+
+const doctorVisible = () => doctorPinned || (doctorBlockers().length > 0 && !doctorDismissed);
 
 function renderDoctor() {
   const panel = $("doctor");
   const report = state && state.doctor;
-  if (!report || !report.components.length) {
-    panel.hidden = true;
-    return;
-  }
+  const problems = doctorProblems();
 
-  // Anything a user can act on. "na" means this machine does not need it.
-  const problems = report.components.filter((c) => c.status === "missing" || c.status === "inactive");
-  if (!problems.length && !doctorPinned) {
+  const blockers = doctorBlockers();
+  const button = $("check-btn");
+  button.classList.toggle("has-problem", problems.length > 0 && blockers.length === 0);
+  button.classList.toggle("has-blocker", blockers.length > 0);
+  button.classList.toggle("is-on", doctorVisible());
+  button.querySelector("[data-icon]").innerHTML = icon(problems.length ? "warn" : "ok");
+  $("check-label").textContent = problems.length
+    ? `${problems.length} check${problems.length > 1 ? "s" : ""}`
+    : "System check";
+
+  if (!report || !report.components.length || !doctorVisible()) {
     panel.hidden = true;
     return;
   }
 
   panel.hidden = false;
-  panel.classList.toggle("has-problem", problems.length > 0);
   panel.textContent = "";
 
   const head = document.createElement("div");
@@ -105,28 +436,40 @@ function renderDoctor() {
   heading.textContent = "System check";
   const note = document.createElement("span");
   note.className = "muted";
-  note.textContent = problems.length
-    ? `${problems.length} thing${problems.length > 1 ? "s" : ""} to sort out — ChromiumStack still works without the optional ones.`
-    : "Everything ChromiumStack needs is present.";
-  const close = document.createElement("button");
-  close.className = "btn ghost small";
-  close.textContent = "Hide";
-  close.onclick = () => {
+  note.textContent = blockers.length
+    ? `${blockers.length} thing${blockers.length > 1 ? "s" : ""} ChromiumStack cannot work without.`
+    : problems.length
+      ? `Everything required is present. ${problems.length} optional thing${problems.length > 1 ? "s" : ""} you could still sort out.`
+      : "Everything ChromiumStack needs is present.";
+  const hide = document.createElement("button");
+  hide.className = "btn";
+  hide.textContent = "Hide";
+  hide.onclick = () => {
     doctorPinned = false;
+    doctorDismissed = true;
     renderDoctor();
   };
-  head.append(heading, note, close);
+  head.append(heading, note, hide);
   panel.append(head);
+
+  const body = document.createElement("div");
+  body.style.display = "flex";
+  body.style.flexDirection = "column";
+  body.style.gap = "6px";
 
   // When nothing is wrong the pinned panel lists everything, so the user can see
   // what was actually checked rather than an unexplained "all good".
   const rows = problems.length && !doctorPinned ? problems : report.components;
-  for (const component of rows) panel.append(doctorRow(component));
+  for (const component of rows) body.append(doctorRow(component));
+  panel.append(body);
 }
 
 function doctorRow(component) {
   const row = document.createElement("div");
   row.className = "doctor-row";
+  const kind = component.status === "ok" || component.status === "na" ? "ok" : "warn";
+  const mark = iconSpan(kind === "ok" ? "ok" : "warn");
+  mark.style.color = kind === "ok" ? "var(--c-ok)" : "var(--c-warn)";
 
   const name = document.createElement("span");
   name.className = "name";
@@ -140,7 +483,7 @@ function doctorRow(component) {
   why.className = "why";
   why.textContent = component.why;
 
-  row.append(name, pill, why);
+  row.append(mark, name, pill, why);
 
   const actionable = component.status === "missing" || component.status === "inactive";
   if (actionable && component.fix) {
@@ -152,17 +495,17 @@ function doctorRow(component) {
     const starting = component.status === "inactive";
     const busy = runningDoctorJob(component.id);
     const button = document.createElement("button");
+    button.className = "btn";
     button.title = component.note || component.fix;
 
     if (busy) {
       // Not a dead end and not a lie: it says what is happening, and clicking it
-      // brings the log back up if the drawer was closed.
-      button.className = "btn ghost";
+      // brings the log back up if the panel was closed.
       button.textContent = starting ? "Starting…" : "Installing…";
       button.onclick = () => watch(busy.id, `${component.label} — ${component.fix}`);
       row.classList.add("busy");
     } else {
-      button.className = "btn";
+      button.classList.add("accent");
       button.textContent = starting ? "Start it" : "Install";
       button.onclick = async () => {
         button.disabled = true;
@@ -190,38 +533,29 @@ function doctorRow(component) {
   return row;
 }
 
-$("doctor-btn").onclick = () => {
-  doctorPinned = !doctorPinned;
+$("check-btn").onclick = () => {
+  const visible = doctorVisible();
+  doctorPinned = !visible;
+  doctorDismissed = visible;
   renderDoctor();
 };
 
-/* ---------- empty / error / loading states ---------- */
+/* ---------- whole-list stand-ins ---------- */
 
-const STATE_ICONS = {
-  empty: '<rect x="3" y="6" width="18" height="14" rx="3"/><path d="M3 10h18"/>',
-  warn:  '<circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/>',
-  wait:  '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-};
-
-/* The list is a grid at wide viewports, so anything that stands in for the whole
-   list has to span every column - otherwise it sits in the first cell and reads
-   as misaligned rather than centred. */
-function showState({ icon = "empty", tone = "", title, detail, actionLabel, onAction }) {
+function showState({ glyph = "empty", tone = "", title, detail, actionLabel, onAction }) {
   const block = document.createElement("div");
   block.className = `state-block${tone ? ` ${tone}` : ""}`;
+  block.innerHTML = icon(glyph);
 
-  block.innerHTML = `
-    <svg class="state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-         aria-hidden="true">${STATE_ICONS[icon] || STATE_ICONS.empty}</svg>
-    <h2></h2>
-    <p></p>`;
-  block.querySelector("h2").textContent = title;
-  block.querySelector("p").textContent = detail;
+  const heading = document.createElement("h2");
+  heading.textContent = title;
+  const text = document.createElement("p");
+  text.textContent = detail;
+  block.append(heading, text);
 
   if (actionLabel && onAction) {
     const button = document.createElement("button");
-    button.className = "btn";
+    button.className = "btn accent";
     button.textContent = actionLabel;
     button.onclick = onAction;
     block.append(button);
@@ -236,127 +570,293 @@ function showState({ icon = "empty", tone = "", title, detail, actionLabel, onAc
 /* ---------- rendering ---------- */
 
 function render() {
-  const list = $("list");
-  const onlyInstalled = $("only-installed").checked;
-  const rows = [...state.versions, ...state.extra];
-  const visible = rows.filter((row) => (onlyInstalled ? row.installed : true));
+  const rows = [...state.versions, ...state.extra].map(decorate);
 
-  $("host").textContent = `${state.os}/${state.arch} · ${state.hostPlatforms[0]}`;
-  $("disk").textContent = `${mb(state.totalBytes)} on disk`;
-  $("foot-note").textContent =
-    `Files in ${state.root}. Each version keeps its own profile, so a newer build never upgrades an older one's data.`;
+  const counts = {
+    all: rows.length,
+    installed: rows.filter((row) => row.installed).length,
+    running: rows.filter((row) => row.status === "running").length,
+    rosetta: rows.filter((row) => row.rosetta).length,
+  };
 
+  renderChrome(rows, counts);
   renderDoctor();
+  renderStatusBar();
 
+  const query = view.query.trim().toLowerCase();
+  const visible = rows.filter((row) => {
+    if (view.filter === "installed" && !row.installed) return false;
+    if (view.filter === "running" && row.status !== "running") return false;
+    if (view.filter === "rosetta" && !row.rosetta) return false;
+    return !query || row.search.includes(query);
+  });
+
+  $("summary").textContent =
+    `${visible.length} of ${rows.length} versions · ${counts.installed} installed · ${counts.running} running`;
+
+  const list = $("list");
   list.setAttribute("aria-busy", "false");
   list.textContent = "";
 
-  if (!visible.length) {
-    if (onlyInstalled) {
-      showState({
-        icon: "empty",
-        title: "Nothing installed yet",
-        detail: "No browser has been downloaded into this profile directory. " +
-                "Show every catalogued version to pick one.",
-        actionLabel: "Show all versions",
-        onAction: () => {
-          $("only-installed").checked = false;
-          render();
-        },
-      });
-    } else {
-      showState({
-        icon: "warn",
-        title: "No versions in the catalog",
-        detail: "catalog.tsv is missing or empty. Rebuild it from the Chromium " +
-                "archive with:  python3 tools/refresh-catalog.py",
-      });
-    }
+  if (!rows.length) {
+    showState({
+      glyph: "warn",
+      title: "No versions in the catalog",
+      detail: "catalog.tsv is missing or empty. Rebuild it from the Chromium " +
+              "archive with:  python3 tools/refresh-catalog.py",
+    });
     return;
   }
 
-  for (const row of visible) list.append(renderRow(row));
+  if (!visible.length) {
+    showState({
+      glyph: "search",
+      title: "Nothing matches that filter",
+      detail: view.filter === "installed"
+        ? "No browser has been downloaded into this profile directory yet."
+        : "No catalogued version matches the current filter and search.",
+      actionLabel: "Reset filters",
+      onAction: () => {
+        view.filter = "all";
+        view.query = "";
+        $("query").value = "";
+        render();
+      },
+    });
+    return;
+  }
+
+  for (const group of groupRows(visible)) list.append(renderGroup(group));
+  lastPaint = paintSignature();
+}
+
+// Header, sidebar and the disk read-outs: everything outside the shelf itself.
+function renderChrome(rows, counts) {
+  $("host").textContent = `${state.os}/${state.arch} · ${state.hostPlatforms[0] || "?"}`;
+  $("foot-path").textContent = `Files in ${state.root}`;
+
+  const browsers = rows.reduce((total, row) => total + row.sizeBytes, 0);
+  const profiles = rows.reduce((total, row) => total + row.profileBytes, 0);
+  const total = browsers + profiles;
+  const share = (value) => `${total ? (value / total) * 100 : 0}%`;
+
+  $("disk-text").textContent = mb(state.totalBytes);
+  $("gauge").title = `${mb(browsers)} of browsers and ${mb(profiles)} of profiles on disk`;
+  $("disk-seg-browsers").style.width = share(browsers);
+  $("disk-seg-profiles").style.width = share(profiles);
+  $("card-seg-browsers").style.width = share(browsers);
+  $("card-seg-profiles").style.width = share(profiles);
+  $("disk-browsers").textContent = mb(browsers);
+  $("disk-profiles").textContent = mb(profiles);
+
+  for (const button of document.querySelectorAll("[data-filter]")) {
+    button.classList.toggle("is-on", button.dataset.filter === view.filter);
+  }
+  for (const slot of document.querySelectorAll("[data-count]")) {
+    slot.textContent = counts[slot.dataset.count];
+  }
+  // Rosetta only exists on Apple Silicon; elsewhere the filter would always be empty.
+  $("filter-rosetta").hidden = counts.rosetta === 0;
+
+  const eras = $("eras");
+  eras.textContent = "";
+  for (const era of view.sort === "new" ? [...ERAS].reverse() : ERAS) {
+    const count = rows.filter((row) => row.era === era).length;
+    if (!count) continue;
+    const button = document.createElement("button");
+    button.className = "era-btn";
+    const label = document.createElement("span");
+    label.textContent = era.label;
+    const tally = document.createElement("span");
+    tally.className = "count mono";
+    tally.textContent = count;
+    button.append(label, tally);
+    button.onclick = () => {
+      const section = document.getElementById(era.id);
+      if (section) $("main").scrollTo({ top: section.offsetTop - 48, behavior: "smooth" });
+    };
+    eras.append(button);
+  }
+  // Sorting by disk collapses the eras into one group, so the jump list would
+  // point at sections that are no longer on the page.
+  $("eras-group").hidden = !eras.childElementCount || view.sort === "disk";
+}
+
+function groupRows(visible) {
+  const byMilestone = (a, b) => (Number(b.milestone) || 0) - (Number(a.milestone) || 0);
+  const sorted = (rows) => {
+    if (view.sort === "old") return rows.slice().sort((a, b) => -byMilestone(a, b));
+    if (view.sort === "disk") return rows.slice().sort((a, b) => b.sizeBytes - a.sizeBytes);
+    return rows.slice().sort(byMilestone);
+  };
+
+  if (view.sort === "disk") {
+    return [{ id: "by-disk", label: "By disk used", blurb: "largest first", rows: sorted(visible) }];
+  }
+
+  const groups = ERAS.map((era) => ({
+    id: era.id,
+    label: era.label,
+    blurb: era.blurb,
+    rows: sorted(visible.filter((row) => row.era === era)),
+  })).filter((group) => group.rows.length);
+  // Oldest era first reads as a timeline and matches the jump list; newest-first
+  // has to turn both around, which is what this used to get backwards.
+  if (view.sort === "new") groups.reverse();
+
+  // Builds installed by raw revision, and anything the catalog cannot date.
+  const loose = visible.filter((row) => !row.era);
+  if (loose.length) {
+    groups.unshift({ id: "loose", label: "Added by revision", blurb: "pinned manually", rows: sorted(loose) });
+  }
+  return groups;
+}
+
+function renderGroup(group) {
+  const section = document.createElement("section");
+  section.id = group.id;
+
+  const head = document.createElement("div");
+  head.className = "group-head";
+  const heading = document.createElement("h2");
+  heading.textContent = group.label;
+  const blurb = document.createElement("span");
+  blurb.className = "blurb";
+  blurb.textContent = group.blurb;
+  const rule = document.createElement("span");
+  rule.className = "rule";
+  head.append(heading, blurb, rule);
+
+  const body = document.createElement("div");
+  body.className = "group-rows";
+  for (const row of group.rows) body.append(renderRow(row));
+
+  section.append(head, body);
+  return section;
 }
 
 function renderRow(row) {
   const node = $("row-template").content.firstElementChild.cloneNode(true);
-  const title = row.version || `r${row.revision}`;
-  const running = Boolean(row.revision && runningJobFor(String(row.revision)));
-  const busy = row.revision && !running ? busyJobFor(String(row.revision)) : null;
 
-  node.querySelector("[data-title]").textContent =
-    row.milestone && row.milestone !== "?" ? `Chromium ${row.milestone}` : title;
-  node.querySelector("[data-rev]").textContent = row.revision ? `${title} · r${row.revision}` : "";
-  node.querySelector("[data-note]").textContent = row.note || "";
+  node.querySelector("[data-title]").textContent = row.name;
+  node.querySelector("[data-rev]").textContent = row.selector ? `r${row.selector}` : "";
+  node.querySelector("[data-note]").textContent = row.note;
 
-  const stateDot = node.querySelector("[data-state]");
-  stateDot.dataset.state = running || busy ? "running" : row.installed ? "installed" : "absent";
-  stateDot.title = running ? "Running"
-    : busy ? busy.label
+  const dot = node.querySelector("[data-dot]");
+  dot.dataset.state = row.status;
+  dot.title = row.running ? "Running"
+    : row.busy ? row.busy.label
     : row.installed ? "Installed" : "Not installed";
 
-  const badge = node.querySelector("[data-platform]");
+  const tags = node.querySelector("[data-tags]");
+  for (const text of row.tags) {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = text;
+    tags.append(tag);
+  }
+
+  const badge = document.createElement("span");
+  badge.className = "badge";
   if (!row.supported) {
     badge.textContent = "no build for this host";
-  } else if (row.platformDir === "Mac" && state.arch === "arm64") {
+  } else if (row.rosetta) {
     // Worth calling out: these are the builds that go through Rosetta, and the
     // ones where the stack-profiler crash shows up.
     badge.textContent = "x86_64 · Rosetta";
     badge.classList.add("rosetta");
     badge.title = "No arm64 build exists this far back, so it runs under Rosetta.";
   } else {
-    badge.textContent = PLATFORM_LABELS[row.platformDir] || row.platformDir || "";
+    badge.textContent = PLATFORM_LABELS[row.raw.platformDir] || row.raw.platformDir || "";
+  }
+  if (badge.textContent) tags.append(badge);
+
+  // The version is what identifies a build, so it stays put whatever else the
+  // row is doing; sizes and progress words go on their own line under it.
+  node.querySelector("[data-version]").textContent = row.supported ? row.version : "";
+  node.querySelector("[data-size]").textContent = row.busy
+    ? `${workWord(row.busy, row.info)}…`
+    : row.installed ? `${mb(row.sizeBytes)} · ${mb(row.profileBytes)} profile`
+    : "";
+
+  if (row.busy) {
+    // Determinate while curl is reporting, a moving stripe for the steps that
+    // cannot be measured - unpacking, deleting, waiting on Docker.
+    const bar = node.querySelector("[data-progress]");
+    const percent = row.info ? row.info.percent : null;
+    bar.hidden = false;
+    if (percent == null) bar.classList.add("indeterminate");
+    else node.querySelector("[data-progress-bar]").style.width = `${percent}%`;
   }
 
-  node.querySelector("[data-meta]").textContent = row.installed
-    ? `${mb(row.sizeBytes)} browser · ${mb(row.profileBytes)} profile`
-    : row.supported
-      ? "not installed"
-      : "";
-
-  if (!row.supported) node.classList.add("unsupported");
-  else renderActions(node.querySelector("[data-actions]"), row, running, busy);
-
+  if (!row.supported) {
+    node.classList.add("unsupported");
+  } else {
+    if (row.running) node.classList.add("is-running");
+    renderActions(node.querySelector("[data-actions]"), row);
+  }
   return node;
 }
 
-function renderActions(container, row, running, busy) {
-  const selector = String(row.revision);
+function renderActions(container, row) {
+  const selector = row.selector;
+  const action = document.createElement("button");
+  action.className = "btn";
 
-  const launch = document.createElement("button");
-  if (busy) {
+  if (row.busy) {
     // A download in progress used to leave this saying "Install & launch", which
     // invited a second one while the first was still running.
-    launch.className = "btn ghost";
-    launch.textContent = JOB_VERB[busy.kind] || "Working…";
-    launch.title = "Show what this is doing";
-    launch.onclick = () => watch(busy.id, busy.label);
-  } else if (running) {
+    const percent = row.info ? row.info.percent : null;
+    const word = workWord(row.busy, row.info);
+    if (row.status === "downloading" && percent != null) {
+      action.append(iconSpan("down-circle"), `${percent}%`);
+    } else {
+      action.append(iconSpan(row.status === "downloading" ? "down-circle" : "clock"), `${capitalise(word)}…`);
+    }
+    action.title = "Show what this is doing";
+    action.onclick = () => watch(row.busy.id, jobName(row.busy));
+  } else if (row.running) {
     // A disabled "Running" button is a dead end; closing the window is the other
     // way out, but the button is right here.
-    launch.className = "btn stop";
-    launch.textContent = "Stop";
-    launch.title = "Close this browser and everything it started";
-    launch.onclick = async () => {
-      launch.disabled = true;
-      await post("/api/stop", { job: runningJobFor(selector).id });
-      setTimeout(refresh, 400);
-    };
+    const jobId = row.job.id;
+    if (stopping.has(jobId)) {
+      // SIGTERM to the process group takes a moment to bring the window down,
+      // and a button still reading "Stop" invited a second press.
+      action.append(iconSpan("clock"), "Stopping…");
+      action.disabled = true;
+      action.title = "Waiting for the browser to close";
+    } else {
+      action.classList.add("warn");
+      action.append(iconSpan("stop"), "Stop");
+      action.title = "Close this browser and everything it started";
+      action.onclick = async () => {
+        stopping.add(jobId);
+        render();
+        try {
+          await post("/api/stop", { job: jobId });
+        } catch (error) {
+          stopping.delete(jobId);
+          showJobFailure(`Stopping ${row.name}`, error.message);
+          return;
+        }
+        setTimeout(refresh, 400);
+      };
+    }
+  } else if (row.installed) {
+    action.classList.add("accent");
+    action.append(iconSpan("play"), "Launch");
+    action.title = "Open this build";
+    action.onclick = () => start(action, row);
   } else {
-    launch.className = "btn primary";
-    launch.textContent = row.installed ? "Launch" : "Install & launch";
-    launch.onclick = async () => {
-      launch.disabled = true;
-      const { job } = await post("/api/launch", { selector, ...launchOptions() });
-      watch(job, `Chromium ${row.milestone ?? selector}`);
-      refresh();
-    };
+    action.append(iconSpan("download"), "Get");
+    action.title = "Download this build and launch it";
+    action.onclick = () => start(action, row);
   }
-  container.append(launch);
+  container.append(action);
 
   const more = document.createElement("button");
-  more.className = "btn icon";
-  more.textContent = "···";
+  more.className = "btn icon-btn";
+  more.append(iconSpan("dots"));
   more.title = "More actions";
   more.onclick = (event) => {
     event.stopPropagation();
@@ -365,25 +865,39 @@ function renderActions(container, row, running, busy) {
   container.append(more);
 }
 
+async function start(button, row) {
+  button.disabled = true;
+  try {
+    const { job } = await post("/api/launch", { selector: row.selector, ...launchOptions() });
+    watch(job, row.name);
+  } catch (error) {
+    showJobFailure(row.name, error.message);
+    button.disabled = false;
+    return;
+  }
+  refresh();
+}
+
 function toggleMenu(container, row) {
   if (openMenu) {
     const wasSame = openMenu.parentElement === container;
-    openMenu.remove();
-    openMenu = null;
+    closePopovers();
     if (wasSame) return;
+  } else {
+    closePopovers();
   }
 
-  const selector = String(row.revision);
+  const selector = row.selector;
   const menu = document.createElement("div");
   menu.className = "menu";
 
-  const item = (label, handler, danger = false) => {
+  const item = (glyph, label, handler, danger = false) => {
     const button = document.createElement("button");
-    button.textContent = label;
+    button.type = "button";
+    button.append(iconSpan(glyph), label);
     if (danger) button.className = "danger";
     button.onclick = async () => {
-      menu.remove();
-      openMenu = null;
+      closePopovers();
       await handler();
       refresh();
     };
@@ -391,70 +905,176 @@ function toggleMenu(container, row) {
   };
 
   if (!row.installed) {
-    item("Download only", async () => {
+    item("download", "Download only", async () => {
       const { job } = await post("/api/install", { selector });
-      watch(job, `Installing Chromium ${row.milestone ?? selector}`);
+      watch(job, `Installing ${row.name}`);
     });
   }
 
-  if (state.docker.supported) {
-    item("Run in Docker (noVNC)", async () => {
-      const { job } = await post("/api/docker", { selector, action: "start" });
-      watch(job, `Docker · Chromium ${row.milestone ?? selector}`);
-    });
-    item("Stop Docker container", async () => {
-      const { job } = await post("/api/docker", { selector, action: "stop" });
-      watch(job, `Stopping Docker · ${row.milestone ?? selector}`);
-    });
+  // One container per version: the server lists the ones that are up, so the
+  // menu offers the half that can actually happen rather than both.
+  if (state.docker && state.docker.supported && state.docker.cli) {
+    if (asArray(state.docker.containers).map(String).includes(selector)) {
+      item("stop", "Stop Docker container", async () => {
+        const { job } = await post("/api/docker", { selector, action: "stop" });
+        watch(job, `Stopping Docker · ${row.name}`);
+      });
+    } else {
+      item("cube", "Run in Docker (noVNC)", async () => {
+        const { job } = await post("/api/docker", { selector, action: "start" });
+        watch(job, `Docker · ${row.name}`);
+      });
+    }
   }
 
   if (row.installed) {
     menu.append(document.createElement("hr"));
-    item("Reset profile", async () => {
-      if (!confirm(`Reset the profile for Chromium ${row.milestone ?? selector}?\n\nCookies, logins and storage for this version are deleted. The browser itself stays.`)) return;
+    item("reset", "Reset profile", async () => {
+      const go = await askConfirm({
+        title: `Reset the profile for ${row.name}?`,
+        body: "Cookies, logins and storage for this version are deleted. The browser itself stays, so the next launch starts clean.",
+        label: "Reset profile",
+      });
+      if (!go) return;
       const { job } = await post("/api/clean", { selector });
-      watch(job, `Resetting profile`);
+      watch(job, `Resetting profile · ${row.name}`);
     }, true);
-    item(`Delete browser (${mb(row.sizeBytes)})`, async () => {
-      if (!confirm(`Delete the downloaded Chromium ${row.milestone ?? selector}?\n\nFrees ${mb(row.sizeBytes)}. The profile is kept, so reinstalling restores your session.`)) return;
+    item("trash", `Delete browser (${mb(row.sizeBytes)})`, async () => {
+      const go = await askConfirm({
+        title: `Delete the downloaded ${row.name}?`,
+        body: `Frees ${mb(row.sizeBytes)}. The profile is kept, so downloading it again restores your session.`,
+        label: "Delete browser",
+      });
+      if (!go) return;
       const { job } = await post("/api/remove", { selector });
-      watch(job, `Removing Chromium ${row.milestone ?? selector}`);
+      watch(job, `Removing ${row.name}`);
     }, true);
-    item(`Delete browser and profile (${mb(row.sizeBytes + row.profileBytes)})`, async () => {
-      if (!confirm(`Delete Chromium ${row.milestone ?? selector} and its profile?\n\nFrees ${mb(row.sizeBytes + row.profileBytes)}. Cookies and logins for this version are gone for good.`)) return;
+    item("trash", `Delete browser and profile (${mb(row.sizeBytes + row.profileBytes)})`, async () => {
+      const go = await askConfirm({
+        title: `Delete ${row.name} and its profile?`,
+        body: `Frees ${mb(row.sizeBytes + row.profileBytes)}. Cookies and logins for this version are gone for good.`,
+        label: "Delete both",
+      });
+      if (!go) return;
       const { job } = await post("/api/remove", { selector, withProfile: true });
-      watch(job, `Removing Chromium ${row.milestone ?? selector}`);
+      watch(job, `Removing ${row.name}`);
     }, true);
   }
 
   container.append(menu);
   openMenu = menu;
+
+  // The shelf is a scroll container: near its bottom edge a downward menu would
+  // be clipped rather than overflowing the page, so it flips above the row.
+  const rect = container.getBoundingClientRect();
+  if (rect.bottom + menu.offsetHeight + 12 > window.innerHeight) menu.classList.add("up");
 }
 
-document.addEventListener("click", () => {
-  if (openMenu) {
-    openMenu.remove();
-    openMenu = null;
+/* ---------- status bar ---------- */
+
+// One job at a time gets the status bar: whatever the log panel is watching if it
+// is still running, otherwise the first piece of background work.
+function activeJob() {
+  const running = state ? state.jobs : [];
+  return running.find((job) => job.id === watching)
+    || running.find((job) => job.kind !== "launch")
+    || running[0]
+    || null;
+}
+
+function renderStatusBar() {
+  const job = activeJob();
+  const bar = $("job-bar");
+
+  if (!job) {
+    $("job-dot").dataset.state = "idle";
+    $("job-title").textContent = "Ready";
+    $("job-detail").textContent = "Nothing running";
+    bar.hidden = true;
+    return;
   }
-});
 
-/* ---------- job drawer ---------- */
+  const info = jobInfo.get(job.id) || null;
+  const open = job.kind === "launch" && info && info.phase === "open";
 
-function syncDrawerSpace() {
-  const drawer = $("drawer");
-  document.body.style.paddingBottom = drawer.hidden ? "" : `${drawer.offsetHeight + 24}px`;
+  $("job-dot").dataset.state = open ? "running" : "working";
+  $("job-title").textContent = jobTitle(job, info);
+
+  if (open) {
+    $("job-detail").textContent = "running";
+    bar.hidden = true;
+    return;
+  }
+
+  const percent = info ? info.percent : null;
+  // The byte counts and time left when curl is reporting them, the step's own
+  // name when it has nothing to report.
+  $("job-detail").textContent = (info && info.detail) || `${workWord(job, info)}…`;
+  bar.hidden = false;
+  bar.classList.toggle("indeterminate", percent == null);
+  $("job-bar-fill").style.width = percent == null ? "" : `${percent}%`;
 }
 
-new ResizeObserver(syncDrawerSpace).observe($("drawer"));
+// /api/state lists the running jobs but not their output, and the output is
+// where the phase and the meter are. One read per running job per refresh.
+async function sampleJobs() {
+  const running = state ? state.jobs.filter((job) => job.kind !== "doctor") : [];
+  await Promise.all(running.map(async (job) => {
+    if (job.id === watching) return;      // pollJob is already reading this one
+    try {
+      noteJob(job, (await api(`/api/job/${job.id}`)).output);
+    } catch { /* the next refresh will try again */ }
+  }));
+  for (const id of [...jobInfo.keys()]) {
+    if (id !== watching && !running.some((job) => job.id === id)) jobInfo.delete(id);
+  }
+  for (const id of [...stopping]) {
+    if (!state.jobs.some((job) => job.id === id)) stopping.delete(id);
+  }
+}
+
+// Rows carry a live percentage, so the 700ms poll repaints them - but only when
+// something actually moved, and never over an open menu.
+let lastPaint = "";
+
+const paintSignature = () => !state ? "" : state.jobs
+  .map((job) => { const info = jobInfo.get(job.id) || {}; return `${job.id}:${info.phase}:${info.percent}`; })
+  .join("|");
+
+function repaintIfMoved() {
+  if (!state || popoverOpen()) return;
+  if (paintSignature() === lastPaint) return;
+  render();
+}
+
+// Reading a job's output is also how the page learns a download finished: the
+// CLI prints "ready." between the last meter frame and the browser starting, and
+// a launch job keeps running long after that, so job completion cannot stand in
+// for it.
+function noteJob(job, output) {
+  const before = jobInfo.get(job.id);
+  const info = readJob(output);
+  jobInfo.set(job.id, info);
+  if (before && before.phase !== info.phase && info.phase === "ready") {
+    flash(`${jobName(job)} downloaded`);
+  }
+  return info;
+}
+
+/* ---------- job log ---------- */
+
+function setLogOpen(open) {
+  $("log-panel").hidden = !open;
+  $("log-btn-label").textContent = open ? "Hide log" : "Show log";
+}
 
 function watch(jobId, title) {
   watching = jobId;
   pollFailures = 0;
-  $("drawer").hidden = false;
-  $("drawer-title").textContent = title;
-  $("drawer-status").textContent = "running…";
-  $("drawer-log").textContent = "";
-  syncDrawerSpace();
+  setLogOpen(true);
+  $("log-title").textContent = title;
+  $("log-status").textContent = "running…";
+  $("log-out").textContent = "";
   pollJob();
 }
 
@@ -473,8 +1093,8 @@ async function pollJob() {
       setTimeout(pollJob, 700);
       return;
     }
-    $("drawer-status").textContent = "cannot read this job";
-    $("drawer-log").textContent =
+    $("log-status").textContent = "cannot read this job";
+    $("log-out").textContent =
       `${error.message}\n\nThe job itself may well be running - this is the manager ` +
       "failing to read its output. The version list still updates, and the launcher " +
       "writes its own log under the ChromiumStack home directory.";
@@ -483,41 +1103,90 @@ async function pollJob() {
   if (watching !== jobId) return;
   pollFailures = 0;
 
-  const log = $("drawer-log");
+  const log = $("log-out");
   const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
   // curl draws its progress bar with carriage returns; keep only the last frame.
   log.textContent = (job.output || "").split("\n").map((line) => line.split("\r").pop()).join("\n");
   if (atBottom) log.scrollTop = log.scrollHeight;
 
-  const status = $("drawer-status");
+  const info = noteJob(job, job.output);
+
+  const status = $("log-status");
   if (job.status === "running") {
-    status.textContent = job.kind === "launch" ? "browser open — close it to finish" : "running…";
+    status.textContent = info.phase === "open"
+      ? "running"
+      : info.detail ? `${workWord(job, info)} · ${info.detail}` : `${workWord(job, info)}…`;
+    renderStatusBar();
+    repaintIfMoved();
     setTimeout(pollJob, 700);
   } else {
     status.textContent =
       job.status === "done" ? "finished"
       : job.status === "stopped" ? "stopped"
       : `failed (exit ${job.code})`;
+    jobInfo.delete(jobId);
+    if (job.status === "done") flash(`${$("log-title").textContent} — finished`);
     refresh();
   }
 }
 
 // A request that failed before a job existed still has to be visible somewhere,
-// and the drawer is where the user is already looking for output.
+// and the log panel is where the user is already looking for output.
 function showJobFailure(title, message) {
   watching = null;
-  $("drawer").hidden = false;
-  $("drawer-title").textContent = title;
-  $("drawer-status").textContent = "failed";
-  $("drawer-log").textContent = message;
-  syncDrawerSpace();
+  setLogOpen(true);
+  $("log-title").textContent = title;
+  $("log-status").textContent = "failed";
+  $("log-out").textContent = message;
 }
 
-$("drawer-close").onclick = () => {
+$("log-close").onclick = () => {
   watching = null;
-  $("drawer").hidden = true;
-  syncDrawerSpace();
+  setLogOpen(false);
 };
+
+$("log-btn").onclick = () => {
+  const open = $("log-panel").hidden;
+  setLogOpen(open);
+  if (open && !$("log-title").textContent) {
+    $("log-title").textContent = "No job yet";
+    $("log-status").textContent = "output from installs, launches and clean-ups shows up here";
+  }
+};
+
+/* ---------- toast ---------- */
+
+let toastTimer = null;
+
+function flash(message, tone = "ok") {
+  $("toast-text").textContent = message;
+  $("toast-icon").innerHTML = icon(tone === "ok" ? "ok" : "warn");
+  const toast = $("toast");
+  toast.classList.toggle("warn", tone !== "ok");
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toast.hidden = true; }, 2600);
+}
+
+/* ---------- confirm ----------
+   Deleting a browser and resetting a profile are the two things here that cannot
+   be undone, and window.confirm put a browser-chrome dialog in front of them
+   that says which host is asking rather than what is about to happen. */
+
+function askConfirm({ title, body, label }) {
+  const dialog = $("confirm-dialog");
+  $("confirm-title").textContent = title;
+  $("confirm-body").textContent = body;
+  $("confirm-ok").textContent = label;
+  dialog.returnValue = "";
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", function once() {
+      dialog.removeEventListener("close", once);
+      resolve(dialog.returnValue === "ok");   // Escape closes with neither value
+    });
+    dialog.showModal();
+  });
+}
 
 /* ---------- add by revision ---------- */
 
@@ -525,15 +1194,57 @@ $("add-btn").onclick = () => $("add-dialog").showModal();
 
 $("add-dialog").addEventListener("close", async (event) => {
   const dialog = event.target;
-  if (dialog.returnValue !== "ok") return;
   const revision = $("add-revision").value.trim();
+  $("add-revision").value = "";
+  if (dialog.returnValue !== "ok") return;
   if (!/^\d{4,}$/.test(revision)) {
-    alert("A revision is a number from the snapshot archive, e.g. 638880.");
+    flash("A revision is a number from the snapshot archive, e.g. 638880.", "warn");
     return;
   }
   const { job } = await post("/api/install", { selector: revision });
   watch(job, `Installing r${revision}`);
 });
+
+$("add-revision").addEventListener("input", (event) => {
+  event.target.value = event.target.value.replace(/\D/g, "");
+});
+
+/* ---------- controls ---------- */
+
+$("theme-btn").onclick = () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme
+    ? root.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+  writeStored(THEME_KEY, root.dataset.theme);
+};
+
+$("url").addEventListener("input", () => { $("url-clear").hidden = !$("url").value; });
+$("url-clear").onclick = () => {
+  $("url").value = "";
+  $("url-clear").hidden = true;
+  $("url").focus();
+};
+
+$("query").addEventListener("input", (event) => {
+  view.query = event.target.value;
+  $("query-clear").hidden = !view.query;
+  if (state) render();
+});
+$("query-clear").onclick = () => {
+  view.query = "";
+  $("query").value = "";
+  $("query-clear").hidden = true;
+  if (state) render();
+};
+
+for (const button of document.querySelectorAll("[data-filter]")) {
+  button.onclick = () => {
+    view.filter = button.dataset.filter;
+    if (state) render();
+  };
+}
 
 /* ---------- refresh loop ---------- */
 
@@ -543,7 +1254,7 @@ async function refresh() {
     next = await api("/api/state");
   } catch (error) {
     showState({
-      icon: "warn",
+      glyph: "warn",
       tone: "error",
       title: "Cannot reach the manager",
       detail: `${error.message}. The local server is not answering — it was probably ` +
@@ -559,7 +1270,11 @@ async function refresh() {
   next.extra = asArray(next.extra);
   next.hostPlatforms = asArray(next.hostPlatforms);
   if (next.doctor) next.doctor.components = asArray(next.doctor.components);
+  // A build only lands in `extra` because it is sitting in the builds directory,
+  // so it is installed by definition - the server does not spell that out.
+  for (const row of next.extra) { row.installed = true; row.extra = true; }
   state = next;
+  await sampleJobs();
 
   try {
     render();
@@ -567,7 +1282,7 @@ async function refresh() {
     // Drawing the page failing is not the server being down. Saying it was sent
     // the last one of these looking for a stopped server that was running fine.
     showState({
-      icon: "warn",
+      glyph: "warn",
       tone: "error",
       title: "Could not draw the version list",
       detail: `${error.message}. The manager itself is still running, so this is a bug ` +
@@ -576,15 +1291,27 @@ async function refresh() {
       onAction: () => location.reload(),
     });
   }
+
 }
 
-$("only-installed").onchange = render;
+(async function boot() {
+  paintIcons();
+  buildDropdown("gpu-drop", "gpu-btn", "gpu-menu", "gpu-label", [
+    { value: "auto", label: "GPU auto" },
+    { value: "on", label: "Force GPU on" },
+    { value: "off", label: "Force GPU off" },
+  ], () => view.gpu, (value) => { view.gpu = value; });
 
-(async function start() {
+  buildDropdown("sort-drop", "sort-btn", "sort-menu", "sort-label", [
+    { value: "new", label: "Newest first" },
+    { value: "old", label: "Oldest first" },
+    { value: "disk", label: "Disk used" },
+  ], () => view.sort, (value) => { view.sort = value; if (state) render(); });
+
   TOKEN = (await (await fetch("/api/token")).json()).token;
   await refresh();
   setInterval(() => {
     // Keep the running dots honest without fighting an open menu or a dialog.
-    if (!openMenu && !document.querySelector("dialog[open]")) refresh();
+    if (!popoverOpen() && !document.querySelector("dialog[open]")) refresh();
   }, 4000);
 })();

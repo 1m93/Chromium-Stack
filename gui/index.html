@@ -9,103 +9,207 @@
 </head>
 <body>
 
-<header class="bar">
-  <div class="brand">
-    <span class="dot" aria-hidden="true"></span>
-    <h1>ChromiumStack</h1>
+<div class="app">
+
+  <header class="bar">
+    <div class="brand">
+      <img src="icon.svg" width="22" height="22" alt="">
+      <span>ChromiumStack</span>
+    </div>
+    <span class="host mono" id="host"></span>
+    <div class="spacer"></div>
+
+    <div class="gauge" id="gauge" title="Disk used by downloaded browsers and their profiles">
+      <span data-icon="disk"></span>
+      <span id="disk-text">0 MB</span>
+      <span class="gauge-bar">
+        <i id="disk-seg-browsers"></i><i id="disk-seg-profiles"></i>
+      </span>
+    </div>
+
+    <button class="btn check-btn" id="check-btn" title="What ChromiumStack found on this machine">
+      <span data-icon="warn"></span><span id="check-label">System check</span>
+    </button>
+
+    <button class="btn icon-btn" id="theme-btn" title="Light / dark">
+      <span data-icon="theme"></span>
+    </button>
+
+    <button class="btn accent" id="add-btn">
+      <span data-icon="plus"></span>Add by revision
+    </button>
+  </header>
+
+  <!-- Only rendered when something is missing, or when asked for from the header. -->
+  <section id="doctor" class="doctor" hidden></section>
+
+  <section class="launch">
+    <div class="control grow">
+      <span class="control-icon accent-ink" data-icon="link"></span>
+      <span class="control-label">Every launch opens</span>
+      <input type="text" id="url" class="mono" placeholder="localhost:4173" autocomplete="off" spellcheck="false">
+      <button class="linkish" id="url-clear" hidden>clear</button>
+    </div>
+
+    <div class="control">
+      <span class="control-icon" data-icon="frame"></span>
+      <input type="text" id="size" class="size-input" placeholder="auto" autocomplete="off" spellcheck="false"
+             title="Window size, e.g. 1280x800">
+    </div>
+
+    <div class="drop" id="gpu-drop">
+      <button class="btn drop-btn tall" id="gpu-btn">
+        <span class="control-icon" data-icon="gpu"></span>
+        <span id="gpu-label">GPU auto</span>
+        <span class="caret" data-icon="caret-down"></span>
+      </button>
+      <div class="menu" id="gpu-menu" hidden></div>
+    </div>
+  </section>
+
+  <div class="split">
+
+    <nav class="side">
+      <div class="side-group">
+        <div class="side-title">Shelf</div>
+        <button class="side-btn is-on" data-filter="all">
+          <span data-icon="grid"></span><span class="side-label">All versions</span><span class="count mono" data-count="all"></span>
+        </button>
+        <button class="side-btn" data-filter="installed">
+          <span data-icon="ok"></span><span class="side-label">Installed</span><span class="count mono" data-count="installed"></span>
+        </button>
+        <button class="side-btn" data-filter="running">
+          <span data-icon="play-circle"></span><span class="side-label">Running</span><span class="count mono" data-count="running"></span>
+        </button>
+        <button class="side-btn" data-filter="rosetta" id="filter-rosetta" hidden>
+          <span data-icon="gpu"></span><span class="side-label">Rosetta only</span><span class="count mono" data-count="rosetta"></span>
+        </button>
+      </div>
+
+      <div class="side-group" id="eras-group">
+        <div class="side-title">Jump to era</div>
+        <div id="eras"></div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="disk-card">
+        <div class="side-title">Disk</div>
+        <div class="disk-bar"><i id="card-seg-browsers"></i><i id="card-seg-profiles"></i></div>
+        <div class="disk-line"><span class="swatch browsers"></span>Browsers<span class="mono" id="disk-browsers">0 MB</span></div>
+        <div class="disk-line"><span class="swatch profiles"></span>Profiles<span class="mono" id="disk-profiles">0 MB</span></div>
+      </div>
+    </nav>
+
+    <main class="main" id="main">
+      <div class="toolbar">
+        <div class="search">
+          <span data-icon="search"></span>
+          <input type="text" id="query" placeholder="Filter by version, revision or feature" autocomplete="off" spellcheck="false">
+          <button class="iconish" id="query-clear" hidden title="Clear"><span data-icon="x"></span></button>
+        </div>
+        <span class="summary" id="summary"></span>
+        <div class="spacer"></div>
+        <span class="sort-label">Sort</span>
+        <div class="drop" id="sort-drop">
+          <button class="btn drop-btn" id="sort-btn">
+            <span class="control-icon" data-icon="sort"></span>
+            <span id="sort-label">Newest first</span>
+            <span class="caret" data-icon="caret-down"></span>
+          </button>
+          <div class="menu" id="sort-menu" hidden></div>
+        </div>
+      </div>
+
+      <div id="list" aria-busy="true"></div>
+      <div class="tail"></div>
+    </main>
   </div>
-  <div class="host" id="host"></div>
-  <div class="spacer"></div>
-  <div class="disk" id="disk" title="Disk used by downloaded browsers and their profiles"></div>
-  <button class="btn ghost" id="doctor-btn">System check</button>
-  <button class="btn ghost" id="add-btn">Add by revision</button>
-</header>
 
-<section class="controls">
-  <label class="field grow">
-    <span>Open URL <em>(optional)</em></span>
-    <input type="text" id="url" placeholder="localhost:4173" autocomplete="off" spellcheck="false">
-  </label>
-  <label class="field">
-    <span>Window size</span>
-    <input type="text" id="size" placeholder="auto" autocomplete="off" spellcheck="false">
-  </label>
-  <label class="field">
-    <span>Graphics</span>
-    <select id="gpu">
-      <option value="auto">Auto</option>
-      <option value="on">Force GPU on</option>
-      <option value="off">Force GPU off</option>
-    </select>
-  </label>
-  <label class="check">
-    <input type="checkbox" id="only-installed">
-    <span>Installed only</span>
-  </label>
-</section>
+  <section class="logpanel" id="log-panel" hidden>
+    <div class="logpanel-head">
+      <span class="side-title">Job log</span>
+      <strong id="log-title"></strong>
+      <span class="log-status" id="log-status"></span>
+      <div class="spacer"></div>
+      <button class="iconish" id="log-close" title="Close"><span data-icon="x"></span></button>
+    </div>
+    <pre id="log-out"></pre>
+  </section>
 
-<!-- Only rendered when something is missing, or when asked for from the header. -->
-<section id="doctor" class="doctor" hidden></section>
+  <footer class="status">
+    <span class="dot" id="job-dot" data-state="idle"></span>
+    <span class="job-title" id="job-title">Ready</span>
+    <span class="job-detail mono" id="job-detail"></span>
+    <span class="job-bar" id="job-bar" hidden><i id="job-bar-fill"></i></span>
+    <div class="spacer"></div>
+    <button class="btn" id="log-btn">
+      <span data-icon="terminal"></span><span id="log-btn-label">Show log</span>
+    </button>
+    <span class="foot-path" id="foot-path"></span>
+    <span class="rule"></span>
+    <a class="foot-by" href="https://github.com/1m93" target="_blank" rel="noopener noreferrer">@1m93</a>
+  </footer>
 
-<main id="list" class="list" aria-busy="true">
-  <p class="empty">Loading…</p>
-</main>
+</div>
 
-<footer class="foot">
-  <span id="foot-note"></span>
-  <span class="foot-by">
-    ChromiumStack — built by
-    <a href="https://github.com/1m93" target="_blank" rel="noopener noreferrer">@1m93</a>
-  </span>
-</footer>
-
-<!-- Job output drawer -->
-<aside class="drawer" id="drawer" hidden>
-  <div class="drawer-head">
-    <strong id="drawer-title">Working…</strong>
-    <span class="drawer-status" id="drawer-status"></span>
-    <button class="btn ghost small" id="drawer-close">Close</button>
-  </div>
-  <pre id="drawer-log" class="drawer-log"></pre>
-</aside>
-
-<!-- Add-by-revision dialog -->
 <dialog id="add-dialog">
   <form method="dialog" class="dialog-body">
-    <h2>Add a build by revision</h2>
-    <p class="muted">
-      Any position in the Chromium snapshot archive that has a build for this
-      platform. Not every position is archived — if it is missing, try one a few
-      commits later.
-    </p>
+    <div>
+      <h2>Add by revision</h2>
+      <p class="muted">
+        Any position in the Chromium snapshot archive that has a build for this
+        platform. Not every position is archived — if it is missing, try one a few
+        commits later.
+      </p>
+    </div>
     <label class="field">
-      <span>Revision</span>
-      <input type="text" id="add-revision" inputmode="numeric" placeholder="638880" autocomplete="off">
+      <span class="side-title">Revision</span>
+      <input type="text" id="add-revision" class="mono" inputmode="numeric" placeholder="638880" autocomplete="off">
     </label>
     <p class="muted small">
       Look one up at
       <span class="mono">chromiumdash.appspot.com/fetch_milestones?mstone=NN</span>
     </p>
     <menu class="dialog-actions">
-      <button class="btn ghost" value="cancel">Cancel</button>
-      <button class="btn primary" id="add-confirm" value="ok">Install</button>
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn accent" id="add-confirm" value="ok">Add to shelf</button>
     </menu>
   </form>
 </dialog>
 
-<template id="row-template">
-  <article class="card">
-    <div class="card-main">
-      <div class="card-head">
-        <span class="state" data-state></span>
-        <h3 data-title></h3>
-        <span class="rev mono" data-rev></span>
-        <span class="badge" data-platform></span>
-      </div>
-      <p class="note" data-note></p>
-      <p class="meta" data-meta></p>
+<dialog id="confirm-dialog">
+  <form method="dialog" class="dialog-body">
+    <div>
+      <h2 id="confirm-title"></h2>
+      <p class="muted" id="confirm-body"></p>
     </div>
-    <div class="card-actions" data-actions></div>
+    <menu class="dialog-actions">
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn danger" id="confirm-ok" value="ok"></button>
+    </menu>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden><span id="toast-icon" data-icon="ok"></span><span id="toast-text"></span></div>
+
+<template id="row-template">
+  <article class="row">
+    <span class="dot" data-dot></span>
+    <div class="row-id">
+      <div class="row-title" data-title></div>
+      <div class="row-rev mono" data-rev></div>
+    </div>
+    <div class="row-body">
+      <p class="row-note" data-note></p>
+      <div class="row-tags" data-tags></div>
+    </div>
+    <div class="row-meta mono">
+      <span class="row-version" data-version></span>
+      <span class="row-size" data-size></span>
+    </div>
+    <div class="row-progress" data-progress hidden><i data-progress-bar></i></div>
+    <div class="row-actions" data-actions></div>
   </article>
 </template>
 

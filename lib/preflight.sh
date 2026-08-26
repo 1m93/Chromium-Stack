@@ -26,6 +26,21 @@ else
   PF_B=''; PF_DIM=''; PF_RED=''; PF_GRN=''; PF_YLW=''; PF_RST=''
 fi
 
+# A GUI launch - Finder, the .app bundle, the manager's own local server -
+# inherits a bare PATH, so Homebrew and Docker's own CLI shim are invisible and a
+# machine with Docker installed reported it missing. Appended rather than
+# prepended: nothing here should shadow a system tool.
+for pf_dir in /opt/homebrew/bin /usr/local/bin "$HOME/.docker/bin" \
+              /Applications/Docker.app/Contents/Resources/bin; do
+  [ -d "$pf_dir" ] || continue
+  case ":$PATH:" in
+    *":$pf_dir:"*) ;;
+    *) PATH="$PATH:$pf_dir" ;;
+  esac
+done
+unset pf_dir
+export PATH
+
 pf_have() { command -v "$1" >/dev/null 2>&1; }
 pf_is_mac() { [ "$(uname -s)" = "Darwin" ]; }
 pf_is_arm_mac() { pf_is_mac && [ "$(uname -m)" = "arm64" ]; }

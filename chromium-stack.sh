@@ -490,7 +490,7 @@ META
 # ---------- install ----------
 install_build() {
   local revision="$1" platform="$2" archive="$3" root="$4" version="$5" milestone="$6"
-  local dir zip binary
+  local dir zip binary failed=0
   dir="$(build_dir "$revision")"
   is_installed "$revision" && return 0
 
@@ -503,7 +503,16 @@ install_build() {
   mkdir -p "$dir"
   zip="$ROOT/.download-$revision.zip"
 
-  if ! curl -fL --progress-bar -o "$zip" "$BASE_URL/$platform/$revision/$archive"; then
+  # A bar reads better for a person watching a terminal, but curl's plain meter
+  # carries the byte counts and the time left, which is what the graphical
+  # manager puts in its status bar. Colours switch on the same test.
+  if [ -t 1 ]; then
+    curl -fL --progress-bar -o "$zip" "$BASE_URL/$platform/$revision/$archive" || failed=1
+  else
+    curl -fL -o "$zip" "$BASE_URL/$platform/$revision/$archive" || failed=1
+  fi
+
+  if [ "$failed" -eq 1 ]; then
     rm -rf "$dir" "$zip"
     # The one way a cached row goes bad: the bucket dropped that revision. Drop
     # the row too, so the retry resolves afresh instead of failing forever.
