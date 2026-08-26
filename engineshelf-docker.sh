@@ -2,16 +2,26 @@
 #
 # EngineShelf - Docker edition (macOS / Linux)
 #
-# Runs the Linux x86_64 build of a Chromium version inside a container and shows
-# its desktop in a tab of your normal browser. Slower than the native launcher,
-# but it does not go through Rosetta, so it does not inherit the random crash
-# Rosetta's stack unwinder causes on Apple Silicon.
+# Runs the Linux x86_64 build of a browser inside a container and shows its
+# desktop in a tab of your normal browser.
 #
-#   ./engineshelf-docker.sh start 74     # build if needed, run, open the desktop
-#   ./engineshelf-docker.sh stop 74      # stop the container
-#   ./engineshelf-docker.sh logs 74      # follow its log
-#   ./engineshelf-docker.sh list         # what is running
-#   ./engineshelf-docker.sh rebuild 74   # rebuild the image from scratch
+# Two engines have images, for two different reasons. Chromium, because a
+# container does not go through Rosetta and so does not inherit the random crash
+# Rosetta's stack unwinder causes on Apple Silicon. WebKit, because Playwright
+# pins a different revision for older macOS releases and deletes what it no
+# longer needs - r1860 (WebKit 16.4) is still published for Linux and has no
+# macOS archive at all, so for those versions this is the only way in, not a
+# slower alternative.
+#
+# Firefox and Edge have no image on purpose: their own downloads run natively on
+# every platform this tool supports, so one would cost a gigabyte and buy nothing.
+#
+#   ./engineshelf-docker.sh start 74            # Chromium, as before
+#   ./engineshelf-docker.sh start webkit:16.4   # a version no Mac can run natively
+#   ./engineshelf-docker.sh stop 74             # stop the container
+#   ./engineshelf-docker.sh logs 74             # follow its log
+#   ./engineshelf-docker.sh list                # what is running
+#   ./engineshelf-docker.sh rebuild 74          # rebuild the image from scratch
 #
 # Each version gets its own image, container, profile volume and port, so several
 # can run side by side.
@@ -54,12 +64,43 @@ ensure_docker() {
 # ---------- catalog ----------
 # The container always runs the Linux x86_64 build, whatever this host is, so a
 # selector naming a Mac or Windows revision still resolves to the right image.
+# A selector names an engine and a version, the same as the native launcher:
+# webkit:16.4, or a bare number for Chromium.
+#
+# Sets DOCKER_ENGINE, DOCKER_ID (what the vendor calls the build), DOCKER_KEY (the
+# name the image, container and volume are built from) and DOCKER_VERSION (what to
+# print). Chromium's key stays the bare revision it has always been, so images and
+# containers already on this machine are still found - and so the manager, which
+# parses those names, keeps working.
 resolve() {
-  local raw="${1:-}" token milestone
-  [ -n "$raw" ] || die "Which version? e.g. 74. Try: ./engineshelf.sh catalog"
-  token="${raw#[MmRr]}"
+  local raw="${1:-}" engine token milestone
+  DOCKER_SELECTOR="$raw"
+  [ -n "$raw" ] || die "\
+Which version? A bare number is Chromium: 74. Otherwise name the engine:
+   webkit:16.4   chromium:120
+   Try: ./engineshelf.sh catalog"
+
+  case "$raw" in
+    *:*) engine="${raw%%:*}"; token="${raw#*:}" ;;
+    *)   engine="chromium";   token="$raw" ;;
+  esac
+  engine="$(printf '%s' "$engine" | tr '[:upper:]' '[:lower:]')"
+
+  case "$engine" in
+    chromium) ;;
+    webkit)   resolve_webkit_docker "$token"; return 0 ;;
+    firefox|edge)
+      die "\
+$engine has no container image, on purpose.
+   Its own downloads run natively on every platform this tool supports, so an
+   image would cost a gigabyte and buy nothing. Use the native launcher:
+       ./engineshelf.sh run $engine:$token" ;;
+    *) die "Unknown engine: $engine. Containers exist for chromium and webkit." ;;
+  esac
+
+  token="${token#[MmRr]}"
   case "$token" in
-    ''|*[!0-9]*) die "Not a version or revision: $raw" ;;
+    ''|*[!0-9]*) die "Not a Chromium version or revision: $raw" ;;
   esac
 
   if [ "$token" -lt 1000 ]; then
@@ -68,16 +109,68 @@ resolve() {
     milestone="$(awk -F'\t' -v r="$token" '$1=="B" && $4==r {print $2; exit}' "$CATALOG")"
     if [ -z "$milestone" ]; then
       # An uncatalogued revision: assume the caller means that exact Linux build.
-      DOCKER_MILESTONE="?"; DOCKER_VERSION="r$token"; DOCKER_REVISION="$token"
+      DOCKER_ENGINE="chromium"; DOCKER_MILESTONE="?"
+      DOCKER_VERSION="r$token"; DOCKER_REVISION="$token"
+      DOCKER_ID="$token"; DOCKER_KEY="$token"
       return 0
     fi
   fi
 
+  DOCKER_ENGINE="chromium"
   DOCKER_VERSION="$(awk -F'\t' -v m="$milestone" '$1=="V" && $2==m {print $3; exit}' "$CATALOG")"
   DOCKER_REVISION="$(awk -F'\t' -v m="$milestone" '$1=="B" && $2==m && $3=="Linux_x64" {print $4; exit}' "$CATALOG")"
   [ -n "$DOCKER_REVISION" ] || die "No Linux x86_64 build of Chromium $milestone in the catalog."
   DOCKER_MILESTONE="$milestone"
   DOCKER_VERSION="${DOCKER_VERSION:-r$DOCKER_REVISION}"
+  DOCKER_ID="$DOCKER_REVISION"
+  DOCKER_KEY="$DOCKER_REVISION"
+}
+
+# WebKit is the one engine a container reaches further than the host can. Measured:
+# r1860 (WebKit 16.4) is still published as webkit-ubuntu-22.04.zip and has no
+# macOS archive at all, because Playwright pins a different revision for older
+# macOS releases. So on a Mac this is not a slower alternative to the native
+# launcher - for those versions it is the only way in.
+resolve_webkit_docker() {
+  local token="$1" revision
+  case "$token" in
+    ''|*[!0-9]*) revision="" ;;
+    *)           [ "$token" -ge 1000 ] && revision="$token" || revision="" ;;
+  esac
+  if [ -z "$revision" ]; then
+    revision="$(awk -F'\t' -v l="$token" \
+      '$1=="S" && $2=="webkit" && ($5==l || $4==l) {r=$4} END {if (r) print r}' "$CATALOG")"
+  fi
+  [ -n "$revision" ] || die "\
+No WebKit build known as $token.
+   WebKit versions come from the shelf. Refresh it with:
+       python3 tools/discover.py --write"
+
+  DOCKER_ENGINE="webkit"
+  DOCKER_ID="$revision"
+  DOCKER_KEY="webkit-$revision"
+  DOCKER_MILESTONE="?"
+  DOCKER_REVISION="$revision"
+  DOCKER_VERSION="$(awk -F'\t' -v r="$revision" \
+    '$1=="S" && $2=="webkit" && $4==r {print $5; exit}' "$CATALOG")"
+  DOCKER_VERSION="${DOCKER_VERSION:-r$revision}"
+}
+
+# Which Dockerfile builds this engine, and what it needs told. Chromium and WebKit
+# share the desktop and the entrypoint; they share nothing else, which is why they
+# are two files rather than one with branches.
+engine_dockerfile() {
+  case "$1" in
+    webkit) printf '%s\n' "Dockerfile.webkit" ;;
+    *)      printf '%s\n' "Dockerfile" ;;
+  esac
+}
+
+engine_label() {
+  case "$1" in
+    webkit) printf 'WebKit\n' ;;
+    *)      printf 'Chromium\n' ;;
+  esac
 }
 
 # These three names are the whole contract between this script and the manager:
@@ -161,23 +254,23 @@ cmd_start() {
   resolve "${1:-}"
   ensure_docker
 
-  image="$(image_name "$DOCKER_REVISION")"
-  container="$(container_name "$DOCKER_REVISION")"
-  volume="$(volume_name "$DOCKER_REVISION")"
+  image="$(image_name "$DOCKER_KEY")"
+  container="$(container_name "$DOCKER_KEY")"
+  volume="$(volume_name "$DOCKER_KEY")"
 
   # Already up? Just point the user at it again.
   if docker ps --format '{{.Names}}' | grep -qx "$container"; then
-    port="$(running_port "$DOCKER_REVISION")"
+    port="$(running_port "$DOCKER_KEY")"
     url="http://localhost:$port/vnc.html?autoconnect=1&resize=scale"
     echo ""
-    echo "  ${GRN}>${RST} ${B}Chromium $DOCKER_VERSION is already running${RST}  $url"
+    echo "  ${GRN}>${RST} ${B}$(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION is already running${RST}  $url"
     open_url "$url"
     return 0
   fi
   docker rm -f "$container" >/dev/null 2>&1 || true
 
   echo ""
-  echo "  ${B}Chromium $DOCKER_VERSION in Docker${RST} ${DIM}(Linux_x64 r$DOCKER_REVISION)${RST}"
+  echo "  ${B}$(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION in Docker${RST} ${DIM}(Linux x86_64 r$DOCKER_ID)${RST}"
   echo ""
 
   # Build only when the image is missing or a rebuild was asked for: under x86
@@ -185,11 +278,13 @@ cmd_start() {
   if [ "$force_build" = "1" ]; then
     echo "  ${DIM}Rebuilding the image from scratch...${RST}"
     docker build --no-cache --platform linux/amd64 \
-      --build-arg "REVISION=$DOCKER_REVISION" -t "$image" "$DOCKER_DIR" || die "Image build failed."
+      -f "$DOCKER_DIR/$(engine_dockerfile "$DOCKER_ENGINE")" \
+      --build-arg "REVISION=$DOCKER_ID" -t "$image" "$DOCKER_DIR" || die "Image build failed."
   elif ! docker image inspect "$image" >/dev/null 2>&1; then
     echo "  ${DIM}First run for this version: building the image. Several minutes, once.${RST}"
     docker build --platform linux/amd64 \
-      --build-arg "REVISION=$DOCKER_REVISION" -t "$image" "$DOCKER_DIR" || die "Image build failed."
+      -f "$DOCKER_DIR/$(engine_dockerfile "$DOCKER_ENGINE")" \
+      --build-arg "REVISION=$DOCKER_ID" -t "$image" "$DOCKER_DIR" || die "Image build failed."
   fi
 
   start_container "$image" "$container" "$volume" || die "Could not start the container."
@@ -209,14 +304,16 @@ cmd_start() {
     sleep 1
   done
   echo ""
-  [ "$ok" = "1" ] || die "No answer on port $port. Check: $0 logs $DOCKER_REVISION"
+  [ "$ok" = "1" ] || die "No answer on port $port. Check: $0 logs $DOCKER_KEY"
 
   echo ""
   echo "  ${GRN}>${RST} ${B}$url${RST}"
   echo "  ${DIM}Copy and paste work across the tab in both directions.${RST}"
   echo "  ${DIM}To reach a dev server on this machine, type${RST}"
-  echo "  ${DIM}http://host.docker.internal:4173 in the Chromium address bar.${RST}"
-  echo "  ${DIM}Stop it with: $0 stop $DOCKER_MILESTONE${RST}"
+  echo "  ${DIM}http://host.docker.internal:4173 in the browser's address bar.${RST}"
+  # The selector as typed, not the milestone: for WebKit there is no milestone,
+  # and printing "stop ?" told nobody anything.
+  echo "  ${DIM}Stop it with: $0 stop $DOCKER_SELECTOR${RST}"
   echo ""
   open_url "$url"
 }
@@ -228,22 +325,22 @@ cmd_start() {
 cmd_stop() {
   resolve "${1:-}"
   ensure_docker
-  local container; container="$(container_name "$DOCKER_REVISION")"
+  local container; container="$(container_name "$DOCKER_KEY")"
   if docker ps --format '{{.Names}}' | grep -qx "$container"; then
     docker stop -t 12 "$container" >/dev/null 2>&1 || docker kill "$container" >/dev/null 2>&1 || true
     docker rm -f "$container" >/dev/null 2>&1 || true
-    echo "${GRN}v${RST} Stopped Chromium $DOCKER_VERSION."
+    echo "${GRN}v${RST} Stopped $(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION."
   elif docker rm -f "$container" >/dev/null 2>&1; then
-    echo "${DIM}Chromium $DOCKER_VERSION was not running; cleared its stopped container.${RST}"
+    echo "${DIM}$(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION was not running; cleared its stopped container.${RST}"
   else
-    echo "${DIM}Chromium $DOCKER_VERSION was not running.${RST}"
+    echo "${DIM}$(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION was not running.${RST}"
   fi
 }
 
 cmd_logs() {
   resolve "${1:-}"
   ensure_docker
-  docker logs -f "$(container_name "$DOCKER_REVISION")"
+  docker logs -f "$(container_name "$DOCKER_KEY")"
 }
 
 cmd_list() {
@@ -265,12 +362,12 @@ cmd_list() {
 cmd_purge() {
   resolve "${1:-}"
   ensure_docker
-  docker rm -f "$(container_name "$DOCKER_REVISION")" >/dev/null 2>&1 || true
-  docker rmi -f "$(image_name "$DOCKER_REVISION")" >/dev/null 2>&1 || true
+  docker rm -f "$(container_name "$DOCKER_KEY")" >/dev/null 2>&1 || true
+  docker rmi -f "$(image_name "$DOCKER_KEY")" >/dev/null 2>&1 || true
   if [ "${2:-}" = "--with-profile" ]; then
-    docker volume rm -f "$(volume_name "$DOCKER_REVISION")" >/dev/null 2>&1 || true
+    docker volume rm -f "$(volume_name "$DOCKER_KEY")" >/dev/null 2>&1 || true
   fi
-  echo "${GRN}v${RST} Removed the Docker image for Chromium $DOCKER_VERSION."
+  echo "${GRN}v${RST} Removed the Docker image for $(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION."
 }
 
 usage() {

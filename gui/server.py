@@ -416,16 +416,21 @@ def docker_status():
         })
 
     if running:
-        # One image per version, tagged with the revision it was built from. The
-        # tag list is cheap; the exact byte count needs an inspect, and `docker
-        # images` only prints a rounded decimal string.
-        tags = [tag for tag in docker_out(["images", IMAGE_REPO, "--format", "{{.Tag}}"]).split()
-                if tag and tag != "<none>"]
-        if tags:
-            sizes = docker_out(["image", "inspect", "--format", "{{.Size}}",
-                                *[f"{IMAGE_REPO}:{tag}" for tag in tags]]).split()
-            for tag, size in zip(tags, sizes):
-                slot(tag)["imageBytes"] = int(size) if size.isdigit() else 0
+        # One image per version, tagged with the revision it was built from.
+        #
+        # The size comes from `docker images`, rounded, and not from `image
+        # inspect --format {{.Size}}`, which is exact and measures the wrong
+        # thing. Against the containerd image store that field is the compressed
+        # content size: two images here inspected as 371 MB and 507 MB while
+        # `docker images` and `docker system df` both said 1.49 GB and 1.96 GB.
+        # A gauge that exists to show what is filling the disk cannot be off by
+        # four times, so a rounded true number beats an exact wrong one.
+        for line in docker_out(["images", IMAGE_REPO,
+                                "--format", "{{.Tag}}\t{{.Size}}"]).splitlines():
+            parts = line.split("\t")
+            if len(parts) < 2 or not parts[0] or parts[0] == "<none>":
+                continue
+            slot(parts[0])["imageBytes"] = parse_human_bytes(parts[1])
 
         # One container per version, named engineshelf-<revision>. Stopped
         # ones are listed too: a container that exits the moment it starts is a

@@ -210,18 +210,21 @@ function Get-DockerStatus {
     }
 
     if ($running) {
-        # One image per version, tagged with the revision it was built from. The
-        # tag list is cheap; the exact byte count needs an inspect, because
-        # `docker images` only prints a rounded decimal string.
-        $tags = @(docker images $ImageRepo --format '{{.Tag}}' 2>$null |
-                  Where-Object { $_ -and $_ -ne '<none>' })
-        if ($tags.Count) {
-            $refs = @($tags | ForEach-Object { "${ImageRepo}:$_" })
-            $sizes = @(docker image inspect --format '{{.Size}}' @refs 2>$null)
-            for ($i = 0; $i -lt $tags.Count -and $i -lt $sizes.Count; $i++) {
-                $slot = Get-Slot $byRevision $tags[$i]
-                $slot.imageBytes = [int64]$sizes[$i]
-            }
+        # One image per version, tagged with the revision it was built from.
+        #
+        # The size comes from `docker images`, rounded, and not from `image
+        # inspect --format {{.Size}}`, which is exact and measures the wrong
+        # thing. Against the containerd image store that field is the compressed
+        # content size: two images inspected as 371 MB and 507 MB while `docker
+        # images` and `docker system df` both said 1.49 GB and 1.96 GB. A gauge
+        # that exists to show what is filling the disk cannot be off by four
+        # times, so a rounded true number beats an exact wrong one.
+        $rows = @(docker images $ImageRepo --format '{{.Tag}}|{{.Size}}' 2>$null)
+        foreach ($row in $rows) {
+            $parts = $row -split '\|'
+            if ($parts.Count -lt 2 -or -not $parts[0] -or $parts[0] -eq '<none>') { continue }
+            $slot = Get-Slot $byRevision $parts[0]
+            $slot.imageBytes = Convert-HumanBytes $parts[1]
         }
 
         # One container per version, named engineshelf-<revision>. Stopped

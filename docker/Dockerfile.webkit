@@ -1,0 +1,84 @@
+# A WebKit build with a minimal X desktop, reachable from any browser over noVNC.
+#
+# Why this exists next to the native launcher, and why only for WebKit: Playwright
+# deletes old builds and, for older OS releases, pins a different revision - so a
+# WebKit build can still exist for Linux while no macOS archive of it was ever
+# published. Measured: r1860 (WebKit 16.4) is still served as
+# webkit-ubuntu-22.04.zip and has no mac counterpart at all. A container is the
+# only way a Mac reaches those versions.
+#
+# Chromium has its own image (Dockerfile) because it needs none of the fifty-six
+# packages below and does need a libgconf shim that WebKit has no use for.
+# Firefox and Edge have no image: their native downloads work on every platform
+# this tool runs on, so a container would add a gigabyte and buy nothing.
+# Ubuntu 22.04, matching the archive, and this is not a preference. The build is
+# named webkit-ubuntu-22.04.zip because it is linked against that release: on
+# Debian 12 it dies at exec with
+#     libicudata.so.70: cannot open shared object file
+# because Debian 12 carries ICU 72 and nothing in the bundle brings its own ICU.
+# Playwright names these archives by distro precisely because they do not travel.
+FROM --platform=linux/amd64 ubuntu:22.04
+
+ARG REVISION=2336
+ARG WEBKIT_PLATFORM=ubuntu-22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    DISPLAY=:0 \
+    SCREEN=1440x900x24 \
+    ENGINE=webkit
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates wget unzip \
+    xvfb x11vnc fluxbox novnc websockify \
+    # autocutsel bridges PRIMARY and CLIPBOARD through the cut buffer, the same
+    # way it does in the Chromium image.
+    autocutsel xclip \
+    # WebKit's runtime dependencies: the union of Playwright's own nativeDeps for
+    # ubuntu22.04-x64 across releases, not one snapshot of it. The list moves with
+    # the engine - a 2023 build wants libgtk-3-0 and a 2026 one wants libgtk-4-1 -
+    # and one image has to serve both, so both are installed. They coexist.
+    gstreamer1.0-libav gstreamer1.0-plugins-bad gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    libatk-bridge2.0-0 libatk1.0-0 libatomic1 libavif13 \
+    libcairo2 libdbus-1-3 libdrm2 libegl1 \
+    libenchant-2-2 libepoxy0 libevdev2 libevent-2.1-7 \
+    libffi7 libfontconfig1 libfreetype6 libgbm1 \
+    libgdk-pixbuf-2.0-0 libgles2 libglib2.0-0 libglx0 \
+    libgstreamer-gl1.0-0 libgstreamer-plugins-base1.0-0 libgstreamer1.0-0 libgtk-3-0 \
+    libgtk-4-1 libgudev-1.0-0 libharfbuzz-icu0 libharfbuzz0b \
+    libhyphen0 libicu70 libjpeg-turbo8 liblcms2-2 \
+    libmanette-0.2-0 libnotify4 libopengl0 libopenjp2-7 \
+    libopus0 libpango-1.0-0 libpng16-16 libproxy1v5 \
+    libsecret-1-0 libsoup-3.0-0 libwayland-client0 libwayland-egl1 \
+    libwayland-server0 libwebpdemux2 libwoff1 libx11-6 \
+    libx264-163 libxcomposite1 libxdamage1 libxkbcommon0 \
+    libxml2 libxslt1.1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Kept in the environment so the container can say which build it is running.
+ENV REVISION=${REVISION}
+
+RUN wget -q -O /tmp/webkit.zip \
+    "https://cdn.playwright.dev/dbazure/download/playwright/builds/webkit/${REVISION}/webkit-${WEBKIT_PLATFORM}.zip" \
+    && mkdir -p /opt/webkit \
+    && unzip -q /tmp/webkit.zip -d /opt/webkit \
+    && rm /tmp/webkit.zip \
+    && chmod +x /opt/webkit/pw_run.sh \
+    && find /opt/webkit -type f -name 'MiniBrowser*' -exec chmod +x {} \; \
+    && test -x /opt/webkit/pw_run.sh
+
+COPY clipboard.js /usr/share/novnc/app/clipboard.js
+RUN set -e; \
+    ui=/usr/share/novnc/app/ui.js; page=/usr/share/novnc/vnc.html; \
+    grep -q '^export default UI;' "$ui" || { echo "noVNC layout changed: no export in ui.js" >&2; exit 1; }; \
+    grep -q 'src="app/ui.js"' "$page" || { echo "noVNC layout changed: no ui.js tag in vnc.html" >&2; exit 1; }; \
+    sed -i 's|^export default UI;|window.UI = UI;   /* EngineShelf: app/clipboard.js needs the live RFB object */\nexport default UI;|' "$ui"; \
+    sed -i 's|<script type="module" crossorigin="anonymous" src="app/ui.js"></script>|&\n    <script src="app/clipboard.js" defer></script>|' "$page"; \
+    grep -q 'app/clipboard.js' "$page"
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+EXPOSE 6080 5900
+VOLUME /data
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
