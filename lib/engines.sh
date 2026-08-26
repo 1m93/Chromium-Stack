@@ -121,10 +121,11 @@ engine_binary() {
     firefox)
       case "$platform" in
         mac) printf '%s\n' "$dir/Firefox.app/Contents/MacOS/firefox" ;;
-        # The tarball unpacks into a firefox/ directory; the Windows zip into
-        # core/.
+        # Both the Linux tarball and the Windows candidates zip unpack into a
+        # firefox/ directory. Checked against the archives, not assumed: core/ is
+        # the layout inside the NSIS installer, which is a different download.
         linux*) printf '%s\n' "$dir/firefox/firefox" ;;
-        *)      printf '%s\n' "$dir/core/firefox.exe" ;;
+        *)      printf '%s\n' "$dir/firefox/firefox.exe" ;;
       esac ;;
     edge)
       case "$platform" in
@@ -138,9 +139,11 @@ engine_binary() {
       esac ;;
     webkit)
       case "$platform" in
-        # pw_run.sh is the supported entry point: it sets the DYLD paths the
-        # bundle needs, and on Linux it picks minibrowser-gtk out of the archive.
-        mac*) printf '%s\n' "$dir/pw_run.sh" ;;
+        # pw_run.sh is the supported entry point on mac and Linux: it sets the
+        # DYLD paths the bundle needs, and on Linux picks minibrowser-gtk out of
+        # the archive. The win64 archive has no such script - it unpacks flat,
+        # with Playwright.exe at the top - so there it is the executable itself.
+        win*) printf '%s\n' "$dir/Playwright.exe" ;;
         *)    printf '%s\n' "$dir/pw_run.sh" ;;
       esac ;;
   esac
@@ -422,18 +425,20 @@ resolve_firefox_esr() {
   return 1
 }
 
-# Candidate builds are numbered from 1 and the last one is what shipped, so walk
-# down from a sane ceiling and take the first that answers.
+# Candidate builds are numbered from 1 and the last one is what shipped. The
+# directory index names them all, so one request settles it rather than probing
+# build9 downwards - which cost eight round trips to learn that 115.0 shipped as
+# build2.
 resolve_firefox_win_zip() {
-  local version="$1" build=9 url
-  while [ "$build" -ge 1 ]; do
-    url="$MOZ_RELEASES/../candidates/$version-candidates/build$build/win64/en-US/firefox-$version.zip"
-    url="https://ftp.mozilla.org/pub/firefox/candidates/$version-candidates/build$build/win64/en-US/firefox-$version.zip"
+  local version="$1" base build url
+  base="https://ftp.mozilla.org/pub/firefox/candidates/$version-candidates"
+  for build in $(net_get "$base/" | grep -o 'build[0-9]*' | sed 's/build//' \
+                 | sort -un | sort -rn); do
+    url="$base/build$build/win64/en-US/firefox-$version.zip"
     if net_exists "$url"; then
       SEL_URL="$url"
       return 0
     fi
-    build=$((build - 1))
   done
   return 1
 }

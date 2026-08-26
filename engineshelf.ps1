@@ -29,6 +29,7 @@ $ProgressPreference = 'SilentlyContinue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Catalog   = Join-Path $ScriptDir 'catalog.tsv'
 . (Join-Path $ScriptDir 'lib\preflight.ps1')
+. (Join-Path $ScriptDir 'lib\engines.ps1')
 $BaseUrl   = 'https://commondatastorage.googleapis.com/chromium-browser-snapshots'
 $ListApi   = 'https://www.googleapis.com/storage/v1/b/chromium-browser-snapshots/o'
 
@@ -87,6 +88,7 @@ $CftStable   = 'https://googlechromelabs.github.io/chrome-for-testing/last-known
 $CatalogVersions = @{}
 $CatalogBuilds   = @{}
 $CatalogOrder    = @()
+$CatalogShelf    = @()
 
 function Import-CatalogFile {
     param($path)
@@ -103,13 +105,42 @@ function Import-CatalogFile {
             $m = [int]$f[1]
             if (-not $CatalogBuilds.ContainsKey($m)) { $CatalogBuilds[$m] = @{} }
             $CatalogBuilds[$m][$f[2]] = @{ Revision = $f[3]; Archive = $f[4]; Root = $f[5] }
+        } elseif ($f[0] -eq 'S' -and $f.Count -ge 6) {
+            # Shelf rows, written by tools/discover.py from each vendor's own
+            # index. These answer "what is WebKit 26.5 called on disk" for engines
+            # whose published name and download identifier are different things -
+            # no URL anywhere contains the string "26.5".
+            $script:CatalogShelf += ,@{ Engine = $f[1]; Year = [int]$f[2]
+                                        Id = $f[3]; Label = $f[4]; Date = $f[5] }
         }
     }
+}
+
+# Newest matching id wins: a WebKit version name is not unique - 26.5 covers two
+# different builds - and the later one is the one anybody means.
+function Get-ShelfIdForLabel {
+    param([string]$Engine, [string]$Label)
+    $found = $null
+    foreach ($row in $CatalogShelf) {
+        if ($row.Engine -eq $Engine -and ($row.Label -eq $Label -or $row.Id -eq $Label)) {
+            $found = $row.Id
+        }
+    }
+    return $found
+}
+
+function Get-ShelfLabelForId {
+    param([string]$Engine, [string]$Id)
+    foreach ($row in $CatalogShelf) {
+        if ($row.Engine -eq $Engine -and $row.Id -eq $Id) { return $row.Label }
+    }
+    return $null
 }
 
 function Update-Catalog {
     $script:CatalogVersions = @{}
     $script:CatalogBuilds   = @{}
+    $script:CatalogShelf    = @()
     Import-CatalogFile $Catalog
     Import-CatalogFile $CacheFile
     $script:CatalogOrder = @($CatalogVersions.Keys | Sort-Object)
@@ -141,9 +172,11 @@ function Get-Meta {
 }
 
 function Write-Meta {
-    param($rev, $milestone, $version, $platform, $archive, $root)
+    param($key, $milestone, $version, $platform, $archive, $root, $engine)
+    if (-not $engine) { $engine = 'chromium' }
     $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     $body = @(
+        "META_ENGINE='$engine'",
         "META_MILESTONE='$milestone'",
         "META_VERSION='$version'",
         "META_PLATFORM='$platform'",
@@ -152,7 +185,7 @@ function Write-Meta {
         "META_INSTALLED='$stamp'"
     ) -join "`n"
     # The Python backend parses this file too, so keep it LF and quoted.
-    [IO.File]::WriteAllText((Join-Path (Get-BuildDir $rev) '.meta'), $body + "`n")
+    [IO.File]::WriteAllText((Join-Path (Get-BuildDir $key) '.meta'), $body + "`n")
 }
 
 # ---------- runtime cache ----------
@@ -339,11 +372,60 @@ function Update-NewMilestones {
 # A selector is a milestone (74, M74) or a raw archive revision (638880).
 # Milestones are small and revisions are six digits or more, so the split needs
 # no extra syntax from the user.
+# Chromium's identity on disk stays the bare revision it has always been, so
+# builds already downloaded are still found, and its download URL is built from
+# the snapshot archive layout rather than resolved.
+function Add-ChromiumFields {
+    param($sel)
+    $sel.Engine = 'chromium'
+    $sel.Id     = $sel.Revision
+    $sel.Key    = Get-EngineKey 'chromium' $sel.Revision
+    $sel.Url    = "$BaseUrl/$($sel.Platform)/$($sel.Revision)/$($sel.Archive)"
+    $sel.Format = 'zip'
+    return $sel
+}
+
+# A selector names an engine and a version: firefox:115, webkit:26.5. A bare
+# number means Chromium, which is every selector this tool accepted before there
+# was more than one engine.
+#
+# Returns, for every engine: Engine, Id (what identifies the build to its vendor,
+# and what the on-disk name is built from), Key, Version (what to print - not
+# always unique, two WebKit builds are both called 26.5), Platform, Url, Format,
+# Root; and for Chromium also Milestone, Revision and Archive, which the snapshot
+# archive needs and no other engine has an equivalent of.
 function Resolve-Selector {
     param([string]$Raw)
-    if (-not $Raw) { Die "Which version? e.g. 74, or a revision like 638880. Try: .\engineshelf.ps1 catalog" }
-    $token = $Raw -replace '^[MmRr]', ''
-    if ($token -notmatch '^\d+$') { Die "Not a version or revision: $Raw" }
+    if (-not $Raw) {
+        Die @"
+Which version? A bare number is Chromium: 74. Otherwise name the engine:
+   firefox:115   webkit:26.5   chromium:120
+   Try: .\engineshelf.ps1 catalog
+"@
+    }
+
+    $engine = 'chromium'
+    $token = $Raw
+    if ($Raw.Contains(':')) {
+        $parts = $Raw.Split(':', 2)
+        $engine = $parts[0].ToLowerInvariant()
+        $token = $parts[1]
+    }
+    if (-not (Test-EngineKnown $engine)) { Die "Unknown engine: $engine. Known: $($EngineList -join ', ')" }
+    if (-not $token) { Die "Which version of $(Get-EngineDisplay $engine)?" }
+
+    if ($engine -ne 'chromium') {
+        $sel = Resolve-Engine $engine $token
+        $sel.Key = Get-EngineKey $sel.Engine $sel.Id
+        # Fields the Chromium paths read; absent for every other engine.
+        $sel.Milestone = ''
+        $sel.Revision = ''
+        $sel.Archive = ''
+        return $sel
+    }
+
+    $token = $token -replace '^[MmRr]', ''
+    if ($token -notmatch '^\d+$') { Die "Not a Chromium version or revision: $Raw" }
 
     if ([int64]$token -lt 1000) {
         $m = [int]$token
@@ -359,16 +441,17 @@ function Resolve-Selector {
             Die "No $HostPlatform build of Chromium $m is available. It is in neither the catalog nor the cache, and the archive could not be reached to look it up. Try: .\engineshelf.ps1 catalog"
         }
         $b = $CatalogBuilds[$m][$HostPlatform]
-        return @{ Milestone = "$m"; Version = $CatalogVersions[$m].Version; Platform = $HostPlatform
-                  Revision = $b.Revision; Archive = $b.Archive; Root = $b.Root }
+        return Add-ChromiumFields @{ Milestone = "$m"; Version = $CatalogVersions[$m].Version
+                  Platform = $HostPlatform; Revision = $b.Revision
+                  Archive = $b.Archive; Root = $b.Root }
     }
 
     # Already installed: the recorded metadata answers without a network call.
     $meta = Get-Meta $token
     if ($meta.Count -gt 0) {
-        return @{ Milestone = $meta['META_MILESTONE']; Version = $meta['META_VERSION']
-                  Platform = $meta['META_PLATFORM']; Revision = $token
-                  Archive = $meta['META_ARCHIVE']; Root = $meta['META_ROOT'] }
+        return Add-ChromiumFields @{ Milestone = $meta['META_MILESTONE']
+                  Version = $meta['META_VERSION']; Platform = $meta['META_PLATFORM']
+                  Revision = $token; Archive = $meta['META_ARCHIVE']; Root = $meta['META_ROOT'] }
     }
 
     # A catalogued revision for this platform.
@@ -376,7 +459,8 @@ function Resolve-Selector {
         if ($CatalogBuilds.ContainsKey($m) -and $CatalogBuilds[$m].ContainsKey($HostPlatform)) {
             $b = $CatalogBuilds[$m][$HostPlatform]
             if ($b.Revision -eq $token) {
-                return @{ Milestone = "$m"; Version = $CatalogVersions[$m].Version; Platform = $HostPlatform
+                return Add-ChromiumFields @{ Milestone = "$m"
+                          Version = $CatalogVersions[$m].Version; Platform = $HostPlatform
                           Revision = $token; Archive = $b.Archive; Root = $b.Root }
             }
         }
@@ -392,16 +476,19 @@ function Resolve-Selector {
     }
     foreach ($candidate in @('chrome-win.zip', 'chrome-win32.zip')) {
         if ($names -contains $candidate) {
-            return @{ Milestone = '?'; Version = "r$token"; Platform = $HostPlatform
-                      Revision = $token; Archive = $candidate; Root = ($candidate -replace '\.zip$', '') }
+            return Add-ChromiumFields @{ Milestone = '?'; Version = "r$token"
+                      Platform = $HostPlatform; Revision = $token; Archive = $candidate
+                      Root = ($candidate -replace '\.zip$', '') }
         }
     }
     Die "Revision $token is not archived for $HostPlatform. Pick a nearby position, or a catalogued version: .\engineshelf.ps1 catalog"
 }
 
+# key root [engine] -> the executable, asked of the engine itself.
 function Get-BinaryPath {
-    param($rev, $root)
-    Join-Path (Get-BuildDir $rev) "$root\chrome.exe"
+    param($key, $root, $engine)
+    if (-not $engine) { $engine = Get-EngineOfBuildKey $key }
+    Get-EngineBinary $engine (Get-BuildDir $key) $root
 }
 
 # ---------- migration ----------
@@ -445,35 +532,48 @@ function Invoke-Migration {
 # ---------- install ----------
 function Install-Build {
     param($sel)
-    $rev = $sel.Revision
-    if (Test-Installed $rev) { return }
+    $key = $sel.Key
+    # A build directory is removed before it is written, so an empty key here
+    # would mean deleting builds\ itself and every browser already downloaded.
+    # That is a resolver bug rather than user input, so it is a hard stop.
+    if (-not $key -or $key.Contains('\\') -or $key.Contains('/')) {
+        Die "Internal error: refusing to install with build key '$key'."
+    }
+    if (Test-Installed $key) { return }
 
-    $dir = Get-BuildDir $rev
+    $name = Get-EngineDisplay $sel.Engine
+    $dir = Get-BuildDir $key
     Write-Info ""
-    Write-Info "Downloading Chromium $($sel.Version) ($($sel.Platform) r$rev, one time only)"
+    Write-Info "Downloading $name $($sel.Version) ($($sel.Platform), one time only)"
     Write-Info "-> $dir"
-    Write-Info "   ~150-300 MB, this can take a few minutes..."
+    Write-Info "   ~60-300 MB, this can take a few minutes..."
     Write-Info ""
 
     if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $zip = Join-Path $Root ".download-$rev.zip"
+    $zip = Join-Path $Root ".download-$key.zip"
 
     try {
-        Invoke-WebRequest -Uri "$BaseUrl/$($sel.Platform)/$rev/$($sel.Archive)" -OutFile $zip
+        Invoke-WebRequest -Uri $sel.Url -OutFile $zip
     } catch {
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
         Remove-Item -Force $zip -ErrorAction SilentlyContinue
-        # The one way a cached row goes bad: the bucket dropped that revision.
-        # Drop the row too, so the retry resolves afresh instead of failing forever.
-        if ($sel.Milestone -and $sel.Milestone -ne '?' -and (Test-CacheMilestone $sel.Milestone)) {
+        # The one way a cached Chromium row goes bad: the bucket dropped that
+        # revision. Drop the row too, so the retry resolves afresh rather than
+        # failing forever. No other engine has a cache to invalidate.
+        if ($sel.Engine -eq 'chromium' -and $sel.Milestone -and $sel.Milestone -ne '?' `
+            -and (Test-CacheMilestone $sel.Milestone)) {
             Remove-CacheMilestone $sel.Milestone
-            Die "Download failed - r$rev is no longer in the archive. The stale entry has been forgotten; run the same command again to re-resolve."
+            Die "Download failed - r$($sel.Revision) is no longer in the archive. The stale entry has been forgotten; run the same command again to re-resolve."
         }
         Die "Download failed: $($_.Exception.Message)"
     }
 
     Write-Info "Extracting..."
+    # Every Windows download is a plain zip - Chromium's snapshot, Mozilla's
+    # candidates build, Playwright's win64 archive. The dmg, pkg, deb and tarball
+    # handling in lib/engines.sh has no counterpart here because no vendor ships
+    # those to Windows.
     try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dir)
@@ -484,15 +584,19 @@ function Install-Build {
     }
     Remove-Item -Force $zip
 
-    $binary = Get-BinaryPath $rev $sel.Root
+    $binary = Get-BinaryPath $key $sel.Root $sel.Engine
     if (-not (Test-Path $binary)) {
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
-        Die "Expected browser binary missing: $binary"
+        Die @"
+Expected browser binary missing: $binary
+   The archive unpacked, but not into the shape this engine expects. Please
+   report the engine and version.
+"@
     }
 
-    Write-Meta $rev $sel.Milestone $sel.Version $sel.Platform $sel.Archive $sel.Root
+    Write-Meta $key $sel.Milestone $sel.Version $sel.Platform $sel.Archive $sel.Root $sel.Engine
     New-Item -ItemType File -Force -Path (Join-Path $dir '.complete') | Out-Null
-    Write-Ok "Chromium $($sel.Version) ready."
+    Write-Ok "$name $($sel.Version) ready."
 }
 
 function Get-DirSize {
@@ -538,16 +642,17 @@ function Invoke-List {
     $total = 0
     $any = $false
     foreach ($dir in Get-ChildItem -Path $BuildsDir -Directory -ErrorAction SilentlyContinue) {
-        if ($dir.Name -notmatch '^\d+$') { continue }
         if (-not (Test-Installed $dir.Name)) { continue }
         $any = $true
         $meta = Get-Meta $dir.Name
         $size = Get-DirSize $dir.FullName
         $prof = Get-DirSize (Get-ProfileDir $dir.Name)
         $total += $size + $prof
-        $version = $meta['META_VERSION']; if (-not $version) { $version = "r$($dir.Name)" }
-        Write-Host ("  {0,-16} r{1,-9} {2,7:N0} MB browser {3,7:N0} MB profile" -f `
-            $version, $dir.Name, ($size / 1MB), ($prof / 1MB))
+        $version = $meta['META_VERSION']; if (-not $version) { $version = $dir.Name }
+        $engine = $meta['META_ENGINE']
+        if (-not $engine) { $engine = Get-EngineOfBuildKey $dir.Name }
+        Write-Host ("  {0,-9} {1,-16} {2,-12} {3,7:N0} MB browser {4,7:N0} MB profile" -f `
+            (Get-EngineDisplay $engine), $version, $meta['META_PLATFORM'], ($size / 1MB), ($prof / 1MB))
     }
     if (-not $any) {
         Write-Host "  Nothing installed yet. See: .\engineshelf.ps1 catalog" -ForegroundColor DarkGray
@@ -580,32 +685,37 @@ function Invoke-Run {
 
     Install-Build $sel
 
-    $binary     = Get-BinaryPath $sel.Revision $sel.Root
-    $profileDir = Get-ProfileDir $sel.Revision
-    $log        = Get-LogFile $sel.Revision
+    $binary     = Get-BinaryPath $sel.Key $sel.Root $sel.Engine
+    $profileDir = Get-ProfileDir $sel.Key
+    $log        = Get-LogFile $sel.Key
     New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+    Set-EngineProfile $sel.Engine $profileDir
 
     # Bare host:port typed by hand - be forgiving.
     if ($url -ne '' -and $url -notmatch '^(https?|file|data)://' -and $url -notmatch '^about:') {
         $url = "http://$url"
     }
 
-    $chromeArgs = @(
-        "--user-data-dir=$profileDir",
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-background-networking',   # the 2019 update pinger is long dead
-        '--disable-component-update',
-        '--disable-features=TranslateUI'
-    )
+    # The flags that isolate the profile and disable the updater are the engine's
+    # own answer: Chromium takes --user-data-dir, Firefox takes -profile, and the
+    # WebKit MiniBrowser takes neither.
+    $browserArgs = @(Get-EngineLaunchArgs $sel.Engine $profileDir)
     # Old GPU drivers are a common crash source when a years-old browser meets a
     # current driver. Software rendering costs a little speed and removes it.
-    if ($useGpu -ne $true) { $chromeArgs += '--disable-gpu' }
-    if ($windowSize -ne '') { $chromeArgs += "--window-size=$($windowSize -replace 'x', ',')" }
-    $chromeArgs += $extra
+    # These are Chromium switches; an unknown -flag opens a dialog in Firefox
+    # rather than being ignored.
+    if ($sel.Engine -eq 'chromium') {
+        if ($useGpu -ne $true) { $browserArgs += '--disable-gpu' }
+        if ($windowSize -ne '') { $browserArgs += "--window-size=$($windowSize -replace 'x', ',')" }
+    } elseif ($sel.Engine -eq 'firefox' -and $windowSize -ne '') {
+        $parts = $windowSize -split 'x'
+        $browserArgs += @('-width', $parts[0], '-height', $parts[1])
+    }
+    $browserArgs += $extra
 
+    $name = Get-EngineDisplay $sel.Engine
     Write-Host ""
-    Write-Host "  > Chromium $($sel.Version) (r$($sel.Revision), $($sel.Platform))" -ForegroundColor Green
+    Write-Host "  > $name $($sel.Version) ($($sel.Platform))" -ForegroundColor Green
     if ($url -ne '') { Write-Host "  > $url" }
     Write-Host "  Profile: $profileDir" -ForegroundColor DarkGray
     Write-Host "  Log: $log" -ForegroundColor DarkGray
@@ -617,8 +727,8 @@ function Invoke-Run {
     function Quote-Args { param($items) $items | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } } }
 
     $attempt = 0; $fastCrashes = 0
-    $launchArgs = $chromeArgs
-    if ($url -ne '') { $launchArgs = $chromeArgs + $url }
+    $launchArgs = $browserArgs
+    if ($url -ne '') { $launchArgs = $browserArgs + $url }
 
     while ($true) {
         $started = Get-Date
@@ -627,18 +737,21 @@ function Invoke-Run {
         if ($status -eq 0) { break }   # user closed the window
 
         $ran = [int]((Get-Date) - $started).TotalSeconds
-        if (-not $autoRestart) { Write-Warn "Chromium exited with status $status after ${ran}s."; exit $status }
+        if (-not $autoRestart) { Write-Warn "$name exited with status $status after ${ran}s."; exit $status }
 
         $attempt++
         # A fast crash still deserves a retry, but three in a row means the setup
         # itself is broken and looping would only spin.
         if ($ran -lt 5) { $fastCrashes++ } else { $fastCrashes = 0 }
         if ($fastCrashes -ge 3 -or $attempt -gt 5) {
-            Write-Warn "Chromium crashed after ${ran}s (status $status), giving up after $attempt attempt(s)."
+            Write-Warn "$name crashed after ${ran}s (status $status), giving up after $attempt attempt(s)."
             exit $status
         }
-        Write-Warn "Chromium crashed after ${ran}s - restarting and restoring your tabs ($attempt/5)."
-        $launchArgs = $chromeArgs + '--restore-last-session'
+        Write-Warn "$name crashed after ${ran}s - restarting ($attempt/5)."
+        # Restoring the session is a Chromium switch; Firefox does it by itself
+        # and would show an unknown-argument dialog instead.
+        $launchArgs = $browserArgs
+        if ($sel.Engine -eq 'chromium') { $launchArgs = $browserArgs + '--restore-last-session' }
     }
 }
 
