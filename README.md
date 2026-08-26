@@ -98,10 +98,11 @@ launcher window when you are done.
 </table>
 
 <p align="center">
-  <img src="assets/screenshot-manager.png" width="100%" alt="The ChromiumStack manager: every catalogued Chromium milestone on one page, each with an Install &amp; launch button">
+  <img src="assets/screenshot-manager.png" width="100%" alt="The ChromiumStack manager: twenty-one catalogued Chromium milestones grouped by era, five installed, Chromium 74 running, each row showing its revision, the features it does and does not have, and what it costs in disk">
   <br>
-  <sub>Every catalogued milestone on one page — which are installed, which run natively, which go
-  through Rosetta, what each is costing you in disk, and one button to open any of them.</sub>
+  <sub>Every catalogued milestone on one page, grouped by what it is useful for — which are
+  installed, which run natively, which go through Rosetta, what each is costing you in disk,
+  and one button to open any of them.</sub>
 </p>
 
 > [!TIP]
@@ -127,10 +128,13 @@ One page, served locally, with everything on it.
 | **A shared URL for every launch** | Set it once at the top; every version opens there. |
 | **Window size and graphics** | Fix the viewport for a layout check, or force hardware acceleration on or off. |
 | **Per-row menu** | Download without launching, run that version in Docker, reset its profile, or delete it. |
+| **Grouped by era** | Rows sit under the years they belong to, with what each era brought — jump straight to one, or sort by age or disk used. |
+| **Search and filters** | Filter by version, revision or feature — `:has()`, `dvh`, `flex gap` — or narrow to what is installed, running, or stuck on Rosetta. |
 | **Add by revision** | Any build in the Chromium snapshot archive, not just the catalogued milestones. |
 | **System check** | Tells you what is missing before it matters, with buttons that install it. |
-| **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show. |
-| **Honest disk accounting** | A running total across every browser and profile, so it is obvious when to clear something out. |
+| **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job when several are in flight. |
+| **Honest disk accounting** | A running total split between browsers and profiles, so it is obvious when to clear something out. |
+| **Light or dark** | Follows the system theme, or pin it either way from the header. |
 
 Closing the launcher window stops the manager; browsers it opened keep running.
 
@@ -477,8 +481,10 @@ would run, what that will cost you, and waits for a yes:
 | **Rosetta 2** | milestones up to 90 on Apple Silicon | those versions will not start |
 | **Docker** | the Docker edition only | everything else works |
 
-The manager shows the same report under **System check** and puts a panel at the top of the
-page when something is missing; its **Install** buttons run the same commands. Where a fix
+The manager shows the same report under **System check**. It opens by itself only when
+something ChromiumStack cannot work without is missing — the recommended and optional ones
+are counted on the header button instead of interrupting you; its **Install** buttons run the
+same commands. Where a fix
 needs administrator rights, macOS asks through the system password dialog; elsewhere the
 manager says plainly that it needs a terminal rather than failing on `sudo: no tty present`.
 

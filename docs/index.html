@@ -286,6 +286,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
   <nav data-r="nav" aria-label="Primary" style="display:flex;align-items:center;gap:22px;font-size:13.5px;color:var(--ink-2)">
     <a href="#why" style="color:inherit">Why</a>
     <a href="#start" style="color:inherit">Quick start</a>
+    <a href="#screens" style="color:inherit">Screens</a>
     <a href="#shelf" style="color:inherit">Versions</a>
     <a href="#cli" style="color:inherit">CLI</a>
     <a href="#faq" style="color:inherit">Good to know</a>
@@ -298,6 +299,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
   <div id="mobileNav" hidden>
     <a href="#why" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Why</a>
     <a href="#start" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Quick start</a>
+    <a href="#screens" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Screens</a>
     <a href="#shelf" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Versions</a>
     <a href="#cli" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">CLI</a>
     <a href="#faq" style="padding:13px 2px;font-size:15.5px;color:var(--ink-2);border-bottom:1px solid var(--line)">Good to know</a>
@@ -415,15 +417,54 @@ details[open] [data-chev]{transform:rotate(45deg)}
     <div style="border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
       <picture>
         <source srcset="assets/screenshot-manager.webp" type="image/webp">
-        <img src="assets/screenshot-manager.png" width="2000" height="772" loading="lazy" decoding="async" alt="The ChromiumStack manager: every catalogued Chromium milestone on one page, each row showing its revision, disk usage and an Install &amp; launch button" style="display:block;width:100%;height:auto" />
+        <img src="assets/screenshot-manager.png" width="2800" height="1520" loading="lazy" decoding="async" alt="The ChromiumStack manager: twenty-one catalogued Chromium milestones grouped by era, five of them installed, Chromium 74 running, each row showing its revision, the features it does and does not have, and what it costs in disk" style="display:block;width:100%;height:auto" />
       </picture>
     </div>
-    <figcaption style="margin-top:14px;font-size:13px;line-height:1.6;color:var(--ink-3);max-width:80ch;text-wrap:pretty">Every catalogued milestone on one page — which are installed, which run natively, which go through Rosetta, what each is costing you in disk, and one button to open any of them.</figcaption>
+    <figcaption style="margin-top:14px;font-size:13px;line-height:1.6;color:var(--ink-3);max-width:80ch;text-wrap:pretty">Every catalogued milestone on one page, grouped by what it is useful for — which are installed, which run natively, which go through Rosetta, what each is costing you in disk, and one button to open any of them.</figcaption>
   </figure>
 
   <div data-reveal style="display:flex;gap:14px;margin-top:26px;padding:18px 20px;border:1px solid color-mix(in srgb,var(--ok) 40%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--ok) 7%,var(--panel))">
     <span style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ok);padding-top:2px;display:inline-flex;align-items:center;gap:7px"><svg class="ic" aria-hidden="true"><use href="#i-bulb"/></svg><span>Tip</span></span>
     <p style="margin:0;font-size:14.5px;line-height:1.62;color:var(--ink-2)">Type a URL in the box at the top of the manager and <strong style="color:var(--ink);font-weight:600">every</strong> version you launch opens straight to it. <code style="font-family:var(--mono);font-size:13px;color:var(--ink)">localhost:4173</code> is fine — it is the fastest way to compare four engines on the same page.</p>
+  </div>
+</section>
+
+<section id="screens" style="border-top:1px solid var(--line);background:var(--panel-2)">
+  <div class="sec-wrap" style="max-width:1160px;margin:0 auto;padding:76px 28px">
+    <div data-reveal style="display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)"><svg class="ic" aria-hidden="true"><use href="#i-monitor"/></svg><span>A look around</span></div>
+    <h2 data-reveal style="margin:14px 0 0;max-width:34ch;font-size:clamp(26px,3.2vw,38px);line-height:1.14;letter-spacing:-.028em;font-weight:660;text-wrap:balance">Three versions in flight, one window.</h2>
+    <p data-reveal style="margin:16px 0 0;max-width:58ch;font-size:16px;line-height:1.65;color:var(--ink-2)">Downloads, launches, profile resets and Docker containers all report into the same strip along the bottom — and the log remembers every one of them.</p>
+
+    <figure data-reveal style="margin:44px 0 0">
+      <div style="border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
+        <picture>
+          <source srcset="assets/screenshot-jobs.webp" type="image/webp">
+          <img src="assets/screenshot-jobs.png" width="2800" height="1520" loading="lazy" decoding="async" alt="Three jobs running at once: Chromium 105 downloading at 43 percent with 100 MB of 232 MB transferred and 16 seconds left, two other versions already open, and the job log switching between all three" style="display:block;width:100%;height:auto" />
+        </picture>
+      </div>
+      <figcaption style="margin-top:14px;font-size:13px;line-height:1.6;color:var(--ink-3);max-width:80ch;text-wrap:pretty">One version downloading, two already open. The download shows the bytes and the time left rather than a spinner, the log keeps a tab per job, and the bar at the bottom follows whichever one you picked.</figcaption>
+    </figure>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:26px;margin-top:34px">
+      <figure data-reveal style="margin:0">
+        <div style="border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
+          <picture>
+            <source srcset="assets/screenshot-light.webp" type="image/webp">
+            <img src="assets/screenshot-light.png" width="1600" height="869" loading="lazy" decoding="async" alt="The same version shelf in the light theme" style="display:block;width:100%;height:auto" />
+          </picture>
+        </div>
+        <figcaption style="margin-top:12px;font-size:13px;line-height:1.6;color:var(--ink-3);text-wrap:pretty">Follows your system theme, or pin it light or dark from the header.</figcaption>
+      </figure>
+      <figure data-reveal style="margin:0">
+        <div style="border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
+          <picture>
+            <source srcset="assets/screenshot-check.webp" type="image/webp">
+            <img src="assets/screenshot-check.png" width="1600" height="869" loading="lazy" decoding="async" alt="The system check panel listing curl, Python 3 and Rosetta 2 as present and Docker as missing, with the exact install command and an Install button beside it" style="display:block;width:100%;height:auto" />
+          </picture>
+        </div>
+        <figcaption style="margin-top:12px;font-size:13px;line-height:1.6;color:var(--ink-3);text-wrap:pretty">It says what is missing, why it matters, and runs the install for you. Only a genuine blocker interrupts you on the way in.</figcaption>
+      </figure>
+    </div>
   </div>
 </section>
 
