@@ -51,12 +51,14 @@ install, nothing to keep together, no loose folder of files to lose.
 | Platform | File | How you open it |
 |---|---|---|
 | **macOS** | `ChromiumStack-<ver>-macOS.zip` | Unzip → double-click **`ChromiumStack.app`** (drag it to Applications if you like) |
-| **Windows** | `ChromiumStack-<ver>-Windows.zip` | Unzip → double-click **`ChromiumStack.exe`** |
+| **Windows** | `ChromiumStack-<ver>-Windows.zip` | Unzip → double-click **`ChromiumStack.bat`** (want a Desktop icon? run `Create-Shortcut.ps1` once) |
 | **Linux** | `ChromiumStack-<ver>-Linux.tar.gz` | Extract → run **`./ChromiumStack`** |
 
 <sub>**Runs on** — macOS 10.13+ on Intel and 11+ on Apple Silicon · Windows 10/11, using the PowerShell 5.1 that ships with them · Linux x86_64. The manager wants Python 3 on macOS and Linux; the command line does not.</sub>
 
 <sub>Paranoid, sensibly so? `shasum -c SHA256SUMS.txt` verifies the download against the published checksums. Prefer to build the packages yourself — see [RELEASE.md](RELEASE.md).</sub>
+
+<sub>**Windows warns about the download?** `ChromiumStack.bat` is a short, readable script — you can open it in Notepad — that just starts the manager (`app\gui.ps1`); there is no compiled program to trust. If SmartScreen or a “Run anyway?” prompt appears, that is expected for any downloaded script without a paid certificate, not a sign of anything wrong. If it feels stuck, unblock the folder first: in PowerShell, `Get-ChildItem -Recurse | Unblock-File` (clears the “downloaded from the internet” mark), or right-click each file → Properties → **Unblock**. Verify against `SHA256SUMS.txt` if you want certainty. Want a Desktop/Start-Menu icon instead of the plain `.bat`? Run `Create-Shortcut.ps1` once after extracting.</sub>
 
 <sub>**Running from a clone instead?** Same launchers, plus `./gui.sh` (or the `chromium-stack.desktop` entry) on Linux. Keep the launcher inside the project folder — it finds everything else relative to itself.</sub>
 
@@ -454,11 +456,12 @@ If the folder sits in `~/Documents`, `~/Desktop` or `~/Downloads`, macOS gates a
 Allow ChromiumStack under **System Settings → Privacy & Security → Files and Folders**, or
 move the folder somewhere unprotected. Running `./gui.sh` from Terminal is unaffected.
 
-**Windows — SmartScreen says “Windows protected your PC”.**
-Both launchers are unsigned: signing needs a paid certificate, and an unknown `.exe` has no
-download reputation to go on. Click **More info** → **Run anyway**, once. If you would rather
-not, `ChromiumStack.bat` is a three-line script you can read first, and
-`.\chromium-stack.ps1 run 74` skips the launcher entirely.
+**Windows — SmartScreen or antivirus complains about the download.**
+The launcher is `ChromiumStack.bat`, a short script you can open in Notepad — there is no
+compiled program to trust. Without a paid certificate a downloaded script can still draw a
+“Run anyway?” prompt; click through it once. If a file feels stuck, unblock the folder:
+`Get-ChildItem -Recurse | Unblock-File`. `.\chromium-stack.ps1 run 74` skips the launcher
+entirely.
 
 **The manager will not start — “needs Python 3”.**
 It offers to install it for you. To do it yourself: macOS `xcode-select --install`, Linux
@@ -494,8 +497,7 @@ hosts must be reachable.
 
 ```
 ChromiumStack.app                     double-click, opens the manager (macOS)
-ChromiumStack.exe                     double-click, opens the manager (Windows)
-ChromiumStack.bat                     the same, as a readable script
+ChromiumStack.bat                     double-click, opens the manager (Windows)
 chromium-stack.desktop                Linux desktop entry
 gui.sh / gui.ps1                      start the manager
 gui/index.html, app.js, styles.css    the manager page
@@ -517,31 +519,25 @@ assets/screenshot-manager.png         the manager, as shown above
 tools/make-icons.sh                   rebuild every raster icon from the SVGs
 tools/build-app.sh                    compile and sign the macOS bundle launcher
 tools/launcher/launcher.c             that launcher's source
-tools/build-exe.sh                    cross-compile ChromiumStack.exe (mingw-w64)
-tools/launcher/launcher-win.c         its source, and launcher-win.rc its icon
-tools/install-shortcut.ps1            Windows Desktop / Start Menu shortcut
 ```
 
-Both launchers are committed binaries, so nothing has to be built to use this. Zip the folder
-and hand it to someone — no clone needed.
+The macOS launcher is a committed binary and Windows just runs `ChromiumStack.bat`, so nothing
+has to be built to use this. Zip the folder and hand it to someone — no clone needed.
 
 `ChromiumStack.app/Contents/MacOS/ChromiumStack` is a universal binary. A `.app` cannot work
 without a compiled executable, and a shell script will not do: when the project lives in a
 folder macOS protects, a script-based bundle has its file access attributed to `/bin/bash`,
 which macOS denies without ever prompting. All it does is `chdir` and hand over to `gui.sh`.
 
-`ChromiumStack.exe` exists for a smaller reason — a `.bat` cannot carry an icon, so Explorer
-shows it as a script rather than a program. It needs nothing installed: it `chdir`s next to
-itself and hands over to `gui.ps1` with `-ExecutionPolicy Bypass`, so an unconfigured machine
-does not refuse the script, and `ChromiumStack.bat` still does the same job if you would
-rather run something you can read. It is a console program on purpose: the manager has no
-quit button, so the window it opens is the off switch. `tools\install-shortcut.ps1`
-puts a shortcut on your Desktop and in the Start Menu if you would rather not keep the folder
-in view. Rebuild either launcher after editing its source:
+Windows uses `ChromiumStack.bat` — no compiled launcher. It hands over to `gui.ps1` with
+`-ExecutionPolicy Bypass`, so an unconfigured machine does not refuse the script, and because
+it is a plain script rather than an unsigned `.exe`, SmartScreen has no binary to distrust. A
+`.bat` cannot carry an icon, so the Windows release also ships `Create-Shortcut.ps1`, which
+drops an icon'd shortcut on the Desktop and Start Menu when run once. Rebuild the macOS
+launcher after editing its source:
 
 ```bash
 tools/build-app.sh    # macOS bundle launcher, needs Xcode command line tools
-tools/build-exe.sh    # ChromiumStack.exe, cross-compiled: brew install mingw-w64
 ```
 
 </details>
@@ -558,9 +554,8 @@ folder. The app bundle is a universal binary with an explicit floor per slice �
 on Intel, 11.0 on Apple Silicon — so it loads on older systems, but nothing older than the
 development machine has actually been booted and clicked through.
 
-**Nothing on the Windows side has been run on Windows.** `ChromiumStack.exe` is
-cross-compiled from macOS with mingw-w64, and its embedded icon and version resources were
-verified by reading the PE file, not by launching it. The scripts target PowerShell 5.1
+**Nothing on the Windows side has been run on Windows.** The Windows package ships no compiled
+launcher — `ChromiumStack.bat` hands straight to PowerShell. The scripts target PowerShell 5.1
 (which ships with Windows 10/11) and have been reviewed, but if you are the first to try any
 of it there, expect to find something. The manager's Windows backend deliberately speaks HTTP
 over a plain `TcpListener` rather than `System.Net.HttpListener`, which would need a `netsh`

@@ -9,7 +9,7 @@
 #
 # Produces, in dist/:
 #   ChromiumStack-<ver>-macOS.zip      a single self-contained .app, zipped
-#   ChromiumStack-<ver>-Windows.zip    ChromiumStack.exe + hidden app/ scripts
+#   ChromiumStack-<ver>-Windows.zip    ChromiumStack.bat + hidden app/ scripts
 #   ChromiumStack-<ver>-Linux.tar.gz   ./ChromiumStack launcher + scripts
 #   SHA256SUMS.txt                     checksums for every artifact above
 #
@@ -50,6 +50,15 @@ fi
 
 say() { printf '  %s\n' "$*"; }
 step() { printf '\n== %s ==\n' "$*"; }
+
+# gzip+base64 encoded PowerShell is the single strongest antivirus trigger on
+# Windows: Defender/AMSI flag base64-encoded scriptblocks as a malware signature.
+# The light (comment-strip) default ships readable, unflagged PowerShell - keep
+# it that way for anything the public downloads.
+if [ "$PS_HEAVY" = "1" ]; then
+  printf '\n  !! --ps-heavy encodes PowerShell as base64 - Windows Defender/SmartScreen\n' >&2
+  printf '     flag this pattern heavily. Do NOT use it for public release builds.\n\n' >&2
+fi
 
 # --------------------------------------------------------------------------- #
 # stage the runtime tree for one flavour and obfuscate it in place
@@ -129,38 +138,116 @@ build_macos() {
   codesign --force --deep --sign - "$app" 2>/dev/null
   say "signed $(codesign -dv "$app" 2>&1 | sed -n 's/^Identifier=//p')"
 
-  ( cd "$WORK" && zip -qr -X "$DIST/ChromiumStack-$VERSION-macOS.zip" ChromiumStack.app )
+  cat > "$WORK/HOW TO OPEN.txt" <<'HELP'
+ChromiumStack - how to open (macOS)
+
+1. Unzip this file (double-click it in Finder).
+2. Double-click ChromiumStack.app.
+   Optional: drag it into your Applications folder first.
+
+First time only - "unidentified developer"?
+  macOS blocks apps not signed with a paid Apple certificate. Right-click
+  (or Control-click) ChromiumStack.app -> Open -> Open. Just once.
+
+If the app bounces and asks for file access:
+  When the folder sits in Documents, Desktop or Downloads, allow ChromiumStack
+  under System Settings -> Privacy & Security -> Files and Folders, or move the
+  folder somewhere else.
+
+The manager needs Python 3 (it comes with: xcode-select --install).
+To stop it: close the window it opens.
+
+More help: https://github.com/1m93/Chromium-Stack
+HELP
+
+  ( cd "$WORK" && zip -qr -X "$DIST/ChromiumStack-$VERSION-macOS.zip" ChromiumStack.app "HOW TO OPEN.txt" )
   say "wrote ChromiumStack-$VERSION-macOS.zip"
 }
 
-# ---- Windows: exe + hidden app/ scripts ----------------------------------- #
+# ---- Windows: .bat launcher + hidden app/ scripts ------------------------- #
+# No .exe is shipped: an unsigned binary that spawns `powershell -Bypass` is
+# exactly the pattern SmartScreen/Defender flag, and a .bat carries no such
+# reputation check. A .bat cannot hold an icon, so Create-Shortcut.ps1 makes an
+# icon'd Desktop/Start Menu shortcut for anyone who wants one.
 build_windows() {
   step "Windows  (.zip)"
-  [ -f "$ROOT/ChromiumStack.exe" ] || { say "skip Windows (ChromiumStack.exe missing)"; return; }
   local top="$WORK/win/ChromiumStack"
   mkdir -p "$top/app"
-  cp "$ROOT/ChromiumStack.exe" "$top/"
   stage_tree "$top/app" windows
 
-  # The .exe runs gui.ps1 next to itself; this shim hands over to the real,
-  # obfuscated one under app/, keeping the top folder clean.
-  cat > "$top/gui.ps1" <<'SHIM'
-# ChromiumStack launcher shim - forwards to the packaged scripts under .\app\.
-[CmdletBinding()]
-param([int]$Port = 7411, [switch]$NoOpen)
-$ErrorActionPreference = 'Stop'
-& (Join-Path $PSScriptRoot 'app\gui.ps1') -Port $Port -NoOpen:$NoOpen
-SHIM
-  # A readable alternative for anyone who would rather run a script than a binary.
+  # The one entry point: forward to the real, obfuscated gui.ps1 under app\.
   cat > "$top/ChromiumStack.bat" <<'BAT'
 @echo off
+title ChromiumStack
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0app\gui.ps1" %*
 if errorlevel 1 pause
 BAT
-  cp "$ROOT/README.md" "$top/README.md" 2>/dev/null || true
+
+  # icon.ico + a shortcut maker, so users who want an icon can have one without
+  # us shipping a binary. The shortcut is created locally on their machine, so it
+  # never carries a "downloaded from the internet" mark.
+  cp "$ROOT/assets/icon.ico" "$top/icon.ico" 2>/dev/null || true
+  cat > "$top/Create-Shortcut.ps1" <<'SHORTCUT'
+# Put a ChromiumStack shortcut (with icon) on the Desktop and Start Menu.
+# Run it once after extracting - right-click -> "Run with PowerShell", or:
+#   powershell -ExecutionPolicy Bypass -File .\Create-Shortcut.ps1
+#   powershell -ExecutionPolicy Bypass -File .\Create-Shortcut.ps1 -Remove
+[CmdletBinding()]
+param([switch]$Remove)
+$ErrorActionPreference = 'Stop'
+$root = $PSScriptRoot
+$bat  = Join-Path $root 'ChromiumStack.bat'
+$icon = Join-Path $root 'icon.ico'
+$targets = @(
+    (Join-Path ([Environment]::GetFolderPath('Desktop'))  'ChromiumStack.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\ChromiumStack.lnk')
+)
+if ($Remove) {
+    foreach ($p in $targets) { if (Test-Path $p) { Remove-Item $p -Force; Write-Host "removed $p" } }
+    return
+}
+$shell = New-Object -ComObject WScript.Shell
+foreach ($p in $targets) {
+    $dir = Split-Path -Parent $p
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $lnk = $shell.CreateShortcut($p)
+    $lnk.TargetPath       = $bat
+    $lnk.WorkingDirectory = $root
+    if (Test-Path $icon) { $lnk.IconLocation = "$icon,0" }
+    $lnk.Description      = 'Install, launch and manage old Chromium engines'
+    $lnk.Save()
+    Write-Host "created $p"
+}
+Write-Host "`nDone. Look for ChromiumStack on your Desktop and in the Start Menu."
+SHORTCUT
+
+  cat > "$top/HOW TO OPEN.txt" <<'HELP'
+ChromiumStack - how to open (Windows)
+
+1. Unzip this folder (right-click the .zip -> Extract All).
+2. Double-click ChromiumStack.bat.
+   A window opens and starts the manager. Close it to stop.
+
+Want a Desktop / Start Menu icon?
+  Right-click Create-Shortcut.ps1 -> Run with PowerShell (once).
+
+Windows warns about the download?
+  ChromiumStack.bat is a short, readable script - open it in Notepad - that
+  only starts the manager; there is no program to trust. A "Run anyway?" prompt
+  is normal for any downloaded script without a paid certificate. If a file
+  feels stuck, open PowerShell in this folder and unblock everything:
+
+      Get-ChildItem -Recurse | Unblock-File
+
+  (or right-click each file -> Properties -> Unblock).
+
+Uses the PowerShell that ships with Windows 10/11 - nothing to install.
+
+More help: https://github.com/1m93/Chromium-Stack
+HELP
 
   ( cd "$WORK/win" && zip -qr -X "$DIST/ChromiumStack-$VERSION-Windows.zip" ChromiumStack )
-  say "wrote ChromiumStack-$VERSION-Windows.zip"
+  say "wrote ChromiumStack-$VERSION-Windows.zip (.bat launcher, no .exe)"
 }
 
 # ---- Linux: tarball with a clean top launcher ----------------------------- #
@@ -178,6 +265,24 @@ build_linux() {
 cd "$(dirname "$(readlink -f "$0")")" && exec ./gui.sh "$@"
 RUN
   chmod +x "$top/ChromiumStack"
+
+  cat > "$top/HOW TO OPEN.txt" <<'HELP'
+ChromiumStack - how to open (Linux)
+
+1. Extract this archive:  tar -xzf ChromiumStack-*-Linux.tar.gz
+2. Run the launcher:      cd chromium-stack && ./ChromiumStack
+   (or ./gui.sh, or double-click chromium-stack.desktop in your file manager)
+
+The manager needs Python 3:  sudo apt install python3
+
+Desktop entry has no icon? Copy it where your desktop can find it:
+  mkdir -p ~/.local/share/icons
+  cp icon-512.png ~/.local/share/icons/chromium-stack.png
+
+To stop it: close the manager window (or Ctrl+C in the terminal).
+
+More help: https://github.com/1m93/Chromium-Stack
+HELP
 
   ( cd "$WORK/linux" && tar -czf "$DIST/ChromiumStack-$VERSION-Linux.tar.gz" chromium-stack )
   say "wrote ChromiumStack-$VERSION-Linux.tar.gz"
