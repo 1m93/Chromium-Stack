@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="ChromiumStack — every Chromium from 2017 to 2024, one click away" width="100%">
+  <img src="assets/banner.svg" alt="ChromiumStack — every Chromium milestone, one click away" width="100%">
 </p>
 
 <p align="center">
@@ -98,7 +98,7 @@ launcher window when you are done.
 </table>
 
 <p align="center">
-  <img src="assets/screenshot-manager.png" width="100%" alt="The ChromiumStack manager: twenty-one catalogued Chromium milestones grouped by era, five installed, Chromium 74 running, each row showing its revision, the features it does and does not have, and what it costs in disk">
+  <img src="assets/screenshot-manager.png" width="100%" alt="The ChromiumStack manager: every catalogued Chromium milestone grouped by era, five installed, Chromium 74 running, each row showing its revision, the features it does and does not have, and what it costs in disk">
   <br>
   <sub>Every catalogued milestone on one page, grouped by what it is useful for — which are
   installed, which run natively, which go through Rosetta, what each is costing you in disk,
@@ -593,8 +593,10 @@ assets/icon.svg, icon-small.svg       icon sources: full detail, and reduced for
                                       small sizes where detail turns to mush
 assets/icon.ico, icon-512.png         generated, for Windows and Linux
 assets/banner.svg                     the README hero
+assets/og-image.svg                   source for the social card
 assets/screenshot-manager.png         the manager, as shown above
 tools/make-icons.sh                   rebuild every raster icon from the SVGs
+tools/make-og.sh                      re-render docs/assets/og-image.png
 tools/build-app.sh                    compile and sign the macOS bundle launcher
 tools/launcher/launcher.c             that launcher's source
 ```

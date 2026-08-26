@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="ChromiumStack — every Chromium, one click away">
+<!-- Source for docs/assets/og-image.png, the social card. Same art and the same
+     colour tokens as banner.svg and the manager itself.
+
+     Nothing here names a milestone count or a version range - the catalogue
+     updates itself and this file cannot follow it. The rows are one machine's
+     shelf, a snapshot by nature, not a claim about how far the catalogue goes.
+
+     Render with: tools/make-og.sh -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1017"/>
+      <stop offset="0.55" stop-color="#111624"/>
+      <stop offset="1" stop-color="#0a0d14"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.8" cy="0.3" r="0.66">
+      <stop offset="0" stop-color="#5c8dff" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#5c8dff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#6b97ff"/><stop offset="1" stop-color="#2545c4"/>
+    </linearGradient>
+    <clipPath id="markwin"><rect x="168" y="330" width="688" height="452" rx="52"/></clipPath>
+    <clipPath id="card"><rect x="676" y="110" width="452" height="440" rx="18"/></clipPath>
+    <style>
+      .f { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif; }
+      .m { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+      .name { font-size: 15px; font-weight: 600; fill: #e8ebf0; }
+      .sub  { font-size: 11.5px; fill: #6e7889; }
+      .pill { font-size: 13px; font-weight: 600; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#sky)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <g transform="translate(0,14)">
+  <!-- brand -->
+  <g transform="translate(72,88) scale(0.0546875)">
+    <rect width="1024" height="1024" rx="228" fill="url(#mark)"/>
+    <rect x="330" y="196" width="404" height="300" rx="42" fill="#ffffff" opacity="0.22"/>
+    <rect x="268" y="262" width="528" height="330" rx="46" fill="#ffffff" opacity="0.38"/>
+    <g clip-path="url(#markwin)">
+      <rect x="168" y="330" width="688" height="452" fill="#ffffff"/>
+      <rect x="168" y="330" width="688" height="104" fill="#1b2230"/>
+      <circle cx="228" cy="382" r="17" fill="#ffffff" opacity="0.9"/>
+      <circle cx="286" cy="382" r="17" fill="#ffffff" opacity="0.6"/>
+      <circle cx="344" cy="382" r="17" fill="#ffffff" opacity="0.35"/>
+      <rect x="424" y="364" width="372" height="36" rx="18" fill="#ffffff" opacity="0.22"/>
+      <circle cx="238" cy="513" r="15" fill="#3fbd7d"/>
+      <rect x="278" y="497" width="264" height="32" rx="16" fill="#5a6579" opacity="0.72"/>
+      <rect x="628" y="489" width="164" height="48" rx="16" fill="#5c8dff"/>
+      <circle cx="238" cy="613" r="15" fill="#5c8dff"/>
+      <rect x="278" y="597" width="208" height="32" rx="16" fill="#5a6579" opacity="0.5"/>
+      <rect x="628" y="589" width="164" height="48" rx="16" fill="#5c8dff" opacity="0.34"/>
+      <circle cx="238" cy="713" r="15" fill="#9aa6bb" opacity="0.8"/>
+      <rect x="278" y="697" width="244" height="32" rx="16" fill="#5a6579" opacity="0.34"/>
+      <rect x="628" y="689" width="164" height="48" rx="16" fill="#5c8dff" opacity="0.16"/>
+    </g>
+  </g>
+  <text x="148" y="126" class="f" font-size="26" font-weight="700" fill="#ffffff" letter-spacing="-0.4">ChromiumStack</text>
+
+  <!-- headline -->
+  <text x="72" y="248" class="f" font-size="56" font-weight="700" fill="#ffffff" letter-spacing="-1.4">Every Chromium,</text>
+  <text x="72" y="316" class="f" font-size="56" font-weight="700" fill="#5c8dff" letter-spacing="-1.4">one click away.</text>
+
+  <text x="72" y="368" class="f" font-size="20" fill="#a3adbd">Launch any catalogued Chromium milestone</text>
+  <text x="72" y="398" class="f" font-size="20" fill="#a3adbd">as an ordinary desktop browser.</text>
+
+  <!-- where it runs -->
+  <g>
+    <rect x="72"  y="436" width="82" height="38" rx="10" fill="#ffffff" opacity="0.07"/><text x="113" y="461" text-anchor="middle" class="f" font-size="16" fill="#9aa6bb">macOS</text>
+    <rect x="164" y="436" width="98" height="38" rx="10" fill="#ffffff" opacity="0.07"/><text x="213" y="461" text-anchor="middle" class="f" font-size="16" fill="#9aa6bb">Windows</text>
+    <rect x="272" y="436" width="74" height="38" rx="10" fill="#ffffff" opacity="0.07"/><text x="309" y="461" text-anchor="middle" class="f" font-size="16" fill="#9aa6bb">Linux</text>
+  </g>
+  <text x="72" y="512" class="m" font-size="15" fill="#6e7889">x86_64 and Apple Silicon · + any snapshot revision</text>
+  </g>
+
+  <!-- the manager, in miniature -->
+  <g transform="translate(0,-15)">
+  <rect x="676" y="110" width="452" height="440" rx="18" fill="#14171d" stroke="#272c36" stroke-width="1.5"/>
+  <g clip-path="url(#card)">
+    <rect x="696" y="128" width="24" height="24" rx="7" fill="#5c8dff"/>
+    <rect x="701" y="134" width="14" height="5" rx="1.6" fill="#ffffff" opacity="0.85"/>
+    <rect x="701" y="142" width="14" height="5" rx="1.6" fill="#ffffff" opacity="0.5"/>
+    <text x="732" y="146" class="f" font-size="14" font-weight="600" fill="#e8ebf0">ChromiumStack</text>
+    <text x="1108" y="146" text-anchor="end" class="m" font-size="11.5" fill="#6e7889">darwin/arm64 · Mac_Arm</text>
+    <line x1="676" y1="170" x2="1128" y2="170" stroke="#272c36" stroke-width="1"/>
+
+    <!-- installed, idle -->
+    <rect x="694" y="182" width="416" height="56" rx="12" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
+    <circle cx="720" cy="210" r="5" fill="#3fbd7d"/>
+    <text x="748" y="207" class="f name">Chromium 130</text>
+    <text x="748" y="225" class="m sub">130.0.6723.0 · native arm64</text>
+    <rect x="986" y="194" width="104" height="32" rx="9" fill="#5c8dff"/>
+    <text x="1038" y="215" text-anchor="middle" class="f pill" fill="#ffffff">Launch</text>
+
+    <!-- downloading, with its progress -->
+    <rect x="694" y="246" width="416" height="56" rx="12" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
+    <circle cx="720" cy="274" r="5" fill="#5c8dff"/>
+    <text x="748" y="271" class="f name">Chromium 120</text>
+    <text x="748" y="289" class="m sub">downloading · 100 MB of 232 MB</text>
+    <text x="1090" y="269" text-anchor="end" class="m" font-size="11.5" fill="#a3adbd">43%</text>
+    <rect x="966" y="279" width="124" height="7" rx="3.5" fill="#272c36"/>
+    <rect x="966" y="279" width="53" height="7" rx="3.5" fill="#5c8dff"/>
+
+    <!-- running -->
+    <rect x="694" y="310" width="416" height="56" rx="12" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
+    <circle cx="720" cy="338" r="5" fill="#5c8dff"/>
+    <text x="748" y="335" class="f name">Chromium 105</text>
+    <text x="748" y="353" class="m sub">r1027019 · running · 214 MB</text>
+    <rect x="986" y="322" width="104" height="32" rx="9" fill="none" stroke="#e0a03c" stroke-width="1.3"/>
+    <text x="1038" y="343" text-anchor="middle" class="f pill" fill="#e0a03c">Stop</text>
+
+    <!-- installed, idle -->
+    <rect x="694" y="374" width="416" height="56" rx="12" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
+    <circle cx="720" cy="402" r="5" fill="#3fbd7d"/>
+    <text x="748" y="399" class="f name">Chromium 74</text>
+    <text x="748" y="417" class="m sub">r638880 · no flexbox gap · 192 MB</text>
+    <rect x="986" y="386" width="104" height="32" rx="9" fill="#5c8dff"/>
+    <text x="1038" y="407" text-anchor="middle" class="f pill" fill="#ffffff">Launch</text>
+
+    <!-- not installed yet -->
+    <rect x="694" y="438" width="416" height="56" rx="12" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
+    <circle cx="720" cy="466" r="5" fill="#6e7889"/>
+    <text x="748" y="463" class="f name">Chromium 60</text>
+    <text x="748" y="481" class="m sub">r474901 · not installed</text>
+    <rect x="986" y="450" width="104" height="32" rx="9" fill="#ffffff" opacity="0.06"/>
+    <text x="1038" y="471" text-anchor="middle" class="f pill" fill="#a3adbd">Get</text>
+
+    <text x="694" y="524" class="m" font-size="11.5" fill="#6e7889">Files in ~/.chromium-stack</text>
+    <text x="1110" y="524" text-anchor="end" class="m" font-size="11.5" fill="#6e7889">1.18 GB on disk</text>
+  </g>
+  </g>
+</svg>
