@@ -94,6 +94,15 @@ details[open] [data-chev]{transform:rotate(45deg)}
 @keyframes caret{0%,49%{opacity:1}50%,100%{opacity:0}}
 @keyframes pulse{50%{opacity:.3}}
 @keyframes glowdrift{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(4%,-3%) scale(1.08)}}
+/* ---------- the same window, dark and light ----------
+   Two identical captures stacked; only the top one animates. The dark frame is
+   what shows at rest, so with animation off the shot still matches the page's
+   own default theme. */
+.shot-swap{position:relative}
+.shot-swap picture{display:block}
+.shot-swap .shot-top{position:absolute;inset:0;animation:shotSwap 16s ease-in-out infinite}
+@keyframes shotSwap{0%,42%{opacity:1}50%,92%{opacity:0}100%{opacity:1}}
+
 /* ---------- the sixty-seconds demo ----------
    One 11s CSS loop drives the whole thing: the three step cards light up in
    turn, the cursor presses Get, the row downloads, then the browser opens.
@@ -227,7 +236,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
       "downloadUrl": "https://github.com/1m93/Chromium-Stack/releases/latest",
       "installUrl": "https://github.com/1m93/Chromium-Stack/releases/latest",
       "softwareHelp": "https://1m93.github.io/Chromium-Stack/#start",
-      "screenshot": "https://1m93.github.io/Chromium-Stack/assets/screenshot-manager.png?v=2",
+      "screenshot": "https://1m93.github.io/Chromium-Stack/assets/screenshot-jobs.png?v=3",
       "image": "https://1m93.github.io/Chromium-Stack/assets/og-image.png?v=2",
       "isAccessibleForFree": true,
       "offers": {
@@ -552,17 +561,7 @@ details[open] [data-chev]{transform:rotate(45deg)}
     </figure>
   </div>
 
-  <figure data-reveal style="margin:52px 0 0">
-    <div style="border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
-      <picture>
-        <source srcset="assets/screenshot-manager.webp?v=2" type="image/webp">
-        <img src="assets/screenshot-manager.png?v=2" width="2800" height="1520" loading="lazy" decoding="async" alt="The ChromiumStack manager: every catalogued Chromium milestone grouped by era, five of them installed, Chromium 74 running, each row showing its revision, the features it does and does not have, and what it costs in disk" style="display:block;width:100%;height:auto" />
-      </picture>
-    </div>
-    <figcaption style="margin-top:14px;font-size:13px;line-height:1.6;color:var(--ink-3);max-width:80ch;text-wrap:pretty">Every catalogued milestone on one page, grouped by what it is useful for — which are installed, which run natively, which go through Rosetta, what each is costing you in disk, and one button to open any of them.</figcaption>
-  </figure>
-
-  <div data-reveal style="display:flex;gap:14px;margin-top:26px;padding:18px 20px;border:1px solid color-mix(in srgb,var(--ok) 40%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--ok) 7%,var(--panel))">
+  <div data-reveal style="display:flex;gap:14px;margin-top:34px;padding:18px 20px;border:1px solid color-mix(in srgb,var(--ok) 40%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--ok) 7%,var(--panel))">
     <span style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ok);padding-top:2px;display:inline-flex;align-items:center;gap:7px"><svg class="ic" aria-hidden="true"><use href="#i-bulb"/></svg><span>Tip</span></span>
     <p style="margin:0;font-size:14.5px;line-height:1.62;color:var(--ink-2)">Type a URL in the box at the top of the manager and <strong style="color:var(--ink);font-weight:600">every</strong> version you launch opens straight to it. <code style="font-family:var(--mono);font-size:13px;color:var(--ink)">localhost:4173</code> is fine — it is the fastest way to compare four engines on the same page.</p>
   </div>
@@ -574,36 +573,19 @@ details[open] [data-chev]{transform:rotate(45deg)}
     <h2 data-reveal style="margin:14px 0 0;max-width:34ch;font-size:clamp(26px,3.2vw,38px);line-height:1.14;letter-spacing:-.028em;font-weight:660;text-wrap:balance">Three versions in flight, one window.</h2>
     <p data-reveal style="margin:16px 0 0;max-width:58ch;font-size:16px;line-height:1.65;color:var(--ink-2)">Downloads, launches, profile resets and Docker containers all report into the same strip along the bottom — and the log remembers every one of them.</p>
 
-    <figure data-reveal style="margin:44px 0 0">
-      <div style="border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
+    <figure data-reveal data-demo style="margin:44px 0 0">
+      <div class="shot-swap" style="border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
         <picture>
-          <source srcset="assets/screenshot-jobs.webp?v=2" type="image/webp">
-          <img src="assets/screenshot-jobs.png?v=2" width="2800" height="1520" loading="lazy" decoding="async" alt="Three jobs running at once: Chromium 105 downloading at 43 percent with 100 MB of 232 MB transferred and 16 seconds left, two other versions already open, and the job log switching between all three" style="display:block;width:100%;height:auto" />
+          <source srcset="assets/screenshot-jobs-light.webp?v=2" type="image/webp">
+          <img src="assets/screenshot-jobs-light.png?v=2" width="2800" height="1520" loading="lazy" decoding="async" alt="The same window in the light theme" style="display:block;width:100%;height:auto" />
+        </picture>
+        <picture class="shot-top">
+          <source srcset="assets/screenshot-jobs.webp?v=3" type="image/webp">
+          <img src="assets/screenshot-jobs.png?v=3" width="2800" height="1520" loading="lazy" decoding="async" alt="Three jobs running at once: Chromium 105 downloading at 43 percent with 100 MB of 232 MB transferred and 16 seconds left, two other versions already open, and the job log switching between all three" style="display:block;width:100%;height:100%;object-fit:cover" />
         </picture>
       </div>
-      <figcaption style="margin-top:14px;font-size:13px;line-height:1.6;color:var(--ink-3);max-width:80ch;text-wrap:pretty">One version downloading, two already open. The download shows the bytes and the time left rather than a spinner, the log keeps a tab per job, and the bar at the bottom follows whichever one you picked.</figcaption>
+      <figcaption style="margin-top:14px;font-size:13px;line-height:1.6;color:var(--ink-3);text-wrap:pretty">One version downloading, two already open. The download shows the bytes and the time left rather than a spinner, the log keeps a tab per job, and the bar at the bottom follows whichever one you picked. The window follows your system theme — or pin it light or dark from the header, as it is doing here.</figcaption>
     </figure>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:26px;margin-top:34px">
-      <figure data-reveal style="margin:0">
-        <div style="border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
-          <picture>
-            <source srcset="assets/screenshot-light.webp?v=2" type="image/webp">
-            <img src="assets/screenshot-light.png?v=2" width="1600" height="869" loading="lazy" decoding="async" alt="The same version shelf in the light theme" style="display:block;width:100%;height:auto" />
-          </picture>
-        </div>
-        <figcaption style="margin-top:12px;font-size:13px;line-height:1.6;color:var(--ink-3);text-wrap:pretty">Follows your system theme, or pin it light or dark from the header.</figcaption>
-      </figure>
-      <figure data-reveal style="margin:0">
-        <div style="border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)">
-          <picture>
-            <source srcset="assets/screenshot-check.webp?v=2" type="image/webp">
-            <img src="assets/screenshot-check.png?v=2" width="1600" height="869" loading="lazy" decoding="async" alt="The system check panel listing curl, Python 3 and Rosetta 2 as present and Docker as missing, with the exact install command and an Install button beside it" style="display:block;width:100%;height:auto" />
-          </picture>
-        </div>
-        <figcaption style="margin-top:12px;font-size:13px;line-height:1.6;color:var(--ink-3);text-wrap:pretty">It says what is missing, why it matters, and runs the install for you. Only a genuine blocker interrupts you on the way in.</figcaption>
-      </figure>
-    </div>
   </div>
 </section>
 
@@ -1029,15 +1011,14 @@ details[open] [data-chev]{transform:rotate(45deg)}
 
   /* ---------- the sixty-seconds demo ---------- */
   // The loop is CSS; all this does is stop it burning cycles off screen.
-  const demo = document.querySelector('[data-demo]');
-  if (demo) {
-    if (reduced || !('IntersectionObserver' in window)) {
-      demo.removeAttribute('data-play');          // the still frame is the point
-    } else {
-      new IntersectionObserver(entries => {
-        entries.forEach(e => e.target.toggleAttribute('data-play', e.isIntersecting));
-      }, {rootMargin: '15% 0px'}).observe(demo);
-    }
+  const loops = document.querySelectorAll('[data-demo]');
+  if (reduced || !('IntersectionObserver' in window)) {
+    loops.forEach(el => el.removeAttribute('data-play'));   // the still frame is the point
+  } else {
+    const io2 = new IntersectionObserver(entries => {
+      entries.forEach(e => e.target.toggleAttribute('data-play', e.isIntersecting));
+    }, {rootMargin: '15% 0px'});
+    loops.forEach(el => io2.observe(el));
   }
 
   /* ---------- hero counters ---------- */
