@@ -136,6 +136,41 @@ cache_add() {           # rows on stdin
   mv "$tmp" "$CACHE" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
+# Some milestones will not start natively on some versions of macOS at all. On
+# macOS 26, Chromium 120 dies with SIGSEGV before a window appears - and so does
+# the x86_64 build of the same milestone under Rosetta, within seconds, at random.
+# Measured, not assumed: both were tried.
+#
+# So there is no second native build to fall back to, and offering to download
+# one would cost 136 MB to fail again. What does work is the container - it runs
+# the Linux build and never touches Rosetta - so that is what gets suggested.
+#
+# Recorded the first time it happens, and keyed by macOS major version as well as
+# milestone: an OS upgrade can fix or break this, and either way the answer
+# should be found again rather than inherited.
+ARCH_CACHE="$ROOT/arch-fallback.cache"
+
+host_os_major() { sw_vers -productVersion 2>/dev/null | cut -d. -f1; }
+
+native_known_bad() {    # milestone
+  [ -f "$ARCH_CACHE" ] || return 1
+  grep -qx "$(host_os_major)	$1" "$ARCH_CACHE" 2>/dev/null
+}
+
+remember_native_bad() {
+  native_known_bad "$1" && return 0
+  printf '%s\t%s\n' "$(host_os_major)" "$1" >> "$ARCH_CACHE" 2>/dev/null || true
+}
+
+# Said in both places this can be discovered: before a launch that is already
+# known to fail, and after one that just did.
+suggest_container() {   # milestone
+  warn "Chromium $1 does not start natively on macOS $(host_os_major) - neither the"
+  warn "arm64 build nor the x86_64 one under Rosetta, which crashes at random."
+  warn "The container runs the Linux build and never touches Rosetta:"
+  warn "    ./engineshelf-docker.sh start $1"
+}
+
 cache_has() {           # milestone -> is it in the cache rather than the catalog
   [ -f "$CACHE" ] || return 1
   awk -F'\t' -v m="$1" '$1=="B" && $2==m {found=1} END {exit !found}' "$CACHE"
@@ -734,6 +769,64 @@ cmd_clean() {
   info "${GRN}v${RST} Profile reset for $(engine_display "$SEL_ENGINE") $SEL_VERSION."
 }
 
+# Everything the launch needs, in globals, because a shell function cannot
+# return an array - and this has to be recomputed if the browser turns out not
+# to run and a different build is chosen instead.
+prepare_launch() {
+  local want_gpu="$1" window_size="$2" line gpu
+  LAUNCH_BINARY="$(binary_path "$SEL_KEY" "$SEL_ROOT" "$SEL_PLATFORM" "$SEL_ENGINE")"
+  LAUNCH_PROFILE="$(profile_dir "$SEL_KEY")"
+  LAUNCH_LOG="$(log_file "$SEL_KEY")"
+  mkdir -p "$LAUNCH_PROFILE" "$LOGS_DIR"
+  engine_prepare_profile "$SEL_ENGINE" "$LAUNCH_PROFILE"
+
+  # The flags that isolate the profile and disable the updater are the engine's
+  # own answer: Chromium and Edge take --user-data-dir, Firefox takes -profile,
+  # and the WebKit MiniBrowser takes neither.
+  # `[ -n "$line" ] && ...` would leave the loop's exit status at 1 whenever the
+  # last line is blank - which it always is, a command substitution ends with a
+  # newline - and `set -e` then kills the script here without printing anything.
+  LAUNCH_ARGS=()
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    LAUNCH_ARGS+=("$line")
+  done <<ARGS
+$(engine_launch_args "$SEL_ENGINE" "$LAUNCH_PROFILE")
+ARGS
+
+  # Under Rosetta, Chromium's GPU process cannot read the system memory size
+  # from the Apple AGX driver, crashes, and takes the browser with it. Software
+  # rendering removes that entirely. Native arm64 and Linux builds are fine, so
+  # they keep hardware acceleration unless asked otherwise.
+  gpu="$want_gpu"
+  if [ -z "$gpu" ]; then
+    if [ "$SEL_PLATFORM" = "Mac" ] && [ "$(uname -m)" = "arm64" ]; then gpu=0; else gpu=1; fi
+  fi
+
+  # These are all Chromium switches. Firefox has no equivalent worth forcing,
+  # and an unknown -flag opens a dialog rather than being ignored.
+  case "$SEL_ENGINE" in
+    chromium|edge)
+      [ "$gpu" -eq 0 ] && LAUNCH_ARGS+=(--disable-gpu)
+      [ -n "$window_size" ] && LAUNCH_ARGS+=("--window-size=${window_size/x/,}")
+      # The setuid sandbox in these builds does not survive modern
+      # kernels/AppArmor.
+      case "$SEL_PLATFORM" in
+        Linux_x64) LAUNCH_ARGS+=(--no-sandbox --test-type) ;;
+      esac ;;
+    firefox)
+      [ -n "$window_size" ] && LAUNCH_ARGS+=(-width "${window_size%%x*}" -height "${window_size##*x}") ;;
+  esac
+
+  LAUNCH_ENV=()
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    LAUNCH_ENV+=("$line")
+  done <<ENVV
+$(engine_launch_env "$SEL_ENGINE" "$(build_dir "$SEL_KEY")")
+ENVV
+}
+
 cmd_run() {
   local url="" window_size="" use_gpu="" auto_restart=1 max_restarts=5
   local selector="" extra_args=()
@@ -752,14 +845,14 @@ cmd_run() {
   done
 
   resolve_selector "$selector"
+  # Warned before the download, not after: this is already known to fail here.
+  if [ "$SEL_ENGINE" = "chromium" ] && [ -n "$SEL_MILESTONE" ] \
+     && native_known_bad "$SEL_MILESTONE"; then
+    suggest_container "$SEL_MILESTONE"
+    info ""
+  fi
   install_build
-
-  local binary profile log
-  binary="$(binary_path "$SEL_KEY" "$SEL_ROOT" "$SEL_PLATFORM" "$SEL_ENGINE")"
-  profile="$(profile_dir "$SEL_KEY")"
-  log="$(log_file "$SEL_KEY")"
-  mkdir -p "$profile" "$LOGS_DIR"
-  engine_prepare_profile "$SEL_ENGINE" "$profile"
+  prepare_launch "$use_gpu" "$window_size"
 
   # Bare host:port typed by hand - be forgiving.
   if [ -n "$url" ]; then
@@ -774,93 +867,72 @@ cmd_run() {
     warn "If the browser fails to start, run: softwareupdate --install-rosetta"
   fi
 
-  # The flags that isolate the profile and disable the updater are the engine's
-  # own answer: Chromium and Edge take --user-data-dir, Firefox takes -profile,
-  # and the WebKit MiniBrowser takes neither.
-  local args=()
-  while IFS= read -r line; do
-    [ -n "$line" ] && args+=("$line")
-  done <<ARGS
-$(engine_launch_args "$SEL_ENGINE" "$profile")
-ARGS
-
-  # Under Rosetta, Chromium's GPU process cannot read the system memory size from
-  # the Apple AGX driver, crashes, and takes the browser with it. Software
-  # rendering removes that entirely. Native arm64 and Linux builds are fine, so
-  # they keep hardware acceleration unless asked otherwise.
-  if [ -z "$use_gpu" ]; then
-    if [ "$SEL_PLATFORM" = "Mac" ] && [ "$(uname -m)" = "arm64" ]; then use_gpu=0; else use_gpu=1; fi
-  fi
-  # These are all Chromium switches. Firefox has no equivalent worth forcing,
-  # and passing an unknown -flag to it opens a dialog instead of being ignored.
-  case "$SEL_ENGINE" in
-    chromium|edge)
-      [ "$use_gpu" -eq 0 ] && args+=(--disable-gpu)
-      [ -n "$window_size" ] && args+=("--window-size=${window_size/x/,}")
-      # The setuid sandbox in these builds does not survive modern
-      # kernels/AppArmor.
-      case "$SEL_PLATFORM" in
-        Linux_x64) args+=(--no-sandbox --test-type) ;;
-      esac ;;
-    firefox)
-      [ -n "$window_size" ] && args+=(-width "${window_size%%x*}" -height "${window_size##*x}") ;;
-  esac
-
+  local label
+  label="$(engine_display "$SEL_ENGINE") $SEL_VERSION"
   info ""
-  info "  ${GRN}>${RST} ${B}$(engine_display "$SEL_ENGINE") $SEL_VERSION${RST} ${DIM}($SEL_PLATFORM)${RST}"
+  info "  ${GRN}>${RST} ${B}$label${RST} ${DIM}($SEL_PLATFORM)${RST}"
   if [ -n "$url" ]; then
     info "  ${GRN}>${RST} $url"
   else
     info "  ${DIM}Use the address bar to go anywhere.${RST}"
   fi
-  info "  ${DIM}Profile: $profile${RST}"
-  info "  ${DIM}Log: $log${RST}"
+  info "  ${DIM}Profile: $LAUNCH_PROFILE${RST}"
+  info "  ${DIM}Log: $LAUNCH_LOG${RST}"
   info ""
 
   # Chromium's stack sampling profiler walks thread stacks with libunwind. Under
   # Rosetta that unwinder occasionally segfaults on a synthesised x86 frame and
   # kills the browser - random, with no flag to disable it in an unbranded build.
   # Relaunch and let Chromium restore the tabs rather than handing that to QA.
-  local attempt=0 fast_crashes=0 started status ran
+  local attempt=0 fast_crashes=0 started status ran noted_bad=0
   local launch_args=("$url")
   [ -z "$url" ] && launch_args=()
-
-  local env_args=()
-  while IFS= read -r line; do
-    [ -n "$line" ] && env_args+=("$line")
-  done <<ENVV
-$(engine_launch_env "$SEL_ENGINE" "$(build_dir "$SEL_KEY")")
-ENVV
 
   while :; do
     started=$(date +%s)
     set +e
-    env "${env_args[@]+"${env_args[@]}"}" \
-      "$binary" "${args[@]+"${args[@]}"}" "${extra_args[@]+"${extra_args[@]}"}" \
-      "${launch_args[@]+"${launch_args[@]}"}" >>"$log" 2>&1
+    env "${LAUNCH_ENV[@]+"${LAUNCH_ENV[@]}"}" \
+      "$LAUNCH_BINARY" "${LAUNCH_ARGS[@]+"${LAUNCH_ARGS[@]}"}" \
+      "${extra_args[@]+"${extra_args[@]}"}" \
+      "${launch_args[@]+"${launch_args[@]}"}" >>"$LAUNCH_LOG" 2>&1
     status=$?
     set -e
 
     [ "$status" -eq 0 ] && break
-
     ran=$(( $(date +%s) - started ))
+
+    # Dying before a window appears, on macOS, is the version-against-OS failure
+    # rather than a flaky run. Record it so the next launch says so up front, and
+    # name the way that does work instead of retrying into the same wall.
+    if [ "$ran" -lt 5 ] && [ "$noted_bad" -eq 0 ] && [ "$SEL_ENGINE" = "chromium" ] \
+       && [ "$(uname -s)" = "Darwin" ] && [ -n "$SEL_MILESTONE" ] \
+       && [ "$SEL_MILESTONE" != "?" ]; then
+      noted_bad=1
+      remember_native_bad "$SEL_MILESTONE"
+      suggest_container "$SEL_MILESTONE"
+    fi
+
     if [ "$auto_restart" -eq 0 ]; then
-      warn "Chromium exited with status $status after ${ran}s. Last lines of $log:"
-      tail -n 15 "$log" >&2 || true
+      warn "$label exited with status $status after ${ran}s. Last lines of $LAUNCH_LOG:"
+      tail -n 15 "$LAUNCH_LOG" >&2 || true
       exit "$status"
     fi
 
     attempt=$((attempt + 1))
     if [ "$ran" -lt 5 ]; then fast_crashes=$((fast_crashes + 1)); else fast_crashes=0; fi
     if [ "$fast_crashes" -ge 3 ] || [ "$attempt" -gt "$max_restarts" ]; then
-      warn "Chromium crashed after ${ran}s (status $status), giving up after $attempt attempt(s)."
-      warn "Last lines of $log:"
-      tail -n 15 "$log" >&2 || true
+      warn "$label crashed after ${ran}s (status $status), giving up after $attempt attempt(s)."
+      warn "Last lines of $LAUNCH_LOG:"
+      tail -n 15 "$LAUNCH_LOG" >&2 || true
       exit "$status"
     fi
 
-    warn "Chromium crashed after ${ran}s - restarting and restoring your tabs ($attempt/$max_restarts)."
-    launch_args=(--restore-last-session)
+    warn "$label crashed after ${ran}s - restarting ($attempt/$max_restarts)."
+    # Restoring the session is a Chromium switch; Firefox does it by itself and
+    # would show an unknown-argument dialog instead.
+    case "$SEL_ENGINE" in
+      chromium|edge) launch_args=(--restore-last-session) ;;
+    esac
   done
 }
 
