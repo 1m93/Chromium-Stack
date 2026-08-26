@@ -128,10 +128,10 @@
             <div id="eras"></div>
           </div>
 
-          <!-- The matrix has no filters and no eras, and hiding both left the
-               sidebar as an empty column. This is what belongs there instead:
-               how much of each engine is on this machine. -->
-          <div class="side-group" id="engines-group" hidden>
+          <!-- Four engines share one shelf, so this is a filter in the list -
+               most of the time you are after one of them. The matrix has nothing
+               to filter, so there it reads out how much of each is on disk. -->
+          <div class="side-group" id="engines-group">
             <div class="side-title">Engines</div>
             <div id="engine-list"></div>
           </div>
@@ -175,7 +175,7 @@
               <input
                 type="text"
                 id="query"
-                placeholder="Filter by version, revision or feature"
+                placeholder="Filter by engine, version or feature"
                 autocomplete="off"
                 spellcheck="false"
               />
@@ -189,11 +189,11 @@
                  numbers line up, so the matrix compares them by year instead.
                  The list stays for filtering and for the per-row actions. -->
             <div class="viewswitch" role="group" aria-label="View">
-              <button class="btn viewbtn" id="view-matrix" aria-pressed="false">
-                <span class="control-icon" data-icon="grid"></span>By year
-              </button>
               <button class="btn viewbtn" id="view-list" aria-pressed="true">
                 <span class="control-icon" data-icon="rows"></span>List
+              </button>
+              <button class="btn viewbtn" id="view-matrix" aria-pressed="false">
+                <span class="control-icon" data-icon="grid"></span>By year
               </button>
             </div>
             <span class="sort-label">Sort</span>
@@ -308,6 +308,7 @@
     <template id="row-template">
       <article class="row">
         <span class="dot" data-dot></span>
+        <span data-engine></span>
         <div class="row-id">
           <div class="row-title" data-title></div>
           <div class="row-rev mono" data-rev></div>

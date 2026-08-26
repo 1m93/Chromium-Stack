@@ -203,9 +203,9 @@ def read_shelf():
 def installed_by_key():
     """Every installed build, keyed by its directory name, whatever the engine.
 
-    installed_builds() below stays as it was - numeric, Chromium-only - because
-    the Docker bookkeeping is built on revisions and reads it. This is the view
-    that can see all four engines.
+    The directory name is the identity the CLI writes and the one Docker tags
+    its images with, so this single lookup answers "is it on disk" for all four
+    engines. It replaced a numeric, Chromium-only version of the same walk.
     """
     builds = {}
     base = os.path.join(root_dir(), "builds")
@@ -289,29 +289,6 @@ def read_meta(path):
     except OSError:
         return {}
     return meta
-
-
-def installed_builds():
-    builds = {}
-    base = os.path.join(root_dir(), "builds")
-    if not os.path.isdir(base):
-        return builds
-    for name in os.listdir(base):
-        path = os.path.join(base, name)
-        if not name.isdigit() or not os.path.exists(os.path.join(path, ".complete")):
-            continue
-        meta = read_meta(os.path.join(path, ".meta"))
-        builds[int(name)] = {
-            "revision": int(name),
-            "path": path,
-            "version": meta.get("META_VERSION") or f"r{name}",
-            "platformDir": meta.get("META_PLATFORM") or "?",
-            "milestone": meta.get("META_MILESTONE") or "?",
-            "installedAt": meta.get("META_INSTALLED") or "",
-            "sizeBytes": dir_size(path),
-            "profileBytes": dir_size(os.path.join(root_dir(), "profiles", name)),
-        }
-    return builds
 
 
 # The names engineshelf-docker.sh gives the things it creates. The manager
@@ -463,7 +440,7 @@ def docker_status():
     return value
 
 
-def docker_row(revision, status):
+def docker_row(revision, status, selector=None):
     """The Docker side of one shelf row, or None if there is nothing to offer.
 
     A container always runs the Linux x86_64 build, so its revision is not the
@@ -475,6 +452,10 @@ def docker_row(revision, status):
     entry = status["byRevision"].get(str(revision), {})
     return {
         "revision": revision,
+        # What to post back to run or stop this container. For Chromium that is
+        # the Linux revision the image is built from; for WebKit the row's own
+        # selector, which resolves to the same revision on both sides.
+        "selector": selector if selector is not None else str(revision),
         "imageBytes": entry.get("imageBytes", 0),
         "profileBytes": entry.get("profileBytes", 0),
         "state": entry.get("state"),
@@ -531,138 +512,181 @@ def milestone_of(revision, builds):
     return None
 
 
-def chromium_cell(milestone, builds, hosts):
-    """(directory name, is it offerable) for a Chromium milestone on this host.
-
-    Chromium is the one engine whose on-disk name is not derived from its version:
-    it is the snapshot revision, and which revision depends on which platform this
-    machine can run.
-
-    The distinction that matters here is unknown versus unavailable. B rows exist
-    only for the curated milestones the catalog ships; the other seventy are
-    resolved against the live archive the first time one is launched. So a
-    milestone with no B row has no key yet - it cannot be reported as installed -
-    but it is perfectly launchable, and marking it unavailable took most of the
-    shelf off the page.
-    """
-    available = builds.get(milestone)
-    if not available:
-        return None, True
-    for host in hosts:
-        if host in available:
-            return str(available[host]["revision"]), True
-    return None, False              # catalogued, but not built for this host
+# The matrix draws a label, a size and a click target, and nothing else. Sending
+# whole rows would put all 288 of them in the state document twice.
+_CELL_FIELDS = ("engine", "label", "id", "date", "selector", "key",
+                "supported", "installed", "sizeBytes", "profileBytes")
 
 
-def build_matrix(installed, builds, hosts):
-    """The shelf as years x engines, which is how the page draws it.
+def build_matrix(rows):
+    """The shelf as years x engines, which is the other way the page draws it.
 
     Version numbering does not line up across engines - Chromium 120, Firefox
     121, Edge 120 and WebKit 17.4 are contemporaries and none of those numbers
     say so - so release date is the only axis on which they can be compared. A
     year holds the newest release of each engine, with the rest of that year
     behind it: the shelf is ~290 releases, and a flat list of that is unreadable.
+
+    Grouped from the rows the list already built rather than re-derived from the
+    S rows. Deriving it twice is what let the two views disagree - the matrix
+    knew about four engines while the list showed Chromium alone.
     """
-    shelf = read_shelf()
-    years, cells = set(), {}
+    cells = {}
+    for row in rows:
+        if row["year"] is None:
+            continue
+        cells.setdefault(row["year"], {}).setdefault(row["engine"], []).append(row)
 
-    for engine, releases in shelf.items():
-        for release in releases:                # already newest-first
-            if engine == "chromium":
-                key, supported = chromium_cell(int(release["id"]), builds, hosts)
-            else:
-                # Every other engine names its build after its own version, so
-                # the key is known before anything is resolved. Whether the
-                # vendor still publishes it is settled at launch.
-                key, supported = "%s-%s" % (engine, release["id"]), True
-            local = installed.get(key) if key else None
-            entry = {
-                "engine": engine,
-                "label": release["label"],
-                "id": release["id"],
-                "date": release["date"],
-                # What to post back. The id, not the label: two WebKit builds
-                # are both called 26.5 and only the id says which.
-                "selector": "%s:%s" % (engine, release["id"]),
-                "key": key,
-                # False only when the catalog positively says this host has no
-                # build - not merely when nothing has resolved one yet.
-                "supported": supported,
-                "installed": local is not None,
-                "sizeBytes": local["sizeBytes"] if local else 0,
-                "profileBytes": local["profileBytes"] if local else 0,
-            }
-            years.add(release["year"])
-            cells.setdefault(release["year"], {}).setdefault(engine, []).append(entry)
-
-    rows = []
-    for year in sorted(years, reverse=True):
-        row = {"year": year, "cells": {}}
+    matrix = []
+    for year in sorted(cells, reverse=True):
+        line = {"year": year, "cells": {}}
         for engine in ENGINES:
-            bucket = cells.get(year, {}).get(engine) or []
+            bucket = sorted(cells[year].get(engine) or [],
+                            key=lambda r: r["date"], reverse=True)
             if not bucket:
-                row["cells"][engine] = None
+                line["cells"][engine] = None
                 continue
             # An installed build is what someone opening the manager is looking
             # for, so it leads its year even when it is not the newest.
-            lead = next((e for e in bucket if e["installed"]), bucket[0])
-            others = [e for e in bucket if e is not lead]
-            row["cells"][engine] = dict(lead, others=others,
-                                        installedCount=sum(1 for e in bucket
-                                                           if e["installed"]))
-        rows.append(row)
-    return rows
+            lead = next((r for r in bucket if r["installed"]), bucket[0])
+            line["cells"][engine] = dict(
+                {f: lead[f] for f in _CELL_FIELDS},
+                others=[{f: r[f] for f in _CELL_FIELDS}
+                        for r in bucket if r is not lead],
+                installedCount=sum(1 for r in bucket if r["installed"]),
+            )
+        matrix.append(line)
+    return matrix
+
+
+def shelf_row(engine, release, installed, builds, hosts, notes, docker):
+    """One release, in the shape the list draws.
+
+    The matrix and the list are two views of the same shelf, so both are built
+    from the S rows. What the list adds is everything needed to act on a row -
+    the platform a build would come from, the Docker side, the curated note
+    where there is one - because the list is where the buttons live.
+    """
+    ident = release["id"]
+    row = {
+        "engine": engine,
+        "id": ident,
+        "label": release["label"],
+        "year": release["year"],
+        "date": release["date"],
+        "note": "",
+        "milestone": None,
+        "revision": None,
+        "docker": None,
+        "native": True,
+    }
+
+    if engine == "chromium":
+        milestone = int(ident)
+        available = builds.get(milestone, {})
+        chosen = next((p for p in hosts if p in available), None)
+        curated = notes.get(milestone) or {}
+        row["milestone"] = milestone
+        # Only twenty-odd milestones carry a hand-written note naming the
+        # features that land there. The rest are shelf stock: real releases with
+        # nothing to say about them beyond when they shipped.
+        row["note"] = curated.get("note", "")
+        row["version"] = curated.get("version") or release["label"]
+        row["platformDir"] = chosen
+        # Unknown is not unavailable. B rows exist only for the catalogued
+        # milestones; every other one is resolved against the live archive on
+        # first launch, so no B row means no key yet - not no build.
+        row["supported"] = chosen is not None or not available
+        row["native"] = chosen != "Mac" or platform.machine() != "arm64"
+        row["docker"] = docker_row(linux_revision(milestone, builds), docker)
+        if chosen:
+            row["revision"] = available[chosen]["revision"]
+            # The revision is what a Chromium build directory has always been
+            # named and what the launcher has always been given, so it stays
+            # both the key and the selector.
+            row["key"] = row["selector"] = str(row["revision"])
+        else:
+            row["key"] = None
+            row["selector"] = str(milestone)
+    else:
+        row["version"] = ident
+        row["key"] = "%s-%s" % (engine, ident)
+        # The id, not the label: two WebKit builds are both called 26.5 and only
+        # the id says which one this is.
+        row["selector"] = "%s:%s" % (engine, ident)
+        # Which platform a build comes from is settled against the vendor's own
+        # index at launch time, so until then there is nothing honest to print.
+        row["platformDir"] = None
+        row["supported"] = True
+        # WebKit is the other engine with a container, and its image is tagged
+        # with the same key its build directory uses - so the row can see it.
+        if engine == "webkit":
+            row["docker"] = docker_row(row["key"], docker, row["selector"])
+
+    local = installed.get(row["key"]) if row["key"] else None
+    row["installed"] = local is not None
+    row["sizeBytes"] = local["sizeBytes"] if local else 0
+    row["profileBytes"] = local["profileBytes"] if local else 0
+    row["installedAt"] = local["installedAt"] if local else ""
+    # Once it is downloaded the platform is no longer a guess.
+    if local and local.get("platformDir") and local["platformDir"] != "?":
+        row["platformDir"] = local["platformDir"]
+    return row
 
 
 def build_state():
     versions, builds = read_catalog()
     hosts = host_platforms()
-    installed = installed_builds()
     docker = docker_status()
-    catalogued = set()
+    # Keyed by directory name rather than by revision, which is what lets one
+    # lookup serve all four engines.
+    everything = installed_by_key()
+    notes = {entry["milestone"]: entry for entry in versions}
+
+    # The list used to be the V rows and nothing else - twenty-one curated
+    # Chromium milestones - so it showed Chromium alone while the matrix beside
+    # it showed four engines. Same shelf, same rows, one source.
     rows = []
+    for engine, releases in read_shelf().items():
+        for release in releases:
+            rows.append(shelf_row(engine, release, everything, builds, hosts,
+                                  notes, docker))
+    # Newest first across engines. A release date is the only ordering four
+    # numbering schemes share; the page re-sorts, this just makes the default sane.
+    rows.sort(key=lambda r: r["date"], reverse=True)
 
-    for entry in versions:
-        milestone = entry["milestone"]
-        available = builds.get(milestone, {})
-        chosen_platform = next((p for p in hosts if p in available), None)
-        row = dict(entry)
-        row["platformDir"] = chosen_platform
-        row["supported"] = chosen_platform is not None
-        row["native"] = chosen_platform != "Mac" or platform.machine() != "arm64"
-        row["docker"] = docker_row(linux_revision(milestone, builds), docker)
-        if chosen_platform:
-            build = available[chosen_platform]
-            row["revision"] = build["revision"]
-            catalogued.add(build["revision"])
-            local = installed.get(build["revision"])
-            row["installed"] = local is not None
-            row["sizeBytes"] = local["sizeBytes"] if local else 0
-            row["profileBytes"] = local["profileBytes"] if local else 0
-            row["installedAt"] = local["installedAt"] if local else ""
-        else:
-            row["revision"] = None
-            row["installed"] = False
-            row["sizeBytes"] = row["profileBytes"] = 0
-            row["installedAt"] = ""
-        rows.append(row)
-
-    # Builds installed by raw revision that no catalogue row claims. A container
-    # for one of these still runs the Linux build of whatever milestone it
-    # belongs to, so it is looked up the same way the launcher looks it up.
+    # Builds sitting in the builds directory that no shelf row claims: added by
+    # raw revision, or left behind by a release that has since dropped off a
+    # vendor's index. A container for a Chromium one still runs the Linux build
+    # of whatever milestone it belongs to, so it is looked up the same way the
+    # launcher looks it up.
+    claimed = {row["key"] for row in rows if row["key"]}
     extra = []
-    for revision, info in sorted(installed.items()):
-        if revision in catalogued:
+    for key, info in sorted(everything.items()):
+        if key in claimed:
             continue
-        milestone = milestone_of(revision, builds)
-        drev = linux_revision(milestone, builds) if milestone is not None else revision
-        extra.append(dict(info, note="Installed by revision.", supported=True, native=True,
-                          docker=docker_row(drev, docker)))
+        engine = info["engine"]
+        row = dict(info, note="Installed by revision.", supported=True,
+                   native=True, docker=None, milestone=None, revision=None,
+                   label=info["version"], id=key, year=None, date="")
+        row["id"] = key if engine == "chromium" else key[len(engine) + 1:]
+        if engine == "chromium" and key.isdigit():
+            revision = int(key)
+            row["revision"] = revision
+            row["selector"] = key
+            milestone = milestone_of(revision, builds)
+            row["docker"] = docker_row(
+                linux_revision(milestone, builds) if milestone is not None
+                else revision, docker)
+        else:
+            row["selector"] = "%s:%s" % (engine, key[len(engine) + 1:])
+            if engine == "webkit":
+                row["docker"] = docker_row(key, docker, row["selector"])
+        extra.append(row)
 
     # Summed over every engine, not over the rows above: those are Chromium's
     # catalogue, so a gauge built from them reported a 2.2 GB directory as 589 MB
     # the moment anything other than Chromium was installed.
-    everything = installed_by_key()
     browser_bytes = sum(i["sizeBytes"] for i in everything.values())
     profile_bytes = sum(i["profileBytes"] for i in everything.values())
     total = browser_bytes + profile_bytes
@@ -673,7 +697,7 @@ def build_state():
         "hostPlatforms": hosts,
         "versions": rows,
         "extra": extra,
-        "matrix": build_matrix(everything, builds, hosts),
+        "matrix": build_matrix(rows),
         "engines": [{"id": e, "name": ENGINE_NAMES[e]} for e in ENGINES],
         "installedCount": len(everything),
         "browserBytes": browser_bytes,
@@ -1128,12 +1152,15 @@ class Handler(BaseHTTPRequestHandler):
             action = str(body.get("action", "start"))
             if action not in ("start", "stop", "rebuild", "purge"):
                 return self._json({"error": "bad action"}, 400)
-            # The container image is built around a Chromium snapshot revision;
+            # Chromium and WebKit are the two engines with a container.
             # engineshelf-docker.sh has no idea what firefox:115 would mean, and
             # would fail with the reason buried in a job log.
-            if ":" in selector and not selector.startswith("chromium:"):
+            engine = selector.split(":", 1)[0] if ":" in selector else "chromium"
+            if engine not in ("chromium", "webkit"):
                 return self._json(
-                    {"error": "Docker only runs Chromium versions."}, 400)
+                    {"error": "Docker runs Chromium and WebKit; "
+                              "%s has no container." % ENGINE_NAMES.get(engine, engine)},
+                    400)
             argv = ["bash", DOCKER_CLI, action, selector]
             # An image is a gigabyte, so removing one has to be possible from the
             # shelf; otherwise the only way to get that disk back is raw docker.

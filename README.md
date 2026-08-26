@@ -113,13 +113,13 @@ launcher window when you are done.
 </table>
 
 <p align="center">
-  <img src="assets/screenshot-manager.png" width="100%" alt="The EngineShelf manager: a grid with years down the side and Chromium, Firefox, Edge and WebKit across the top, installed versions outlined in green with their size, and the rest of each year folded behind a plus">
+  <img src="assets/screenshot-manager.png" width="100%" alt="The EngineShelf manager: a grid with years down the side and Chromium, Firefox, Edge and WebKit across the top, each under its own mark, installed versions outlined in green with their size, and the rest of each year folded behind a plus">
   <br>
   <sub>Years down, engines across. Version numbers do not line up between engines —
   Chromium 120, Firefox 121, Edge 120 and WebKit 17.4 are contemporaries and none of those
-  numbers say so — so the shelf is arranged by when things shipped. Installed versions are
-  outlined; the rest of a year folds behind a <b>+</b>. A list view is a click away when you
-  want to filter, search, or reach the per-version actions.</sub>
+  numbers say so — so this view is arranged by when things shipped. Installed versions are
+  outlined; the rest of a year folds behind a <b>+</b>. The manager opens on the list instead
+  — same shelf, one release per row, with the search, the filters and the per-version menu.</sub>
 </p>
 
 > [!TIP]
@@ -151,9 +151,9 @@ One page, served locally, with everything on it.
 | **A shared URL for every launch** | Set it once at the top; every version opens there. |
 | **Window size and graphics** | Fix the viewport for a layout check, or force hardware acceleration on or off. |
 | **Per-row menu** | Download without launching, run that version in Docker, reset its profile, or delete it. |
-| **Two views of one shelf** | A grid of years × engines for comparing across engines, or the list for filtering, searching and the per-version menu. |
-| **Grouped by era** | In the list, rows sit under the years they belong to, with what each era brought — jump straight to one, or sort by age or disk used. |
-| **Search and filters** | Filter by version, revision or feature — `:has()`, `dvh`, `flex gap` — or narrow to what is installed, running, or stuck on Rosetta. |
+| **Two views of one shelf** | The list it opens on — every release of all four engines, one per row, with the actions — or a grid of years × engines for comparing across them. |
+| **Grouped by era** | In the list, rows sit under the years they belong to, four engines interleaved by release date, with what each era brought — jump straight to one, or sort by age or disk used. |
+| **Search and filters** | Narrow to one engine, or search by version, revision, release date or feature — `:has()`, `dvh`, `flex gap` — or by what is installed, running, or stuck on Rosetta. |
 | **Add by revision** | Any build in the Chromium snapshot archive, not just the catalogued milestones. |
 | **System check** | Tells you what is missing before it matters, with buttons that install it. |
 | **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job when several are in flight. |
@@ -644,12 +644,19 @@ engineshelf.sh / .ps1              the launcher everything else drives
 engineshelf-docker.sh / .ps1       Docker launcher, one image per version
 lib/preflight.sh, preflight.ps1       dependency checks and the install offers,
                                       shared by the CLI, Docker and the manager
+lib/engines.sh, engines.ps1           what each engine is: where its builds live,
+                                      how to unpack one, how to launch it
 catalog.tsv                           verified revisions per milestone per platform,
-                                      as of the release - the seed, not the last word
+                                      plus the shelf itself - every release of every
+                                      engine, with its date. The seed, not the last word
 ~/.engineshelf/catalog.cache.tsv   milestones resolved live since then; read first
+tools/discover.py                     rebuild the shelf from each vendor's own index
 tools/refresh-catalog.py              regenerate catalog.tsv from the archive
 tools/sync-landing.py                 bring docs/index.html into step with catalog.tsv
+tools/check-phases.mjs                assert the manager still understands what the
+                                      CLI prints, for all four engines
 docker/Dockerfile                     Chromium + Xvfb + fluxbox + x11vnc + noVNC
+docker/Dockerfile.webkit              the same desktop around a Playwright WebKit
 docker/entrypoint.sh                  brings up X and supervises the browser
 docker/clipboard.js                   loaded into the noVNC page: bridges the
                                       container's clipboard and your own
@@ -661,6 +668,8 @@ assets/og-image.svg                   source for the social card
 assets/screenshot-manager.png         the manager, as shown above
 tools/make-icons.sh                   rebuild every raster icon from the SVGs
 tools/make-og.sh                      re-render docs/assets/og-image.png
+tools/make-screenshots.py             re-shoot the manager against a staged shelf,
+                                      so the pictures cannot drift from the page
 tools/build-app.sh                    compile and sign the macOS bundle launcher
 tools/launcher/launcher.c             that launcher's source
 ```

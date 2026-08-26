@@ -48,7 +48,47 @@ const ICONS = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3 2"/>',
   'down-circle':
     '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v8"/><path d="M8.5 12l3.5 3.5 3.5-3.5"/>',
+
+  /* One mark per engine, on the same 24-grid stroke as the rest so a row does
+     not suddenly carry a heavier glyph: Chromium's pinwheel, Firefox's flame,
+     Edge's "e", and a globe for WebKit. Each is tinted by CSS - the shape alone
+     was not enough to tell them apart at row size.
+
+     WebKit gets the globe rather than Safari's compass, and violet rather than
+     Safari's blue. The compass would claim the one thing this project is careful
+     not to claim, and blue is already Chromium's: side by side at 20px the
+     pinwheel and a blue globe read as the same icon. */
+  chromium:
+    '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.6"/><path d="M12 15.6V21M8.88 10.2 4.2 7.5M15.12 10.2l4.68-2.7"/>',
+  firefox:
+    '<path d="M12 21.2c-3.8 0-6.8-2.9-6.8-6.5 0-4.5 4.1-6.1 4.1-9.7 0-.9-.2-1.7-.6-2.4 3.3.8 5.5 3.3 5.5 6.2 0 1.3-.5 2.4-1.4 3.1.9-.3 1.7-.9 2.2-1.7 1.2 1.4 1.9 3 1.9 4.5 0 3.6-3 6.5-6.9 6.5z"/><path d="M12 21.2c-1.9 0-3.4-1.5-3.4-3.3 0-2.3 2.2-3 2.2-5.2 2.4 1 4.6 3 4.6 5.2 0 1.8-1.5 3.3-3.4 3.3z"/>',
+  edge: '<path d="M19.6 16.4A8.6 8.6 0 1 1 20.5 11.4H8.6"/><path d="M8.6 11.4C5.3 11.4 3 13.7 3 16.4c0 2.9 2.6 4.9 6.4 4.9 2.6 0 5-.9 6.6-2.3"/>',
+  webkit:
+    '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><ellipse cx="12" cy="12" rx="4.2" ry="9"/>',
 };
+
+/* Kept in the order gui/server.py lists them, so the sidebar, the matrix columns
+   and the CLI's own help all name the engines in one order. */
+const ENGINE_ORDER = ['chromium', 'firefox', 'edge', 'webkit'];
+const ENGINE_NAMES = {
+  chromium: 'Chromium',
+  firefox: 'Firefox',
+  edge: 'Edge',
+  webkit: 'WebKit',
+};
+
+const engineName = (id) => ENGINE_NAMES[id] || id || 'Chromium';
+
+// The tint is a CSS variable picked by the attribute, so light and dark can
+// carry different values without the page knowing which one is showing.
+function engineMark(engine) {
+  const span = document.createElement('span');
+  span.className = 'eicon';
+  span.dataset.engine = engine;
+  span.innerHTML = icon(ENGINE_NAMES[engine] ? engine : 'cube');
+  span.title = engineName(engine);
+  return span;
+}
 
 const icon = (name) =>
   `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ` +
@@ -105,13 +145,20 @@ const dropdowns = [];
 
 const VIEW_KEY = 'engineshelf.view';
 
-// Which of the two shelf views is showing. Remembered per browser, and wrapped
-// because storage throws outright in a private window rather than returning null.
+// The query string can name what the page opens on, so a particular shelf can be
+// linked to and so each of these is reachable without driving the controls.
+const asked = (name, allowed) => {
+  const value = new URLSearchParams(location.search).get(name);
+  return allowed.includes(value) ? value : null;
+};
+
+// Which of the two shelf views is showing. The list is the default: it is where
+// the per-row actions are, and it is what the manager has always opened on.
+// Wrapped because storage throws outright in a private window rather than
+// returning null.
 function storedView() {
-  // ?view=matrix wins, so a view can be linked to and so this is testable
-  // without driving the toggle.
-  const asked = new URLSearchParams(location.search).get('view');
-  if (asked === 'matrix' || asked === 'list') return asked;
+  const wanted = asked('view', ['matrix', 'list']);
+  if (wanted) return wanted;
   try {
     return localStorage.getItem(VIEW_KEY) === 'matrix' ? 'matrix' : 'list';
   } catch {
@@ -120,21 +167,46 @@ function storedView() {
 }
 
 const view = {
-  filter: 'all',
+  filter: asked('filter', ['all', 'installed', 'running', 'rosetta']) || 'all',
+  engine: asked('engine', ENGINE_ORDER.concat('all')) || 'all',
   query: '',
-  sort: 'old',
+  // Read before the sort dropdown is built, so its label agrees with the order
+  // the shelf is actually in.
+  sort: asked('sort', ['new', 'old', 'disk']) || 'old',
   gpu: 'auto',
   mode: storedView(),
 };
 
 const stopping = new Set(); // launch jobs the user has asked to stop
 
+// Four engines name platforms four different ways and not one of the names is
+// meant to be read: "mac-26-arm64" is a Playwright SDK target, "Mac_Universal" a
+// Microsoft package name, "Mac_Arm" a Chromium snapshot directory.
 const PLATFORM_LABELS = {
   Mac_Arm: 'native arm64',
   Mac: 'x86_64',
   Linux_x64: 'Linux x86_64',
   Win_x64: 'Windows x86_64',
+  Mac_Universal: 'macOS universal',
+  mac: 'macOS',
+  'linux-x86_64': 'Linux x86_64',
+  win64: 'Windows x86_64',
 };
+
+// Playwright publishes one WebKit archive per macOS release and per Ubuntu LTS,
+// spelling out arm64 and leaving x86_64 unmarked - so those two families are
+// patterns rather than table entries. Anything unrecognised is printed as it
+// came, which is still more use than a guess.
+function platformLabel(dir) {
+  const name = String(dir || '');
+  if (!name || name === '?') return '';
+  if (PLATFORM_LABELS[name]) return PLATFORM_LABELS[name];
+  let found = name.match(/^mac-(\d+)(-arm64)?$/);
+  if (found) return `macOS ${found[1]} · ${found[2] ? 'arm64' : 'x86_64'}`;
+  found = name.match(/^ubuntu-([\d.]+)(-arm64)?$/);
+  if (found) return `Ubuntu ${found[1]} · ${found[2] ? 'arm64' : 'x86_64'}`;
+  return name;
+}
 
 // What a job is doing, in the words the row and the status bar use. The phase
 // read from the output wins; the endpoint that started the job is the fallback.
@@ -154,17 +226,19 @@ const workWord = (job, info) =>
   (info && WORK_WORD[info.phase]) || WORK_WORD[job.kind] || 'working';
 const capitalise = (word) => word.charAt(0).toUpperCase() + word.slice(1);
 
-// Job labels are built by the server, which only knows the revision it was given;
-// the page knows which milestone that is.
+// Job labels are built by the server, which only knows the selector it was
+// given; the page knows which release that is. It matters most for WebKit, where
+// the selector is a Playwright revision - a job used to read "WebKit 2336"
+// where the shelf calls the same build 26.5.
+const rowSelector = (row) =>
+  row.selector || (row.revision == null ? null : String(row.revision));
+
 function jobName(job) {
   const rows = state ? [...state.versions, ...state.extra] : [];
-  const row = rows.find(
-    (entry) => String(entry.revision) === String(job.revision),
-  );
+  const row = rows.find((entry) => rowSelector(entry) === String(job.revision));
   if (!row) return job.label;
-  return row.milestone && row.milestone !== '?'
-    ? `Chromium ${row.milestone}`
-    : row.version || `r${row.revision}`;
+  const label = row.label || row.version;
+  return label ? `${engineName(row.engine)} ${label}` : `r${row.revision}`;
 }
 
 function jobTitle(job, info) {
@@ -243,6 +317,29 @@ function mb(bytes) {
   return `${Math.round(megabytes)} MB`;
 }
 
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+// Split by hand rather than parsed as a Date: "2019-03-19" as a Date is UTC
+// midnight, which anywhere west of Greenwich prints as the 18th.
+function humanDate(iso) {
+  const found = String(iso || '').match(/^(\d{4})-(\d\d)-(\d\d)$/);
+  if (!found) return String(iso || '');
+  return `${Number(found[3])} ${MONTHS[Number(found[2]) - 1]} ${found[1]}`;
+}
+
 function launchOptions() {
   return {
     url: $('url').value.trim(),
@@ -302,11 +399,21 @@ function curlLeft(text) {
 }
 
 // Each line the CLI prints to mark a step, latest one wins.
+//
+// Both of the engine-named lines are built as "<engine display name> <version>"
+// - "Downloading Firefox 115.0 (mac, one time only)", "  > WebKit 26.5
+// (mac-26-arm64)" - and both patterns here used to spell Chromium. So for three
+// of the four engines a download reported no progress at all, and a browser that
+// was up never registered as open: its row sat on "Installing..." for as long as
+// it ran and never offered Stop. Colours are off whenever stdout is not a tty,
+// which is every launch the manager makes, so these match the bare text.
+const ENGINE_WORD = Object.values(ENGINE_NAMES).join('|');
+
 const PHASE_MARKS = [
-  [/^\s*Downloading Chromium\b/, 'downloading'],
+  [new RegExp(`^\\s*Downloading (?:${ENGINE_WORD})\\b`), 'downloading'],
   [/^\s*Extracting\b/, 'extracting'],
   [/\bready\.\s*$/, 'ready'],
-  [/^\s*>\s+Chromium\b/, 'open'],
+  [new RegExp(`^\\s*>\\s+(?:${ENGINE_WORD})\\b`), 'open'],
 ];
 
 function readJob(output) {
@@ -393,6 +500,9 @@ const MILESTONE_YEARS = [
 ];
 
 function yearOf(row) {
+  // Every shelf row carries the year of its release, from the vendor's own
+  // index. The rest of this is for builds the shelf does not claim.
+  if (Number.isFinite(row.year)) return row.year;
   const stamped = String(row.note || '').match(/^\s*(\d{4})\./);
   if (stamped) return Number(stamped[1]);
   const milestone = Number(row.milestone);
@@ -409,9 +519,36 @@ const eraFor = (row) => {
 
 /* ---------- shaping a catalog row for the shelf ---------- */
 
+// The line under the title: the exact build rather than the friendly name. Two
+// WebKit releases are both called 26.5 and only the revision says which one this
+// is; Edge 151 is really 151.0.4129.107, and that is the string that has to
+// match a bug report.
+function identOf(engine, row) {
+  const ident =
+    engine === 'chromium'
+      ? row.revision == null
+        ? ''
+        : `r${row.revision}`
+      : engine === 'webkit'
+        ? row.id
+          ? `r${row.id}`
+          : ''
+        : row.id || '';
+  // The oldest WebKit builds predate any Safari version to map them to, so the
+  // shelf calls them r1446 - which is also their exact build. Printing it under
+  // a title that already says it read as a stutter.
+  return ident === (row.label || '') ? '' : ident;
+}
+
 function decorate(row) {
-  const selector = row.revision == null ? null : String(row.revision);
-  const version = row.version || (selector ? `r${selector}` : '?');
+  const engine = row.engine || 'chromium';
+  // What to post back when this row is acted on. The server names it; a backend
+  // built before there was more than one engine sends only a revision, which for
+  // Chromium is exactly what the selector has always been.
+  const selector = rowSelector(row);
+  const label =
+    row.label || (row.milestone != null ? String(row.milestone) : '');
+  const version = row.version || row.id || (selector ? `r${selector}` : '?');
   const milestone =
     row.milestone && row.milestone !== '?' ? row.milestone : null;
   const raw = row.note || '';
@@ -421,7 +558,15 @@ function decorate(row) {
   const tags = [...raw.matchAll(/`([^`]+)`/g)]
     .map((match) => match[1])
     .slice(0, 3);
-  const note = raw.replace(/^\s*\d{4}\.\s*/, '').replace(/`/g, '');
+  // Only the couple of dozen curated Chromium milestones have a note. The other
+  // 260 rows on the shelf are ordinary releases with nothing to say beyond when
+  // they shipped - and a release date is the thing they get picked by, so it is
+  // what stands in rather than leaving the row blank.
+  const note = raw
+    ? raw.replace(/^\s*\d{4}\.\s*/, '').replace(/`/g, '')
+    : row.date
+      ? `Released ${humanDate(row.date)}.`
+      : '';
 
   const rosetta = row.platformDir === 'Mac' && state.arch === 'arm64';
   const launchJob = selector ? runningJobFor(selector) : null;
@@ -446,8 +591,12 @@ function decorate(row) {
 
   return {
     raw: row,
+    engine,
     selector,
+    label,
     version,
+    ident: identOf(engine, row),
+    date: row.date || '',
     milestone,
     note,
     tags,
@@ -458,7 +607,12 @@ function decorate(row) {
     running: open, // a native window, which is what Stop acts on
     dockerRunning,
     dockerImage,
-    dockerRevision: dk ? String(dk.revision) : null,
+    // What to post to run or stop the container. Not the same as the revision
+    // above: Chromium's container runs a Linux build this host never installs,
+    // and WebKit's is addressed by selector.
+    dockerSelector: dk
+      ? String(dk.selector != null ? dk.selector : dk.revision)
+      : null,
     dockerProfileBytes: dk ? dk.profileBytes || 0 : 0,
     dockerStatus: dk ? dk.status || '' : '',
     dockerUrl:
@@ -469,7 +623,7 @@ function decorate(row) {
     // daemon does not have to be up: the launcher offers to start it, the same
     // way the command line does.
     dockerAvailable: Boolean(dk) && Boolean(state.docker && state.docker.cli),
-    name: milestone ? `Chromium ${milestone}` : version,
+    name: label ? `${engineName(engine)} ${label}` : version,
     installed: Boolean(row.installed),
     // "Is this version taking up disk", which an image answers as much as a
     // downloaded build does. The installed filter and count read this.
@@ -488,7 +642,17 @@ function decorate(row) {
         : row.installed || dockerImage
           ? 'installed'
           : 'absent',
-    search: [milestone, version, selector ? `r${selector}` : '', raw]
+    // Typing "firefox", "edge", a year, or a full four-part Edge version all
+    // have to find the row, so everything printable about it goes in here.
+    search: [
+      engineName(engine),
+      label,
+      version,
+      row.id,
+      identOf(engine, row),
+      row.date,
+      raw,
+    ]
       .join(' ')
       .toLowerCase(),
   };
@@ -773,17 +937,24 @@ function showState({
 
 function render() {
   const rows = [...state.versions, ...state.extra].map(decorate);
+  // What the engine filter lets through. The shelf counts, the era jumps and the
+  // summary all describe this rather than the whole shelf - with Firefox picked,
+  // "5 installed" above a single visible Firefox build is just wrong.
+  const scoped =
+    view.engine === 'all'
+      ? rows
+      : rows.filter((row) => row.engine === view.engine);
 
   const counts = {
-    all: rows.length,
+    all: scoped.length,
     // A built Docker image is a copy of that version taking up disk, so it
     // counts as installed here even with nothing in the builds directory.
-    installed: rows.filter((row) => row.onDisk).length,
-    running: rows.filter((row) => row.status === 'running').length,
-    rosetta: rows.filter((row) => row.rosetta).length,
+    installed: scoped.filter((row) => row.onDisk).length,
+    running: scoped.filter((row) => row.status === 'running').length,
+    rosetta: scoped.filter((row) => row.rosetta).length,
   };
 
-  renderChrome(rows, counts);
+  renderChrome(rows, scoped, counts);
   renderDoctor();
   renderStatusBar();
   renderLogTabs();
@@ -803,15 +974,19 @@ function render() {
   $('list').hidden = false;
 
   const query = view.query.trim().toLowerCase();
-  const visible = rows.filter((row) => {
+  const visible = scoped.filter((row) => {
     if (view.filter === 'installed' && !row.onDisk) return false;
     if (view.filter === 'running' && row.status !== 'running') return false;
     if (view.filter === 'rosetta' && !row.rosetta) return false;
     return !query || row.search.includes(query);
   });
 
+  const of =
+    view.engine === 'all'
+      ? `${scoped.length} versions`
+      : `${scoped.length} ${engineName(view.engine)} versions`;
   $('summary').textContent =
-    `${visible.length} of ${rows.length} versions · ${counts.installed} installed · ${counts.running} running`;
+    `${visible.length} of ${of} · ${counts.installed} installed · ${counts.running} running`;
 
   const list = $('list');
   list.setAttribute('aria-busy', 'false');
@@ -836,10 +1011,11 @@ function render() {
         view.filter === 'installed'
           ? 'No browser has been downloaded into this profile directory yet, and no ' +
             'Docker image has been built either.'
-          : 'No catalogued version matches the current filter and search.',
+          : 'No version on the shelf matches the current engine, filter and search.',
       actionLabel: 'Reset filters',
       onAction: () => {
         view.filter = 'all';
+        view.engine = 'all';
         view.query = '';
         $('query').value = '';
         render();
@@ -861,8 +1037,11 @@ function render() {
 // shelf there is nothing to draw a matrix from, so the switch is not offered and
 // the list is the only view, exactly as before.
 function matrixAvailable() {
-  return Array.isArray(state.matrix) && Array.isArray(state.engines)
-    && state.matrix.length > 0;
+  return (
+    Array.isArray(state.matrix) &&
+    Array.isArray(state.engines) &&
+    state.matrix.length > 0
+  );
 }
 
 function renderViewSwitch() {
@@ -873,7 +1052,10 @@ function renderViewSwitch() {
 
   const group = document.querySelector('.viewswitch');
   if (group) group.hidden = !available;
-  for (const [mode, id] of [['matrix', 'view-matrix'], ['list', 'view-list']]) {
+  for (const [mode, id] of [
+    ['matrix', 'view-matrix'],
+    ['list', 'view-list'],
+  ]) {
     const button = $(id);
     if (!button) continue;
     const on = view.mode === mode;
@@ -892,17 +1074,50 @@ function renderViewSwitch() {
   // renderChrome decides whether the era list is worth showing at all, so this
   // only ever hides it - forcing it visible again would override that.
   if (matrix) $('eras-group').hidden = true;
-  $('engines-group').hidden = !matrix;
-  if (matrix) renderEngineSummary();
   const sortLabel = document.querySelector('.sort-label');
   if (sortLabel) sortLabel.hidden = matrix;
   const search = document.querySelector('.search');
   if (search) search.hidden = matrix;
 }
 
-// What each engine actually holds on this machine, counted off the matrix rather
-// than the list - the list is Chromium only, which is why its counts cannot be
-// reused here.
+// In the list, the engines are a filter: four engines share one shelf and most
+// of the time you want one of them. Counted over the whole shelf rather than the
+// filtered view, so the row you would click to widen the filter still says how
+// much widening it would show.
+function renderEngineFilters(rows) {
+  const host = $('engine-list');
+  host.textContent = '';
+
+  const pick = (engine, glyph, name) => {
+    const mine =
+      engine === 'all' ? rows : rows.filter((r) => r.engine === engine);
+    if (!mine.length) return;
+    const on = mine.filter((row) => row.onDisk).length;
+    const button = document.createElement('button');
+    button.className = `side-btn${view.engine === engine ? ' is-on' : ''}`;
+    button.append(glyph ? engineMark(engine) : iconSpan('grid'));
+    button.append(spanWith('side-label', name));
+    const tally = spanWith(
+      'count mono',
+      on ? `${on}/${mine.length}` : `${mine.length}`,
+    );
+    button.append(tally);
+    button.title = on
+      ? `${on} of ${mine.length} ${name} versions on disk`
+      : `${mine.length} ${name} versions on the shelf, none downloaded`;
+    button.onclick = () => {
+      view.engine = engine;
+      render();
+    };
+    host.append(button);
+  };
+
+  pick('all', false, 'All engines');
+  for (const engine of ENGINE_ORDER) pick(engine, true, engineName(engine));
+}
+
+// What each engine holds on this machine, in the matrix - where there is nothing
+// to filter, because a year is a year.
 function renderEngineSummary() {
   const host = $('engine-list');
   host.textContent = '';
@@ -926,6 +1141,7 @@ function renderEngineSummary() {
 
     const line = document.createElement('div');
     line.className = 'engline';
+    line.append(engineMark(engine.id));
     line.append(spanWith('engname', engine.name));
     const right = spanWith('engcount', '');
     if (installed) {
@@ -976,7 +1192,15 @@ function renderMatrix() {
 
   const head = table.createTHead().insertRow();
   head.append(th(''));
-  for (const engine of engines) head.append(th(engine.name));
+  for (const engine of engines) {
+    // Named and marked. The columns are the one place all four engines sit side
+    // by side, so it is the one place the marks have to be told apart.
+    const cell = document.createElement('th');
+    const box = spanWith('mhead', '');
+    box.append(engineMark(engine.id), spanWith('', engine.name));
+    cell.append(box);
+    head.append(cell);
+  }
 
   const body = table.createTBody();
   for (const row of rows) {
@@ -1045,10 +1269,11 @@ function matrixCell(entry, year, engine) {
 
   if (entry.supported) {
     button.title = `${engine.name} ${entry.label} · ${entry.date}`;
-    button.onclick = () => start(button, {
-      selector: entry.selector,
-      name: `${engine.name} ${entry.label}`,
-    });
+    button.onclick = () =>
+      start(button, {
+        selector: entry.selector,
+        name: `${engine.name} ${entry.label}`,
+      });
   } else {
     button.disabled = true;
     button.title =
@@ -1095,10 +1320,11 @@ function toggleOthers(cell, entry, engine) {
     if (other.installed) item.append(spanWith('mdot', ''));
     if (other.supported) {
       item.title = `${engine.name} ${other.label} · ${other.date}`;
-      item.onclick = () => start(item, {
-        selector: other.selector,
-        name: `${engine.name} ${other.label}`,
-      });
+      item.onclick = () =>
+        start(item, {
+          selector: other.selector,
+          name: `${engine.name} ${other.label}`,
+        });
     } else {
       item.disabled = true;
       item.title = 'No build for this machine';
@@ -1109,7 +1335,9 @@ function toggleOthers(cell, entry, engine) {
 }
 
 // Header, sidebar and the disk read-outs: everything outside the shelf itself.
-function renderChrome(rows, counts) {
+// `rows` is the whole shelf, `scoped` only the engine being looked at - the disk
+// gauge describes the machine, the counts and the era jumps describe the view.
+function renderChrome(rows, scoped, counts) {
   $('host').textContent =
     `${state.os}/${state.arch} · ${state.hostPlatforms[0] || '?'}`;
   $('foot-path').textContent = `Files in ${state.root}`;
@@ -1163,10 +1391,16 @@ function renderChrome(rows, counts) {
   // Rosetta only exists on Apple Silicon; elsewhere the filter would always be empty.
   $('filter-rosetta').hidden = counts.rosetta === 0;
 
+  // Which engines are on the shelf, and how much of each is here. A filter in
+  // the list, a read-out in the matrix, because the matrix has nothing to filter.
+  $('engines-group').hidden = false;
+  if (view.mode === 'matrix') renderEngineSummary();
+  else renderEngineFilters(rows);
+
   const eras = $('eras');
   eras.textContent = '';
   for (const era of view.sort === 'new' ? [...ERAS].reverse() : ERAS) {
-    const count = rows.filter((row) => row.era === era).length;
+    const count = scoped.filter((row) => row.era === era).length;
     if (!count) continue;
     const button = document.createElement('button');
     button.className = 'era-btn';
@@ -1189,14 +1423,21 @@ function renderChrome(rows, counts) {
 }
 
 function groupRows(visible) {
-  const byMilestone = (a, b) =>
+  // Newest first. Sorting by version number worked while the shelf was one
+  // engine; across four it is meaningless - Chromium 120, Firefox 121, Edge 120
+  // and WebKit 17.4 are contemporaries. The release date is the one ordering
+  // they share, and it puts contemporaries next to each other, which is the
+  // whole reason to have them on one shelf. Same-day releases fall back to the
+  // engine order so the four never shuffle between refreshes.
+  const byDate = (a, b) =>
+    (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) ||
+    ENGINE_ORDER.indexOf(a.engine) - ENGINE_ORDER.indexOf(b.engine) ||
     (Number(b.milestone) || 0) - (Number(a.milestone) || 0);
   const sorted = (rows) => {
-    if (view.sort === 'old')
-      return rows.slice().sort((a, b) => -byMilestone(a, b));
+    if (view.sort === 'old') return rows.slice().sort((a, b) => -byDate(a, b));
     if (view.sort === 'disk')
       return rows.slice().sort((a, b) => b.diskBytes - a.diskBytes);
-    return rows.slice().sort(byMilestone);
+    return rows.slice().sort(byDate);
   };
 
   if (view.sort === 'disk') {
@@ -1259,10 +1500,11 @@ function renderGroup(group) {
 function renderRow(row) {
   const node = $('row-template').content.firstElementChild.cloneNode(true);
 
+  // Which engine, before which version. Four engines on one shelf and the only
+  // thing telling them apart used to be the word in the title.
+  node.querySelector('[data-engine]').replaceWith(engineMark(row.engine));
   node.querySelector('[data-title]').textContent = row.name;
-  node.querySelector('[data-rev]').textContent = row.selector
-    ? `r${row.selector}`
-    : '';
+  node.querySelector('[data-rev]').textContent = row.ident;
   node.querySelector('[data-note]').textContent = row.note;
 
   const dot = node.querySelector('[data-dot]');
@@ -1299,8 +1541,10 @@ function renderRow(row) {
     badge.title =
       'No arm64 build exists this far back, so it runs under Rosetta.';
   } else {
-    badge.textContent =
-      PLATFORM_LABELS[row.raw.platformDir] || row.raw.platformDir || '';
+    // Only Chromium's platform is known from the catalog. For the others it is
+    // settled against the vendor's index at launch, so before a download there
+    // is nothing to print - and a guess here would be a guess about what runs.
+    badge.textContent = platformLabel(row.raw.platformDir);
   }
   if (badge.textContent) tags.append(badge);
 
@@ -1336,20 +1580,26 @@ function renderRow(row) {
     tags.append(mark);
   }
 
-  // The version is what identifies a build, so it stays put whatever else the
-  // row is doing; sizes and progress words go on their own line under it.
-  node.querySelector('[data-version]').textContent = row.supported
-    ? row.version
-    : '';
+  // The full version, but only when it says something the title and the line
+  // under it have not already said. Firefox 51 is version 51.0 and that is
+  // already the line under the title; Chromium 60 is 60.0.3112.0, which is
+  // nowhere else on the row. Printing it unconditionally gave most rows a
+  // right-hand column that repeated their own name.
+  // Chromium only. It is the one engine whose shelf name and whose real version
+  // are different things - milestone 120 is 120.0.6099.0 - and for the other
+  // three this column was printing the line under the title a second time.
+  const spelled =
+    row.supported && row.engine === 'chromium' && row.version !== row.label
+      ? row.version
+      : '';
+  node.querySelector('[data-version]').textContent = spelled;
+  // Nothing here about Docker: the badge beside the version already carries the
+  // image size, and saying it twice on one row read as two separate costs.
   node.querySelector('[data-size]').textContent = row.busy
     ? `${workWord(row.busy, row.info)}…`
     : row.installed
       ? `${mb(row.sizeBytes)} · ${mb(row.profileBytes)} profile`
-      : // Nothing downloaded natively, but the image is a real copy of this version
-        // and the row would otherwise read as empty.
-        row.dockerImage
-        ? `${mb(row.dockerImage)} in Docker`
-        : '';
+      : '';
 
   if (row.busy) {
     // Determinate while curl is reporting, a moving stripe for the steps that
@@ -1428,7 +1678,7 @@ function renderActions(container, row) {
       action.disabled = true;
       try {
         const { job } = await post('/api/docker', {
-          selector: row.dockerRevision,
+          selector: row.dockerSelector,
           action: 'stop',
         });
         watch(job, `Stopping Docker · ${row.name}`);
@@ -1493,7 +1743,7 @@ async function startDocker(button, row) {
   button.disabled = true;
   try {
     const { job } = await post('/api/docker', {
-      selector: row.dockerRevision,
+      selector: row.dockerSelector,
       action: 'start',
     });
     watch(job, `Docker · ${row.name}`);
@@ -1542,7 +1792,7 @@ function toggleMenu(container, row) {
   // action is keyed by that Linux revision, which is the mismatch that used to
   // leave a running container looking stopped: the shelf compared it against the
   // revision this host installs natively, and the two are never the same.
-  const docker = row.dockerRevision;
+  const docker = row.dockerSelector;
   if (row.dockerAvailable) {
     if (row.dockerRunning) {
       if (row.dockerUrl) {

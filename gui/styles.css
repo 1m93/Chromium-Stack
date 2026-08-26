@@ -18,6 +18,18 @@
   --c-scroll: #c4cbd6;
   --c-shadow: rgba(28, 38, 64, 0.16);
   --c-scrim: rgba(28, 38, 64, 0.34);
+
+  /* One tint per engine, carried by the engine mark alone. Tinting the whole
+     row would drown the status dot next to it, and that dot is the thing that
+     has to stay readable at a glance.
+
+     WebKit is violet rather than Safari's blue on purpose: Chromium already
+     owns blue here, and at row size a blue globe beside the blue pinwheel read
+     as the same icon twice. */
+  --e-chromium: #1a73e8;
+  --e-firefox: #e8590c;
+  --e-edge: #0d9488;
+  --e-webkit: #7c5cf0;
   --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 
@@ -38,6 +50,10 @@
     --c-scroll: #39404d;
     --c-shadow: rgba(0, 0, 0, 0.45);
     --c-scrim: rgba(8, 10, 14, 0.62);
+    --e-chromium: #4f97f5;
+    --e-firefox: #ff8a4c;
+    --e-edge: #2ec5b6;
+    --e-webkit: #a78bfa;
   }
 }
 :root[data-theme='dark'] {
@@ -55,6 +71,10 @@
   --c-scroll: #39404d;
   --c-shadow: rgba(0, 0, 0, 0.45);
   --c-scrim: rgba(8, 10, 14, 0.62);
+  --e-chromium: #4f97f5;
+  --e-firefox: #ff8a4c;
+  --e-edge: #2ec5b6;
+  --e-webkit: #a78bfa;
 }
 
 * {
@@ -114,6 +134,26 @@ svg.i {
 [data-icon] {
   display: inline-flex;
   align-items: center;
+}
+
+/* The engine mark: same stroke weight as every other icon, its own colour. */
+.eicon {
+  display: flex;
+  flex: none;
+  color: var(--e-chromium);
+}
+.eicon[data-engine='firefox'] {
+  color: var(--e-firefox);
+}
+.eicon[data-engine='edge'] {
+  color: var(--e-edge);
+}
+.eicon[data-engine='webkit'] {
+  color: var(--e-webkit);
+}
+.row > .eicon svg.i {
+  width: 19px;
+  height: 19px;
 }
 
 .app {
@@ -803,7 +843,9 @@ svg.i {
 }
 
 .row-id {
-  width: 118px;
+  /* Wide enough for "Chromium 152" over a four-part Edge version; the engine
+     name moved in here when the shelf stopped being one engine. */
+  width: 136px;
   flex: none;
 }
 .row-title {
@@ -1339,6 +1381,11 @@ table.matrix thead th {
   padding: 0 4px 2px;
   white-space: nowrap;
 }
+.mhead {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .myear {
   font: 600 13px/1 var(--mono);
   color: var(--c-faint);
@@ -1472,6 +1519,7 @@ table.matrix thead th {
 }
 .engname {
   color: var(--c-text);
+  flex: 1;
 }
 .engcount {
   display: flex;

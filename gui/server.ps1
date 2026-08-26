@@ -57,7 +57,13 @@ $HostPlatform = 'Win_x64'
 function Read-Catalog {
     $versions = @{}
     $builds = @{}
-    foreach ($path in @($Catalog, $CacheFile)) {
+    # $script: on purpose. Variable names here are case-insensitive, so a caller
+    # holding a local $catalog - the parsed catalog, not the path - shadowed this
+    # for the whole call chain. Read-Shelf below then handed Test-Path a
+    # hashtable, silently parsed nothing, and the matrix came up empty on
+    # Windows. Naming the scope is what makes that impossible rather than
+    # something to remember.
+    foreach ($path in @($script:Catalog, $script:CacheFile)) {
         if (-not (Test-Path $path)) { continue }
         foreach ($line in Get-Content $path) {
             if ($line -match '^\s*#' -or $line.Trim() -eq '') { continue }
@@ -84,7 +90,7 @@ function Read-Catalog {
 function Update-CatalogCache {
     try {
         Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden `
-            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Cli, 'catalog') | Out-Null
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:Cli, 'catalog') | Out-Null
     } catch { }
 }
 
@@ -95,35 +101,6 @@ function Get-DirSize {
             Measure-Object -Property Length -Sum).Sum
     if ($null -eq $sum) { return 0 }
     return [int64]$sum
-}
-
-function Get-InstalledBuilds {
-    $result = @{}
-    if (-not (Test-Path $BuildsDir)) { return $result }
-    foreach ($dir in Get-ChildItem -Path $BuildsDir -Directory -ErrorAction SilentlyContinue) {
-        if ($dir.Name -notmatch '^\d+$') { continue }
-        if (-not (Test-Path (Join-Path $dir.FullName '.complete'))) { continue }
-        $meta = @{}
-        $metaPath = Join-Path $dir.FullName '.meta'
-        if (Test-Path $metaPath) {
-            foreach ($line in Get-Content $metaPath) {
-                if ($line -match "^([A-Z_]+)='(.*)'$") { $meta[$Matches[1]] = $Matches[2] }
-            }
-        }
-        $version = $meta['META_VERSION']; if (-not $version) { $version = "r$($dir.Name)" }
-        $platform = $meta['META_PLATFORM']; if (-not $platform) { $platform = '?' }
-        $milestone = $meta['META_MILESTONE']; if (-not $milestone) { $milestone = '?' }
-        $result[[int]$dir.Name] = @{
-            revision     = [int]$dir.Name
-            version      = $version
-            platformDir  = $platform
-            milestone    = $milestone
-            installedAt  = $meta['META_INSTALLED']
-            sizeBytes    = Get-DirSize $dir.FullName
-            profileBytes = Get-DirSize (Join-Path $ProfilesDir $dir.Name)
-        }
-    }
-    return $result
 }
 
 # The names engineshelf-docker.ps1 gives the things it creates. The manager
@@ -191,11 +168,11 @@ function Get-DockerStatus {
         return $script:DockerCache.Value
     }
 
-    $cli = $null -ne (Get-Command docker -ErrorAction SilentlyContinue)
+    $hasCli = $null -ne (Get-Command docker -ErrorAction SilentlyContinue)
     $running = $false
     $containers = @()
     $byRevision = @{}
-    if ($cli) {
+    if ($hasCli) {
         docker info 2>&1 | Out-Null
         $running = ($LASTEXITCODE -eq 0)
     }
@@ -255,7 +232,7 @@ function Get-DockerStatus {
     }
 
     $value = @{
-        cli = $cli; running = $running; containers = @($containers)
+        cli = $hasCli; running = $running; containers = @($containers)
         supported = (Test-Path $DockerCli)
         byRevision = $byRevision
         imageBytes = $imageBytes
@@ -273,12 +250,16 @@ function Get-DockerRow {
       one this host installs natively - and comparing those two is exactly what
       used to hide a running container from the row it belonged to.
     #>
-    param($Revision, $Status)
+    param($Revision, $Status, $Selector = $null)
     if ($null -eq $Revision -or -not $Status.supported) { return $null }
     $entry = $Status.byRevision[[string]$Revision]
     if (-not $entry) { $entry = @{ imageBytes = 0; profileBytes = 0; state = $null; status = ''; port = $null } }
     return @{
         revision = $Revision
+        # What to post back to run or stop this container. For Chromium that is
+        # the Linux revision the image is built from; for WebKit the row's own
+        # selector, which resolves to the same revision on both sides.
+        selector = if ($null -ne $Selector) { $Selector } else { [string]$Revision }
         imageBytes = $entry.imageBytes
         profileBytes = $entry.profileBytes
         state = $entry.state
@@ -361,7 +342,8 @@ function Read-Shelf {
     $shelf = @{}
     foreach ($engine in $Engines) { $shelf[$engine] = New-Object System.Collections.ArrayList }
     $seen = @{}
-    foreach ($path in @($Catalog, $CacheFile)) {
+    # Scope named for the same reason as in Read-Catalog above.
+    foreach ($path in @($script:Catalog, $script:CacheFile)) {
         if (-not (Test-Path $path)) { continue }
         foreach ($line in Get-Content $path) {
             if ($line -match '^\s*#' -or $line.Trim() -eq '') { continue }
@@ -385,9 +367,10 @@ function Read-Shelf {
     return $shelf
 }
 
-# Every installed build keyed by its directory name, whatever the engine.
-# Get-InstalledBuilds above stays numeric and Chromium-only, because the Docker
-# bookkeeping is built on revisions and reads it.
+# Every installed build keyed by its directory name, whatever the engine. The
+# directory name is the identity the CLI writes and the one Docker tags its
+# images with, so one lookup answers "is it on disk" for all four engines. It
+# replaced a numeric, Chromium-only version of the same walk.
 function Get-InstalledByKey {
     $result = @{}
     if (-not (Test-Path $BuildsDir)) { return $result }
@@ -417,140 +400,216 @@ function Get-InstalledByKey {
     return $result
 }
 
-# The directory a Chromium milestone installs into here, and whether it can be
-# offered at all. Chromium is the one engine whose on-disk name is not its
-# version - it is the snapshot revision, which depends on the platform.
+# One release, in the shape the list draws.
 #
-# Unknown is not unavailable: B rows exist only for the milestones the catalog
-# ships, and the rest are resolved against the live archive on first launch. So a
-# milestone with no B row has no key yet and cannot be reported as installed, but
-# it is perfectly launchable.
-function Get-ChromiumCell {
-    param($builds, [int]$milestone)
-    if (-not $builds.ContainsKey($milestone)) { return @{ key = $null; supported = $true } }
-    if ($builds[$milestone].ContainsKey($HostPlatform)) {
-        return @{ key = [string]$builds[$milestone][$HostPlatform].revision; supported = $true }
+# The matrix and the list are two views of the same shelf, so both are built from
+# the S rows. What the list adds is everything needed to act on a row - the
+# platform a build would come from, the Docker side, the curated note where there
+# is one - because the list is where the buttons live.
+function Get-ShelfRow {
+    param($engine, $release, $installed, $builds, $notes, $docker)
+
+    $ident = $release.id
+    $row = @{
+        engine = $engine
+        id = $ident
+        label = $release.label
+        year = $release.year
+        date = $release.date
+        note = ''
+        milestone = $null
+        revision = $null
+        docker = $null
+        native = $true
     }
-    return @{ key = $null; supported = $false }   # catalogued, not for this host
-}
 
-# The shelf as years x engines, which is how the page draws it. Version numbering
-# does not line up across engines - Chromium 120, Firefox 121, Edge 120 and
-# WebKit 17.4 are contemporaries and none of those numbers say so - so the
-# release date is the only axis they can share.
-function Build-Matrix {
-    param($installed, $builds)
-    $shelf = Read-Shelf
-    $cells = @{}
-    $years = @{}
-
-    foreach ($engine in $Engines) {
-        foreach ($release in $shelf[$engine]) {
-            if ($engine -eq 'chromium') {
-                $resolved = Get-ChromiumCell $builds ([int]$release.id)
-                $key = $resolved.key; $supported = $resolved.supported
-            } else {
-                # Every other engine names its build after its own version, so
-                # the key is known before anything is resolved.
-                $key = "$engine-$($release.id)"; $supported = $true
-            }
-            $local = $null
-            if ($key -and $installed.ContainsKey($key)) { $local = $installed[$key] }
-            $entry = @{
-                engine    = $engine
-                label     = $release.label
-                id        = $release.id
-                date      = $release.date
-                # The id, not the label: two WebKit builds are both called 26.5
-                # and only the id says which.
-                selector  = "$engine`:$($release.id)"
-                key       = $key
-                supported = $supported
-                installed = ($null -ne $local)
-                sizeBytes = if ($local) { $local.sizeBytes } else { 0 }
-                profileBytes = if ($local) { $local.profileBytes } else { 0 }
-            }
-            $year = $release.year
-            $years[$year] = $true
-            if (-not $cells.ContainsKey($year)) { $cells[$year] = @{} }
-            if (-not $cells[$year].ContainsKey($engine)) {
-                $cells[$year][$engine] = New-Object System.Collections.ArrayList
-            }
-            [void]$cells[$year][$engine].Add($entry)
+    if ($engine -eq 'chromium') {
+        $m = [int]$ident
+        $row.milestone = $m
+        # Only a couple of dozen milestones carry a hand-written note naming the
+        # features that land there. The rest are shelf stock: real releases with
+        # nothing to say beyond when they shipped.
+        if ($notes.ContainsKey($m)) {
+            $row.note = $notes[$m].note
+            $row.version = $notes[$m].version
+        } else {
+            $row.version = $release.label
+        }
+        $row.docker = Get-DockerRow (Get-LinuxRevision $builds $m) $docker
+        $has = $builds.ContainsKey($m)
+        if ($has -and $builds[$m].ContainsKey($HostPlatform)) {
+            $row.revision = $builds[$m][$HostPlatform].revision
+            $row.platformDir = $HostPlatform
+            $row.supported = $true
+            # The revision is what a Chromium build directory has always been
+            # named and what the launcher has always been given, so it stays both
+            # the key and the selector.
+            $row.key = [string]$row.revision
+            $row.selector = [string]$row.revision
+        } else {
+            $row.platformDir = $null
+            # Unknown is not unavailable. B rows exist only for the catalogued
+            # milestones; every other one is resolved against the live archive on
+            # first launch, so no B row means no key yet - not no build.
+            $row.supported = (-not $has)
+            $row.key = $null
+            $row.selector = [string]$m
+        }
+    } else {
+        $row.version = $ident
+        $row.key = "$engine-$ident"
+        # The id, not the label: two WebKit builds are both called 26.5 and only
+        # the id says which one this is.
+        $row.selector = "$engine`:$ident"
+        # Which platform a build comes from is settled against the vendor's own
+        # index at launch time, so until then there is nothing honest to print.
+        $row.platformDir = $null
+        $row.supported = $true
+        # WebKit is the other engine with a container, and its image is tagged
+        # with the same key its build directory uses - so the row can see it.
+        if ($engine -eq 'webkit') {
+            $row.docker = Get-DockerRow $row.key $docker $row.selector
         }
     }
 
-    $rows = New-Object System.Collections.ArrayList
-    foreach ($year in ($years.Keys | Sort-Object -Descending)) {
-        $row = @{ year = $year; cells = @{} }
+    $local = $null
+    if ($row.key -and $installed.ContainsKey($row.key)) { $local = $installed[$row.key] }
+    $row.installed = ($null -ne $local)
+    $row.sizeBytes = if ($local) { $local.sizeBytes } else { 0 }
+    $row.profileBytes = if ($local) { $local.profileBytes } else { 0 }
+    $row.installedAt = if ($local) { $local.installedAt } else { '' }
+    # Once it is downloaded the platform is no longer a guess.
+    if ($local -and $local.platformDir -and $local.platformDir -ne '?') {
+        $row.platformDir = $local.platformDir
+    }
+    return $row
+}
+
+# The matrix draws a label, a size and a click target, and nothing else. Sending
+# whole rows would put all 288 of them in the state document twice.
+$CellFields = @('engine', 'label', 'id', 'date', 'selector', 'key',
+                'supported', 'installed', 'sizeBytes', 'profileBytes')
+
+function Get-MatrixCell {
+    param($row)
+    $cell = @{}
+    foreach ($field in $CellFields) { $cell[$field] = $row[$field] }
+    return $cell
+}
+
+# The shelf as years x engines, which is the other way the page draws it. Version
+# numbering does not line up across engines - Chromium 120, Firefox 121, Edge 120
+# and WebKit 17.4 are contemporaries and none of those numbers say so - so the
+# release date is the only axis they can share.
+#
+# Grouped from the rows the list already built rather than re-derived from the S
+# rows. Deriving it twice is what let the two views disagree: the matrix knew
+# about four engines while the list showed Chromium alone.
+function Build-Matrix {
+    param($rows)
+    $cells = @{}
+    foreach ($row in $rows) {
+        if ($null -eq $row.year) { continue }
+        $year = $row.year
+        if (-not $cells.ContainsKey($year)) { $cells[$year] = @{} }
+        if (-not $cells[$year].ContainsKey($row.engine)) {
+            $cells[$year][$row.engine] = New-Object System.Collections.ArrayList
+        }
+        [void]$cells[$year][$row.engine].Add($row)
+    }
+
+    $matrix = New-Object System.Collections.ArrayList
+    foreach ($year in ($cells.Keys | Sort-Object -Descending)) {
+        $line = @{ year = $year; cells = @{} }
         foreach ($engine in $Engines) {
-            $bucket = $null
-            if ($cells[$year].ContainsKey($engine)) { $bucket = @($cells[$year][$engine]) }
-            if (-not $bucket -or $bucket.Count -eq 0) { $row.cells[$engine] = $null; continue }
+            if (-not $cells[$year].ContainsKey($engine)) { $line.cells[$engine] = $null; continue }
+            $bucket = @($cells[$year][$engine] | Sort-Object -Property { $_.date } -Descending)
+            if ($bucket.Count -eq 0) { $line.cells[$engine] = $null; continue }
             # An installed build is what someone opening the manager is looking
             # for, so it leads its year even when it is not the newest.
             $lead = $bucket[0]
             foreach ($candidate in $bucket) { if ($candidate.installed) { $lead = $candidate; break } }
             $others = New-Object System.Collections.ArrayList
+            $installedCount = 0
             foreach ($candidate in $bucket) {
-                if (-not [object]::ReferenceEquals($candidate, $lead)) { [void]$others.Add($candidate) }
+                if ($candidate.installed) { $installedCount++ }
+                if (-not [object]::ReferenceEquals($candidate, $lead)) {
+                    [void]$others.Add((Get-MatrixCell $candidate))
+                }
             }
-            $cell = $lead.Clone()
+            $cell = Get-MatrixCell $lead
             $cell.others = @($others)
-            $row.cells[$engine] = $cell
+            $cell.installedCount = $installedCount
+            $line.cells[$engine] = $cell
         }
-        [void]$rows.Add($row)
+        [void]$matrix.Add($line)
     }
-    return $rows
+    return $matrix
 }
 
 function Get-State {
-    $catalog = Read-Catalog
-    $installed = Get-InstalledBuilds
+    $cat = Read-Catalog
     $docker = Get-DockerStatus
+    # Keyed by directory name rather than by revision, which is what lets one
+    # lookup serve all four engines.
+    $everything = Get-InstalledByKey
+    $notes = @{}
+    foreach ($entry in $cat.versions) { $notes[$entry.milestone] = $entry }
+
+    # The list used to be the V rows and nothing else - twenty-one curated
+    # Chromium milestones - so it showed Chromium alone while the matrix beside it
+    # showed four engines. Same shelf, same rows, one source.
+    $shelf = Read-Shelf
     $rows = New-Object System.Collections.ArrayList
-    $catalogued = @{}
-
-    foreach ($entry in $catalog.versions) {
-        $m = $entry.milestone
-        $row = @{ milestone = $m; version = $entry.version; note = $entry.note; native = $true }
-        $row.docker = Get-DockerRow (Get-LinuxRevision $catalog.builds $m) $docker
-        if ($catalog.builds.ContainsKey($m) -and $catalog.builds[$m].ContainsKey($HostPlatform)) {
-            $b = $catalog.builds[$m][$HostPlatform]
-            $row.platformDir = $HostPlatform
-            $row.supported = $true
-            $row.revision = $b.revision
-            $catalogued[$b.revision] = $true
-            if ($installed.ContainsKey($b.revision)) {
-                $local = $installed[$b.revision]
-                $row.installed = $true
-                $row.sizeBytes = $local.sizeBytes
-                $row.profileBytes = $local.profileBytes
-                $row.installedAt = $local.installedAt
-            } else {
-                $row.installed = $false; $row.sizeBytes = 0; $row.profileBytes = 0; $row.installedAt = ''
-            }
-        } else {
-            $row.platformDir = $null; $row.supported = $false; $row.revision = $null
-            $row.installed = $false; $row.sizeBytes = 0; $row.profileBytes = 0; $row.installedAt = ''
+    foreach ($engine in $Engines) {
+        foreach ($release in $shelf[$engine]) {
+            [void]$rows.Add((Get-ShelfRow $engine $release $everything $cat.builds $notes $docker))
         }
-        [void]$rows.Add($row)
     }
+    # Newest first across engines. A release date is the only ordering four
+    # numbering schemes share; the page re-sorts, this just makes the default sane.
+    $rows = @($rows | Sort-Object -Property { $_.date } -Descending)
 
-    # Builds installed by raw revision that no catalogue row claims. A container
-    # for one of these still runs the Linux build of whatever milestone it
-    # belongs to, so it is looked up the same way the launcher looks it up.
+    # Builds sitting in the builds directory that no shelf row claims: added by
+    # raw revision, or left behind by a release that has since dropped off a
+    # vendor's index. A container for a Chromium one still runs the Linux build of
+    # whatever milestone it belongs to, so it is looked up the same way the
+    # launcher looks it up.
+    $claimed = @{}
+    foreach ($row in $rows) { if ($row.key) { $claimed[$row.key] = $true } }
+
     $extra = New-Object System.Collections.ArrayList
-    foreach ($rev in ($installed.Keys | Sort-Object)) {
-        if ($catalogued.ContainsKey($rev)) { continue }
-        $row = $installed[$rev].Clone()
+    foreach ($key in ($everything.Keys | Sort-Object)) {
+        if ($claimed.ContainsKey($key)) { continue }
+        $info = $everything[$key]
+        $row = $info.Clone()
         $row.note = 'Installed by revision.'
         $row.supported = $true
         $row.native = $true
         $row.installed = $true
-        $milestone = Get-MilestoneOf $catalog.builds $rev
-        $dockerRev = if ($null -ne $milestone) { Get-LinuxRevision $catalog.builds $milestone } else { $rev }
-        $row.docker = Get-DockerRow $dockerRev $docker
+        $row.docker = $null
+        $row.milestone = $null
+        $row.revision = $null
+        $row.label = $info.version
+        $row.year = $null
+        $row.date = ''
+        $engine = $info.engine
+        if ($engine -eq 'chromium' -and $key -match '^\d+$') {
+            $row.id = $key
+            $row.revision = [int]$key
+            $row.selector = $key
+            $milestone = Get-MilestoneOf $cat.builds ([int]$key)
+            $dockerRev = if ($null -ne $milestone) {
+                Get-LinuxRevision $cat.builds $milestone
+            } else { [int]$key }
+            $row.docker = Get-DockerRow $dockerRev $docker
+        } else {
+            $row.id = $key.Substring($engine.Length + 1)
+            $row.selector = "$engine`:$($row.id)"
+            if ($engine -eq 'webkit') {
+                $row.docker = Get-DockerRow $key $docker $row.selector
+            }
+        }
         [void]$extra.Add($row)
     }
 
@@ -575,7 +634,7 @@ function Get-State {
         extra = $extra
         # @() for the same reason the jobs list has it: a returned collection
         # unrolls, and the page needs a list even when there is one row.
-        matrix = @(Build-Matrix $everything $catalog.builds)
+        matrix = @(Build-Matrix $rows)
         engines = @(foreach ($e in $Engines) { @{ id = $e; name = $EngineNames[$e] } })
         installedCount = $everything.Count
         browserBytes = $browserBytes
@@ -602,7 +661,7 @@ $script:NextJob = 1
 
 function Start-Job2 {
     param([string]$Kind, [string]$Revision, [string[]]$CliArgs, [string]$Label, [string]$Script = $null)
-    if (-not $Script) { $Script = $Cli }
+    if (-not $Script) { $Script = $script:Cli }
 
     $id = [string]$script:NextJob
     $script:NextJob++
@@ -1062,11 +1121,14 @@ function Invoke-Route {
             if (@('start', 'stop', 'rebuild', 'purge') -notcontains $action) {
                 Send-Json $Stream @{ error = 'bad action' } 400; return
             }
-            # The container image is built around a Chromium snapshot revision;
+            # Chromium and WebKit are the two engines with a container.
             # engineshelf-docker.ps1 has no idea what firefox:115 would mean, and
             # would fail with the reason buried in a job log.
-            if ($selector.Contains(':') -and -not $selector.StartsWith('chromium:')) {
-                Send-Json $Stream @{ error = 'Docker only runs Chromium versions.' } 400; return
+            $dockerEngine = if ($selector.Contains(':')) { $selector.Split(':', 2)[0] } else { 'chromium' }
+            if ($dockerEngine -ne 'chromium' -and $dockerEngine -ne 'webkit') {
+                $shown = $EngineNames[$dockerEngine]; if (-not $shown) { $shown = $dockerEngine }
+                Send-Json $Stream @{ error = "Docker runs Chromium and WebKit; $shown has no container." } 400
+                return
             }
             $cliArgs = @($action, $selector)
             # An image is a gigabyte, so removing one has to be possible from the
