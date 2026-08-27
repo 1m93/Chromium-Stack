@@ -973,6 +973,31 @@ body.booting #disk-text {
   color: var(--c-dim);
   text-wrap: pretty;
 }
+/* No changelog for this release, which most of the shelf has - said in the same
+   place as a changelog, quieter, so a row reads as complete rather than broken. */
+.row-note.is-empty {
+  color: var(--c-faint);
+  opacity: 0.7;
+}
+/* Opens the rest of the note. Sits inline at the end of the truncated text, so it
+   reads as the continuation of the sentence rather than as a row control. */
+.note-more {
+  display: inline-flex;
+  vertical-align: -2px;
+  padding: 0;
+  margin-left: 1px;
+  border: 0;
+  background: transparent;
+  color: var(--c-faint);
+  cursor: pointer;
+}
+.note-more:hover {
+  color: var(--c-accent);
+}
+.note-more svg.i {
+  width: 13px;
+  height: 13px;
+}
 .row-tags {
   display: flex;
   align-items: center;
@@ -991,6 +1016,19 @@ body.booting #disk-text {
   border: 1px solid var(--c-line);
   color: var(--c-dim);
 }
+/* When it shipped, which is the one thing every row on the shelf has and the one
+   most rows get picked by. First in the row, and quiet: it is a coordinate, not
+   a warning. */
+.tag.tag-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--c-faint);
+}
+.tag.tag-date svg.i {
+  width: 12px;
+  height: 12px;
+}
 .badge {
   font-size: 11px;
   padding: 2px 8px;
@@ -998,19 +1036,81 @@ body.booting #disk-text {
   background: color-mix(in srgb, var(--c-faint) 18%, transparent);
   color: var(--c-dim);
 }
-.badge.rosetta {
-  background: color-mix(in srgb, var(--c-warn) 18%, transparent);
-  color: var(--c-warn);
+/* ---------- the two routes ----------
+   One mark per way of running a version: native, then the container. Each is the
+   same glyph drawn twice - a grey copy, and a coloured copy over it - and the
+   state decides how much of the coloured one shows through. A hard vertical split
+   rather than a tint, because at 15px a tint is indistinguishable from full
+   colour on a dim screen, and "half" has to be legible at a glance to be worth
+   anything. */
+.routes {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+.route {
+  position: relative;
+  display: inline-flex;
+  /* Sized against the pills beside it rather than against the body text: they are
+     read in the same glance, and a mark smaller than the tag next to it reads as
+     a footnote. */
+  width: 18px;
+  height: 18px;
+  cursor: help;
+  color: var(--c-faint);
+}
+.route-base,
+.route-fill {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+.route svg.i {
+  width: 18px;
+  height: 18px;
+}
+/* The coloured copy, revealed by clip-path and nothing else. All three states are
+   one property on purpose: `display: none` for the off state looked right and did
+   nothing, because iconSpan() sets display:flex inline and an inline style beats
+   any selector - so an unavailable route sat there half blue. */
+.route-fill {
+  clip-path: inset(0 50% 0 0);
+}
+.route-native .route-fill {
+  color: var(--c-accent);
+}
+.route-docker .route-fill {
+  color: var(--c-ok);
+}
+.route[data-state='on'] .route-fill {
+  clip-path: inset(0);
+}
+/* Nothing of the coloured copy: the whole glyph in grey, at full strength. A
+   slash was tried over it and read as a second symbol competing with the glyph
+   underneath at 18px. */
+.route[data-state='off'] .route-fill {
+  clip-path: inset(0 100% 0 0);
 }
 
-/* The advice badge sits next to the informational one and has to read as advice
-   rather than as another fact about the build - so it borrows Docker's colour,
-   which is what it is pointing at, and not the warning colour beside it. */
-.badge.advise {
-  background: color-mix(in srgb, var(--c-ok) 14%, transparent);
-  color: var(--c-ok);
-  white-space: nowrap;
+/* ---------- tooltip ----------
+   Fixed to the viewport and positioned by app.js, so it is never clipped by the
+   scrolling shelf and never inherits a row's overflow. Pointer-events off: it
+   sits under the cursor by design and must not steal the hover that opened it. */
+.tip {
+  position: fixed;
+  z-index: 90;
+  max-width: 300px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--c-text);
+  color: var(--c-surface);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 6px 20px var(--c-shadow);
+  pointer-events: none;
 }
+
+
 
 /* The Docker marker. When the container is up this is a link to its desktop -
    the noVNC tab is easy to close by accident and there was no way back to it. */
@@ -1026,26 +1126,41 @@ a.badge.docker:hover {
   text-decoration: underline;
 }
 
-/* Two fixed lines, never wrapped: the version identifies the build and the sizes
-   are the answer to "can I delete this", so neither may be cut in half. */
+/* Sized by what is in it, not by a number picked when the only figure here was a
+   native download. It has held "Docker 898 MB · 16 MB profile" since, a fixed 170
+   with overflow:hidden cut the first characters off it, and the next unit up will
+   be longer again. Never wrapped, because a size split across two lines is not a
+   size. */
 .row-meta {
-  width: 170px;
   flex: none;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 1px;
   white-space: nowrap;
-  overflow: hidden;
 }
-.row-version {
-  font-size: 12px;
-  color: var(--c-faint);
-}
+/* Icon then figure, so the two lines line up on the glyph and the eye can tell
+   the native copy from the container one without reading either. */
 .row-size {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
   color: var(--c-faint);
-  opacity: 0.75;
+  opacity: 0.8;
+}
+/* Each figure wears its route's colour, so which copy of the version a line is
+   about is answered before the number is read. */
+.row-size svg.i {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.row-size[data-size] svg.i {
+  color: var(--c-accent);
+}
+.row-size[data-size-docker] svg.i {
+  color: var(--c-ok);
 }
 
 .row-progress {

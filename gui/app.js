@@ -27,6 +27,20 @@ const ICONS = {
   check: '<path d="M20 6.5L9.5 17 4 11.5"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  // Withdrawn rather than missing: the circle-slash everything uses for "this is
+  // no longer on offer", which at badge size reads where a struck-through
+  // download arrow turns into a smudge.
+  barred: '<circle cx="12" cy="12" r="9"/><path d="M5.7 18.3L18.3 5.7"/>',
+  calendar:
+    '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17"/><path d="M8.5 3.5v3"/><path d="M15.5 3.5v3"/>',
+  // A note too long for the row, opened in full. Two chevrons rather than an
+  // ellipsis: an ellipsis in a row of pills reads as "there is more text here",
+  // which is true but not that it can be opened.
+  expand: '<path d="M4 14v6h6"/><path d="M20 10V4h-6"/><path d="M4.5 19.5L10 14"/><path d="M19.5 4.5L14 10"/>',
+  // This machine, as opposed to a container: a screen on a stand. A triangle was
+  // tried first and read as a play button rather than as a place.
+  desktop:
+    '<rect x="3" y="4.5" width="18" height="12.5" rx="2.5"/><path d="M8.5 20.5h7"/><path d="M12 17v3.5"/>',
   sort: '<path d="M7 4v16M7 20l-3-3M7 20l3-3"/><path d="M17 20V4M17 4l-3 3M17 4l3 3"/>',
   grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
   rows: '<rect x="4" y="5" width="16" height="4" rx="1.4"/><rect x="4" y="12.5" width="16" height="4" rx="1.4"/>',
@@ -182,8 +196,11 @@ const stopping = new Set(); // jobs the user has asked to stop or cancel
 // Four engines name platforms four different ways and not one of the names is
 // meant to be read: "mac-26-arm64" is a Playwright SDK target, "Mac_Universal" a
 // Microsoft package name, "Mac_Arm" a Chromium snapshot directory.
+// Read inside a sentence now rather than printed on a pill, which is why arm64 is
+// not spelled "native arm64" any more: "runs on this machine (native arm64)" says
+// native twice.
 const PLATFORM_LABELS = {
-  Mac_Arm: 'native arm64',
+  Mac_Arm: 'arm64',
   Mac: 'x86_64',
   Linux_x64: 'Linux x86_64',
   Win_x64: 'Windows x86_64',
@@ -538,6 +555,12 @@ const eraFor = (row) => {
   return year === null ? null : ERAS.find((era) => year <= era.until);
 };
 
+// How much of a changelog fits on a row before the rest goes behind a button.
+// A count rather than a measurement: measuring means reading scrollWidth on every
+// row of a 288-row list, on every refresh, which is a layout pass the shelf does
+// not need to buy.
+const NOTE_BRIEF = 64;
+
 /* ---------- shaping a catalog row for the shelf ---------- */
 
 // The line under the title: the exact build rather than the friendly name. Two
@@ -572,22 +595,28 @@ function decorate(row) {
   const version = row.version || row.id || (selector ? `r${selector}` : '?');
   const milestone =
     row.milestone && row.milestone !== '?' ? row.milestone : null;
-  const raw = row.note || '';
+  // Two notes in the catalog say nothing about the version: one is written when a
+   // milestone is added automatically as Chrome ships it, the other when a row is
+   // resolved against the live archive. They are about how the row got here, not
+   // about what the release brought, and printing them where a changelog goes
+   // said "Resolved from the live archive." on seventy rows.
+  const BOILERPLATE = [
+    'Added automatically as Chrome released it.',
+    'Resolved from the live archive.',
+    'Installed by revision.',
+  ];
+  const rawNote = (row.note || '').replace(/^\s*\d{4}\.\s*/, '');
+  const raw = BOILERPLATE.includes(rawNote.trim()) ? '' : rawNote;
 
   // Notes name the features in backticks; those double as the row's tags, so the
   // shelf gains a scannable index without a second column in catalog.tsv.
   const tags = [...raw.matchAll(/`([^`]+)`/g)]
     .map((match) => match[1])
     .slice(0, 3);
-  // Only the couple of dozen curated Chromium milestones have a note. The other
-  // 260 rows on the shelf are ordinary releases with nothing to say beyond when
-  // they shipped - and a release date is the thing they get picked by, so it is
-  // what stands in rather than leaving the row blank.
-  const note = raw
-    ? raw.replace(/^\s*\d{4}\.\s*/, '').replace(/`/g, '')
-    : row.date
-      ? `Released ${humanDate(row.date)}.`
-      : '';
+  // The changelog, and nothing standing in for it. The release date used to fill
+  // this line on the 260 rows that have no note; it is a tag of its own now, so a
+  // row with nothing to say says so.
+  const note = raw.replace(/`/g, '');
 
   // Read off the server's own answer rather than off platformDir, which most of
   // the shelf does not have until a launch resolves it. The server says false
@@ -595,13 +624,21 @@ function decorate(row) {
   // arm64 build exists - so a row can say Rosetta before anything is downloaded.
   const rosetta = row.native === false;
 
-  // Rosetta by itself is not a reason to send someone to a container - millions
-  // of x86_64 Mac apps run under it without trouble. Chromium's range is: its
-  // profiler segfaults in the translated unwinder and takes about a third of
-  // sessions on a heavy page (measured, README), with no switch to turn it off.
-  // Firefox's old x86_64 builds have no such record here, so they say what they
-  // are and nothing more.
-  const crashProne = rosetta && engine === 'chromium';
+  // An x86_64 build on an Apple Silicon machine, whichever engine. Translation is
+  // where every failure this shelf knows about lives - the GPU-process crash and
+  // the profiler crash are both only here, and the startup abort that kills the
+  // oldest Chromium is a 2019 allocator meeting this year's libsystem_malloc,
+  // which is a macOS problem the Linux build in a container does not have. So the
+  // container is the recommended route for all of them, and the row says so
+  // before anything is downloaded rather than after it has gone wrong.
+  const translated = rosetta;
+
+  // The vendor no longer serves this one: Microsoft's feed keeps about six months
+  // of Edge, Playwright deletes the older macOS WebKit archives. Nothing native
+  // can be offered for it - not a launch, not even a download - so the row stops
+  // pretending otherwise. Absent knowledge this is true, and the row behaves as
+  // it always did.
+  const nativeGone = row.nativeAvailable === false;
 
   // Docker is the second way to run the same version, with its own image on
   // disk, its own container and its own profile volume - and the row used to
@@ -681,9 +718,14 @@ function decorate(row) {
     // else asks someone to read a badge, work out what it means and then reject
     // the button in front of them. The native launcher never goes away - it
     // moves one click, into the menu beside it.
+    nativeGone,
+    translated,
     dockerOnly:
       dockerAvailable &&
-      (row.supported === false || row.knownBad === true || crashProne),
+      (row.supported === false ||
+        row.knownBad === true ||
+        nativeGone ||
+        translated),
     name: label ? `${engineName(engine)} ${label}` : version,
     installed: Boolean(row.installed),
     // "Is this version taking up disk", which an image answers as much as a
@@ -783,6 +825,192 @@ document.addEventListener('click', closePopovers);
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closePopovers();
 });
+
+/* ---------- tooltips ----------
+   Delegated rather than bound per element: the shelf rebuilds every row on each
+   refresh, and 288 rows x two marks is 576 listeners to attach and drop every
+   four seconds. Anything carrying data-tip gets one, wherever it is and whenever
+   it appears.
+
+   A title attribute was tried first and is what this replaces. It waits about a
+   second before appearing, cannot be styled or wrapped, and on a shelf where the
+   marks are the only words left, that second is the whole answer. */
+let tipFor = null;
+
+function hideTip() {
+  if (!tipFor) return;
+  tipFor = null;
+  const tip = $('tip');
+  tip.hidden = true;
+  tip.textContent = '';
+}
+
+function showTip(target) {
+  const text = target.dataset.tip;
+  if (!text) return;
+  const tip = $('tip');
+  tipFor = target;
+  tip.textContent = text;
+  tip.hidden = false;
+  // Measured after it has content, because the width it needs depends on it.
+  const box = target.getBoundingClientRect();
+  const size = tip.getBoundingClientRect();
+  const margin = 8;
+  let left = box.left + box.width / 2 - size.width / 2;
+  left = Math.max(margin, Math.min(left, window.innerWidth - size.width - margin));
+  // Above by preference, below when there is no room - a tooltip half off the top
+  // of the window says nothing.
+  const above = box.top - size.height - 6;
+  tip.style.left = `${Math.round(left)}px`;
+  tip.style.top = `${Math.round(above < margin ? box.bottom + 6 : above)}px`;
+}
+
+document.addEventListener('mouseover', (event) => {
+  const target = event.target.closest && event.target.closest('[data-tip]');
+  if (target === tipFor) return;
+  hideTip();
+  if (target) showTip(target);
+});
+document.addEventListener('mouseout', (event) => {
+  const target = event.target.closest && event.target.closest('[data-tip]');
+  if (target && target === tipFor) hideTip();
+});
+// A tooltip is positioned against the viewport, so anything that moves the thing
+// it points at has to take it down rather than leave it hanging in the wrong
+// place. The shelf scrolls under the pointer constantly.
+window.addEventListener('scroll', hideTip, true);
+window.addEventListener('resize', hideTip);
+document.addEventListener('click', hideTip);
+
+// Sets the text and takes the accessible name with it: a mark with no words is
+// unreadable to a screen reader unless something says what it is.
+function tipped(element, text) {
+  element.dataset.tip = text;
+  element.setAttribute('aria-label', text);
+  return element;
+}
+
+/* ---------- the two routes ----------
+   Every version can be run two ways and a row's job is to say, at a glance, what
+   each of them is worth here. Two marks, one per route, each in one of three
+   states:
+
+     full colour   this route works, and it is the one to take
+     half colour   this route works, but the other one is the better bet
+     grey          this route is not available at all
+
+   Drawn as the same glyph twice, the coloured copy clipped to its left half, so
+   "half" is a hard vertical split rather than a tint - a tint at 13px is
+   indistinguishable from the full colour on a dim screen.
+
+   This replaces four separate badges that each carried a sentence. The sentences
+   are still here, in the tooltip. */
+function routeMark(glyph, state, kind, text) {
+  const wrap = document.createElement('span');
+  wrap.className = `route route-${kind}`;
+  wrap.dataset.state = state;
+  const base = iconSpan(glyph);
+  base.className = 'route-base';
+  const fill = iconSpan(glyph);
+  fill.className = 'route-fill';
+  wrap.append(base, fill);
+  return tipped(wrap, text);
+}
+
+// Why the native route is in the state it is in, and what that means for the
+// button. Longest first: a row can be several of these at once and the first one
+// true is the one that decides what happens.
+function nativeRoute(row) {
+  if (!row.supported) {
+    return ['off', 'Native: no build of this version exists for this machine.'];
+  }
+  if (row.nativeGone && !row.installed) {
+    return [
+      'off',
+      row.engine === 'edge'
+        ? 'Native: gone. Microsoft\u2019s enterprise feed is the only source ' +
+          'for a mac or Windows Edge and it keeps about six months, so there is ' +
+          'nothing left to download.'
+        : 'Native: gone. Playwright deleted the macOS archive for this build ' +
+          'and kept the Linux one, so there is nothing left to download.',
+    ];
+  }
+  if (row.rosetta && rosettaMissing()) {
+    return [
+      'off',
+      'Native: no arm64 build exists this far back and Rosetta 2 is not ' +
+        'installed, so nothing here starts natively as this machine is set up.',
+    ];
+  }
+  if (row.knownBad) {
+    return [
+      'half',
+      'Native: it downloads and starts on this machine, then dies in its first ' +
+        'second, every time. A copy already on disk still launches from the ' +
+        'menu; the container is the route that works.',
+    ];
+  }
+  if (row.translated) {
+    // Chromium's is the one with a number on it. For the other engines the same
+    // translation path is there and no rate has been measured, so this says that
+    // rather than borrowing Chromium's figure.
+    return [
+      'half',
+      row.engine === 'chromium'
+        ? 'Native: it runs, under Rosetta - and about a third of sessions on a ' +
+          'heavy page die there, in a profiler crash no switch turns off. The ' +
+          'launcher relaunches and restores the tabs; the container runs the ' +
+          'Linux build and has none of it.'
+        : 'Native: it runs, under Rosetta - an x86_64 build translated for ' +
+          'this machine, with no arm64 build this far back to fall back on. ' +
+          'Translation is where every failure this shelf knows about lives, so ' +
+          'the container is the route it recommends.',
+    ];
+  }
+  // Every translated build is 'half' above, so this is the untranslated case.
+  // The architecture pill is gone from the row, which makes this the only place
+  // left that names it - so it names it.
+  const arch = platformLabel(row.raw.platformDir);
+  return [
+    'on',
+    arch
+      ? `Native: runs on this machine (${arch}).`
+      : 'Native: runs on this machine. Which build it comes as is settled ' +
+        'against the vendor\u2019s index at launch.',
+  ];
+}
+
+function dockerRoute(row) {
+  if (!row.dockerAvailable) {
+    return [
+      'off',
+      state.docker && state.docker.cli
+        ? 'Docker: no container for this version.'
+        : 'Docker: not installed on this machine. The container would run the ' +
+          'Linux build of this version.',
+    ];
+  }
+  // On or off, never half: a container either exists for this version or it does
+  // not, and it runs the same Linux build either way. Which of the two routes to
+  // prefer is the native mark's business - saying it twice, once per mark, made
+  // the pair look like a comparison of two unrelated things.
+  const size = row.dockerImage ? ` Its image is built (${mb(row.dockerImage)}).` : '';
+  if (row.dockerRunning) {
+    return ['on', `Docker: running. The desktop is a click away.${size}`];
+  }
+  if (row.dockerOnly) {
+    return [
+      'on',
+      'Docker: runs the Linux build of this version, which is the route that ' +
+        `works here.${size}`,
+    ];
+  }
+  return [
+    'on',
+    'Docker: runs the Linux build of this version in a container with its own ' +
+      `desktop.${size}`,
+  ];
+}
 
 /* ---------- system check ---------- */
 
@@ -1678,8 +1906,43 @@ function renderRow(row) {
   // thing telling them apart used to be the word in the title.
   node.querySelector('[data-engine]').replaceWith(engineMark(row.engine));
   node.querySelector('[data-title]').textContent = row.name;
-  node.querySelector('[data-rev]').textContent = row.ident;
-  node.querySelector('[data-note]').textContent = row.note;
+  // Chromium is the one engine whose shelf name and whose real version are
+  // different things - milestone 74 is 74.0.3729.0 - and that version used to sit
+  // alone in the right-hand column. It reads here, under the name, where the
+  // other three engines have always had theirs. The snapshot revision is the
+  // string a bug report has to match, so it moves into the tooltip rather than
+  // off the row.
+  const idLine = node.querySelector('[data-rev]');
+  if (row.engine === 'chromium' && row.version && row.version !== row.label) {
+    idLine.textContent = row.version;
+    if (row.ident) tipped(idLine, `Snapshot revision ${row.ident}`);
+  } else {
+    idLine.textContent = row.ident;
+  }
+  // The changelog, short enough to sit on one line, with a button to open the
+  // rest when there is more. "N/A" rather than a blank when there is none: a
+  // blank line looks like something failed to load, and most of the shelf has no
+  // changelog because nobody wrote one, which is a fact rather than a fault.
+  const noteLine = node.querySelector('[data-note]');
+  if (!row.note) {
+    noteLine.textContent = 'N/A';
+    noteLine.classList.add('is-empty');
+  } else if (row.note.length > NOTE_BRIEF) {
+    noteLine.textContent = `${row.note.slice(0, NOTE_BRIEF).trimEnd()}\u2026 `;
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'note-more';
+    more.append(iconSpan('expand'));
+    tipped(more, 'Read the whole changelog');
+    more.onclick = () => {
+      $('note-title').textContent = row.name;
+      $('note-text').textContent = row.note;
+      $('note-dialog').showModal();
+    };
+    noteLine.append(more);
+  } else {
+    noteLine.textContent = row.note;
+  }
 
   const dot = node.querySelector('[data-dot]');
   dot.dataset.state = row.status;
@@ -1696,143 +1959,85 @@ function renderRow(row) {
             : 'Not installed';
 
   const tags = node.querySelector('[data-tags]');
-  for (const text of row.tags) {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = text;
-    tags.append(tag);
+
+  // When it shipped, first, because that is what a row gets picked by: nobody
+  // hunts for "Chromium 88", they hunt for "something from early 2021". The
+  // feature pills that used to sit here are gone - they were lifted out of the
+  // note printed directly above them and said it twice.
+  if (row.date) {
+    const when = document.createElement('span');
+    when.className = 'tag tag-date';
+    when.append(iconSpan('calendar'), humanDate(row.date));
+    tags.append(when);
   }
 
-  const badge = document.createElement('span');
-  badge.className = 'badge';
-  if (!row.supported) {
-    // What this version is on this machine, and nothing about what to do with
-    // it: the advice badge below says that, on every row where it applies, in
-    // the same words.
-    badge.textContent = 'no build for this host';
-    badge.title =
-      'The catalog has no build of this version for this machine.';
-  } else if (row.knownBad) {
-    // Stronger than "needs Rosetta": this one has already been watched fail on
-    // this machine, so the badge says so instead of describing the translation
-    // it would go through.
-    badge.classList.add('rosetta');
-    badge.textContent = 'crashes on this macOS';
-    badge.title =
-      'This version downloaded and started on this machine, then died before ' +
-      'its window appeared - a build from ' +
-      (row.raw.year ? row.raw.year + ' ' : '') +
-      'against this year\u2019s macOS.';
-  } else if (row.rosetta) {
-    // Worth calling out: these are the builds that go through Rosetta, where a
-    // 2019 allocator meets this year's libsystem_malloc.
-    badge.classList.add('rosetta');
-    // Read off the machine, not off the row's button: the button is Docker for
-    // every Chromium build in this range whether Rosetta is installed or not, so
-    // it can no longer stand in for "cannot run at all".
-    if (rosettaMissing()) {
-      badge.textContent = 'x86_64 · needs Rosetta';
-      badge.title =
-        'No arm64 build exists this far back and Rosetta 2 is not installed, ' +
-        'so this version cannot start on this machine as it is.';
-    } else {
-      badge.textContent = 'x86_64 · Rosetta';
-      badge.title = row.raw.platformDir
-        ? 'No arm64 build exists this far back, so it runs under Rosetta.'
-        : 'No arm64 build exists this far back, so this one arrives as x86_64 ' +
-          'and runs under Rosetta.';
-    }
-  } else {
-    // Only Chromium's platform is known from the catalog. For the others it is
-    // settled against the vendor's index at launch, so before a download there
-    // is nothing to print - and a guess here would be a guess about what runs.
-    badge.textContent = platformLabel(row.raw.platformDir);
-  }
-  if (badge.textContent) tags.append(badge);
+  // No architecture pill. It was the last text badge on the row and it repeated
+  // what the native mark already carries: the mark is half when a build is
+  // translated and full when it is not, and its tooltip names the architecture
+  // either way. A row's words are its name, its note and its button.
+  const routes = document.createElement('span');
+  routes.className = 'routes';
+  const [nativeState, nativeWhy] = nativeRoute(row);
+  const [dockerState, dockerWhy] = dockerRoute(row);
+  routes.append(
+    routeMark('desktop', nativeState, 'native', nativeWhy),
+    routeMark('cube', dockerState, 'docker', dockerWhy),
+  );
+  tags.append(routes);
 
-  // The badge above says how the version stands on this machine; reading it
-  // still left someone to work out what that meant for the button. This says it
-  // outright, in one wording, on every row where the container is the better
-  // route: no build for this host at all, one already watched crash here, or the
-  // Rosetta range - which starts and runs, but loses about a third of sessions
-  // on a heavy page to an unwinder crash no switch turns off.
-  // Not while the container is up: the row already carries a live Docker marker,
-  // and advising what someone is currently doing is noise.
-  if (row.dockerOnly && !row.dockerRunning) {
-    const advise = document.createElement('span');
-    advise.className = 'badge advise';
-    advise.textContent = 'Docker run recommended';
-    advise.title = !row.supported
-      ? 'No build of this version exists for this machine. The container runs ' +
-        'the Linux build of it instead.'
-      : row.knownBad
-        ? 'The native build starts on this machine and dies in its first ' +
-          'second, every time. The container runs the Linux build and never ' +
-          'touches Rosetta.'
-        : rosettaMissing()
-          ? 'No arm64 build exists this far back and Rosetta 2 is not ' +
-            'installed, so nothing here starts natively as this machine is ' +
-            'set up. The container needs neither.'
-          : 'It does run natively, under Rosetta - and about a third of ' +
-            'sessions on a heavy page die there: Chromium\u2019s profiler ' +
-            'segfaults in the translated unwinder and no switch turns it off. ' +
-            'The launcher relaunches and restores the tabs; the container has ' +
-            'none of it. Native launch is in the menu beside this row.';
-    tags.append(advise);
-  }
-
-  // Docker gets its own marker rather than a share of the fixed-width size
-  // column: it is a separate copy of the browser, and when the container is up
-  // this is also the way back to the tab showing its desktop.
-  if (row.dockerRunning || row.dockerImage) {
+  // Only while the container is up, and only because this is the way back to the
+  // tab showing its desktop - that tab is easy to close by accident and there was
+  // no route back. A built-but-idle image needs no tag of its own: its size is on
+  // the line beside the native one and the green cube above says it is there.
+  if (row.dockerRunning) {
     const mark = document.createElement(row.dockerUrl ? 'a' : 'span');
-    mark.className = 'badge docker';
-    if (row.dockerRunning) {
-      mark.textContent = 'Docker · running';
-      mark.classList.add('is-live');
-      const held =
-        `${mb(row.dockerImage)} image` +
-        (row.dockerProfileBytes
-          ? ` · ${mb(row.dockerProfileBytes)} profile`
-          : '');
-      mark.title = row.dockerUrl
+    mark.className = 'badge docker is-live';
+    mark.textContent = 'Docker · running';
+    const held =
+      `${mb(row.dockerImage)} image` +
+      (row.dockerProfileBytes ? ` · ${mb(row.dockerProfileBytes)} profile` : '');
+    tipped(
+      mark,
+      row.dockerUrl
         ? `${row.dockerStatus} · ${held} — open the desktop`
-        : `${row.dockerStatus || 'Container up'} · ${held}`;
-      if (row.dockerUrl) {
-        mark.href = row.dockerUrl;
-        mark.target = '_blank';
-        mark.rel = 'noopener';
-      }
-    } else {
-      mark.textContent = `Docker · ${mb(row.dockerImage)}`;
-      mark.title = row.dockerProfileBytes
-        ? `Image built for the container, plus ${mb(row.dockerProfileBytes)} of profile. ` +
-          'Layers shared with other EngineShelf images are counted once per image.'
-        : 'Image built for the container, not running.';
+        : `${row.dockerStatus || 'Container up'} · ${held}`,
+    );
+    if (row.dockerUrl) {
+      mark.href = row.dockerUrl;
+      mark.target = '_blank';
+      mark.rel = 'noopener';
     }
     tags.append(mark);
   }
 
-  // The full version, but only when it says something the title and the line
-  // under it have not already said. Firefox 51 is version 51.0 and that is
-  // already the line under the title; Chromium 60 is 60.0.3112.0, which is
-  // nowhere else on the row. Printing it unconditionally gave most rows a
-  // right-hand column that repeated their own name.
-  // Chromium only. It is the one engine whose shelf name and whose real version
-  // are different things - milestone 120 is 120.0.6099.0 - and for the other
-  // three this column was printing the line under the title a second time.
-  const spelled =
-    row.supported && row.engine === 'chromium' && row.version !== row.label
-      ? row.version
-      : '';
-  node.querySelector('[data-version]').textContent = spelled;
-  // Nothing here about Docker: the badge beside the version already carries the
-  // image size, and saying it twice on one row read as two separate costs.
-  node.querySelector('[data-size]').textContent = row.busy
-    ? `${workWord(row.busy, row.info)}…`
-    : row.installed
-      ? `${mb(row.sizeBytes)} · ${mb(row.profileBytes)} profile`
-      : '';
+  // Two copies of one version, one line each, right-aligned and stacked: the
+  // native build on top and the container image under it. What used to be on the
+  // top line was the version, which only Chromium ever had a different one of -
+  // it reads under the name now, where the other three engines have always put
+  // theirs.
+  const sizeLine = (element, glyph, text) => {
+    element.textContent = '';
+    element.hidden = !text;
+    if (!text) return;
+    element.append(iconSpan(glyph), text);
+  };
+  sizeLine(
+    node.querySelector('[data-size]'),
+    'desktop',
+    row.busy
+      ? `${workWord(row.busy, row.info)}…`
+      : row.installed
+        ? `${mb(row.sizeBytes)} · ${mb(row.profileBytes)} profile`
+        : '',
+  );
+  sizeLine(
+    node.querySelector('[data-size-docker]'),
+    'cube',
+    row.dockerImage
+      ? `${mb(row.dockerImage)}` +
+        (row.dockerProfileBytes ? ` · ${mb(row.dockerProfileBytes)} profile` : '')
+      : '',
+  );
 
   if (row.busy) {
     // Determinate while curl is reporting, a moving stripe for the steps that
@@ -1940,18 +2145,26 @@ function renderActions(container, row) {
     // has a multi-minute build in front of it and must not wear it, any more
     // than an undownloaded native row wears it on Get.
     if (row.dockerImage) action.classList.add('accent');
-    action.append(
-      iconSpan(row.dockerImage ? 'cube' : 'download'),
-      row.dockerImage ? 'Launch in Docker' : 'Get & launch in Docker',
-    );
-    const why = !row.supported
-      ? 'No build of this version exists for this machine.'
-      : row.knownBad
-        ? 'The native build starts on this machine and dies before its window.'
-        : rosettaMissing()
-          ? 'No arm64 build exists this far back and Rosetta 2 is not installed.'
-          : 'The native build of this one crashes often enough that the ' +
-            'container is the better route.';
+    // Same words as the native button, and the cube carries the difference. The
+    // pair used to read "Get" against "Get & launch in Docker" - one button four
+    // times the width of the other, on rows sitting directly above each other.
+    action.append(iconSpan('cube'), row.dockerImage ? 'Launch' : 'Get');
+    let why;
+    if (!row.supported) {
+      why = 'No build of this version exists for this machine.';
+    } else if (row.nativeGone && !row.installed) {
+      why =
+        'The vendor no longer serves this version for this machine, so there ' +
+        'is nothing left to download.';
+    } else if (row.knownBad) {
+      why = 'The native build starts on this machine and dies before its window.';
+    } else if (rosettaMissing()) {
+      why = 'No arm64 build exists this far back and Rosetta 2 is not installed.';
+    } else {
+      why =
+        'The native build of this one crashes often enough that the container ' +
+        'is the better route.';
+    }
     action.title =
       why +
       (row.dockerImage
@@ -1969,7 +2182,7 @@ function renderActions(container, row) {
     // The image is already built, so this is one click and no download - the
     // same shape as Launch, which is what it is.
     action.classList.add('accent');
-    action.append(iconSpan('cube'), 'Launch in Docker');
+    action.append(iconSpan('cube'), 'Launch');
     action.title =
       'Run this version in its Docker container and open the desktop';
     action.onclick = () => startDocker(action, row);
@@ -2100,8 +2313,9 @@ function toggleMenu(container, row) {
   };
 
   // Nothing to download when the catalog has no build of this version for this
-  // machine: the entry used to be there and the job it started died in the log.
-  if (!row.installed && row.supported) {
+  // machine, or when the vendor has stopped serving the one it has: the entry
+  // used to be there and the job it started died in the log.
+  if (!row.installed && row.supported && !row.nativeGone) {
     item('download', 'Download only', async () => {
       const { job } = await post('/api/install', { selector });
       watch(job, `Installing ${row.name}`);
@@ -2199,7 +2413,10 @@ function toggleMenu(container, row) {
   // including on a version that is not downloaded yet, which is most of them.
   // Not offered while the container is up: that entry is already in the block
   // above.
-  if (row.dockerOnly && !row.dockerRunning) {
+  // Not when the vendor has stopped serving it: "anyway" is for a launch that
+  // might work, and this one cannot be fetched at all. An already-downloaded copy
+  // is a different matter - that one is on disk and still starts.
+  if (row.dockerOnly && !row.dockerRunning && (row.installed || !row.nativeGone)) {
     const label = row.installed
       ? 'Launch natively anyway'
       : 'Download and launch natively';
@@ -2635,32 +2852,8 @@ function askConfirm({ title, body, label }) {
   });
 }
 
-/* ---------- add by revision ---------- */
-
-$('add-btn').onclick = () => $('add-dialog').showModal();
-
 $('view-matrix').onclick = () => setView('matrix');
 $('view-list').onclick = () => setView('list');
-
-$('add-dialog').addEventListener('close', async (event) => {
-  const dialog = event.target;
-  const revision = $('add-revision').value.trim();
-  $('add-revision').value = '';
-  if (dialog.returnValue !== 'ok') return;
-  if (!/^\d{4,}$/.test(revision)) {
-    flash(
-      'A revision is a number from the snapshot archive, e.g. 638880.',
-      'warn',
-    );
-    return;
-  }
-  const { job } = await post('/api/install', { selector: revision });
-  watch(job, `Installing r${revision}`);
-});
-
-$('add-revision').addEventListener('input', (event) => {
-  event.target.value = event.target.value.replace(/\D/g, '');
-});
 
 /* ---------- controls ---------- */
 

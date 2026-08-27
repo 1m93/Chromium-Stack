@@ -42,10 +42,6 @@
         <button class="btn icon-btn" id="theme-btn" title="Light / dark">
           <span data-icon="theme"></span>
         </button>
-
-        <button class="btn accent" id="add-btn">
-          <span data-icon="plus"></span>Add by revision
-        </button>
       </header>
 
       <!-- Only rendered when something is missing, or when asked for from the header. -->
@@ -256,38 +252,14 @@
       </footer>
     </div>
 
-    <dialog id="add-dialog">
+    <dialog id="note-dialog">
       <form method="dialog" class="dialog-body">
         <div>
-          <h2>Add by revision</h2>
-          <p class="muted">
-            Any position in the Chromium snapshot archive that has a build for
-            this platform. Not every position is archived — if it is missing,
-            try one a few commits later.
-          </p>
+          <h2 id="note-title">Changelog</h2>
+          <p class="muted" id="note-text"></p>
         </div>
-        <label class="field">
-          <span class="side-title">Revision</span>
-          <input
-            type="text"
-            id="add-revision"
-            class="mono"
-            inputmode="numeric"
-            placeholder="638880"
-            autocomplete="off"
-          />
-        </label>
-        <p class="muted small">
-          Look one up at
-          <span class="mono"
-            >chromiumdash.appspot.com/fetch_milestones?mstone=NN</span
-          >
-        </p>
         <menu class="dialog-actions">
-          <button class="btn" value="cancel">Cancel</button>
-          <button class="btn accent" id="add-confirm" value="ok">
-            Add to shelf
-          </button>
+          <button class="btn" value="cancel">Close</button>
         </menu>
       </form>
     </dialog>
@@ -321,9 +293,18 @@
           <p class="row-note" data-note></p>
           <div class="row-tags" data-tags></div>
         </div>
+        <!-- Two lines, one per copy of this version on disk: the native build
+             and the container image. The top line used to be the version, which
+             only Chromium ever had a different one of - it reads under the name
+             now, where every other engine has always put it. -->
+        <!-- Two lines, one per copy of this version on disk, each marked with
+             the same glyph its route uses: a screen for the native build, a cube
+             for the container image. The words "Docker" and "Native" were there
+             first and the column is 170px wide - the second line came out as
+             "er 898 MB". -->
         <div class="row-meta mono">
-          <span class="row-version" data-version></span>
-          <span class="row-size" data-size></span>
+          <span class="row-size" data-size hidden></span>
+          <span class="row-size" data-size-docker hidden></span>
         </div>
         <div class="row-progress" data-progress hidden>
           <i data-progress-bar></i>
@@ -331,6 +312,12 @@
         <div class="row-actions" data-actions></div>
       </article>
     </template>
+
+    <!-- One tooltip for the whole page, moved to whatever is hovered. The row
+         marks say what they mean in here rather than in a title attribute: a
+         title waits a second, cannot be styled, and on a shelf where the marks
+         are the only words left that second is the whole answer. -->
+    <div class="tip" id="tip" role="tooltip" hidden></div>
 
     <script src="app.js"></script>
   </body>

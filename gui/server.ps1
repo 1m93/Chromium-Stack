@@ -244,6 +244,42 @@ function Get-DockerStatus {
     return $value
 }
 
+# ---------- what the vendors still serve ----------
+# A shelf row says a version was released. Whether it can still be downloaded is a
+# different question, and rows for versions nobody can fetch any more were offered
+# as ordinary downloads and failed at the vendor - the worst place to find out.
+#
+# Windows gets the two answers that cost nothing. Edge is the flat one: Microsoft
+# ships only an MSI here, whose payload is an installer stream rather than an
+# archive, so no Edge can be shelved natively on Windows at all - engineshelf.ps1
+# says exactly that when asked. No feed request can change that answer, so none is
+# made. WebKit's boundary does need asking, one revision at a time, and that
+# search lives in the Python server, which has a thread to do it in. What it
+# writes is read here, so a machine that has run both sees both answers.
+$NativeFile = Join-Path $Root 'native.json'
+$script:NativeRecord = $null
+
+function Get-NativeRecord {
+    if (-not (Test-Path $NativeFile)) { return $null }
+    try { return (Get-Content $NativeFile -Raw | ConvertFrom-Json) } catch { return $null }
+}
+
+function Get-NativeAvailable {
+    param([string]$Engine, [string]$Ident)
+    # Not a probe and not a guess: Get-EnginePlatforms is where the CLI keeps the
+    # list of platforms an engine publishes for this host, and for Edge on Windows
+    # that list is empty.
+    if ((Get-EnginePlatforms $Engine).Count -eq 0) { return $false }
+    if ($Engine -eq 'webkit' -and $null -ne $script:NativeRecord -and
+        $null -ne $script:NativeRecord.webkit) {
+        $floor = $script:NativeRecord.webkit.floor
+        if ($null -eq $floor) { return $false }
+        $n = 0
+        if ([int]::TryParse($Ident, [ref]$n)) { return ($n -ge [int]$floor) }
+    }
+    return $true
+}
+
 function Get-DockerRow {
     <#
       The Docker side of one shelf row, or $null if there is nothing to offer.
@@ -433,6 +469,9 @@ function Get-ShelfRow {
         # arch-fallback cache to read, so the field exists to keep the page's
         # two servers answering the same shape and is always false.
         knownBad = $false
+        # Whether the vendor will still hand this over, which is not the same
+        # question as whether it would run. See Get-NativeAvailable.
+        nativeAvailable = $true
     }
 
     if ($engine -eq 'chromium') {
@@ -487,6 +526,7 @@ function Get-ShelfRow {
         # index at launch time, so until then there is nothing honest to print.
         $row.platformDir = $null
         $row.supported = $true
+        $row.nativeAvailable = Get-NativeAvailable $engine $ident
         # All four engines have a container now, and for these three its image
         # is tagged with the same key the build directory uses - so the row can
         # see it without a second lookup. Chromium is the exception above: its
@@ -514,7 +554,7 @@ function Get-ShelfRow {
 # button the list does, and it cannot know that without this.
 $CellFields = @('engine', 'label', 'id', 'date', 'selector', 'key',
                 'supported', 'installed', 'sizeBytes', 'profileBytes', 'docker',
-                'native', 'knownBad')
+                'native', 'knownBad', 'nativeAvailable')
 
 function Get-MatrixCell {
     param($row)
@@ -586,12 +626,25 @@ function Get-State {
     # Chromium milestones - so it showed Chromium alone while the matrix beside it
     # showed four engines. Same shelf, same rows, one source.
     $shelf = Read-Shelf
+    # Read once per state build, not once per row: 288 rows would otherwise open
+    # the same small file 288 times.
+    $script:NativeRecord = Get-NativeRecord
     $rows = New-Object System.Collections.ArrayList
     foreach ($engine in $Engines) {
         foreach ($release in $shelf[$engine]) {
             [void]$rows.Add((Get-ShelfRow $engine $release $everything $cat.builds $notes $docker))
         }
     }
+    # Nothing anywhere can run this version: the vendor stopped serving it and its
+    # engine has no container either. A row that cannot be acted on at all is not
+    # information, it is a dead entry in a list of 288.
+    #
+    # Deliberately not "and Docker is not installed on this machine": that would
+    # hide rows from someone who has yet to set Docker up and hand them back when
+    # they do, a shelf that changes size for reasons nobody can see. All four
+    # engines have a container, so this removes nothing today.
+    $rows = @($rows | Where-Object { $_.nativeAvailable -or ($_.engine -in $Engines) })
+
     # Newest first across engines. A release date is the only ordering four
     # numbering schemes share; the page re-sorts, this just makes the default sane.
     $rows = @($rows | Sort-Object -Property { $_.date } -Descending)
@@ -613,6 +666,7 @@ function Get-State {
         $row.supported = $true
         $row.native = $true
         $row.knownBad = $false
+        $row.nativeAvailable = $true
         $row.installed = $true
         $row.docker = $null
         $row.milestone = $null

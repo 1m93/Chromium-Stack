@@ -189,6 +189,181 @@ def known_bad_keys():
     return bad
 
 
+# ---------- what the vendors still serve ----------
+# A shelf row says a version was released. Whether it can still be downloaded is a
+# different question, and only the vendor can answer it: Microsoft's enterprise
+# feed keeps about six months of Edge and drops the rest, and Playwright deletes
+# the older macOS WebKit archives while keeping the Linux ones. Rows for those
+# versions were offered as ordinary downloads and failed at the vendor, which is
+# the worst place to find out.
+#
+# Both answers are asked for through the CLI rather than reimplemented here, so
+# they cannot drift from what a launch will actually find.
+NATIVE_TTL = {"edge": 6 * 3600, "webkit": 3 * 86400, "versions": 7 * 86400}
+# Engines with a Linux container. All four, which is why a version the vendor has
+# dropped is still reachable rather than gone.
+CONTAINERISED = frozenset(ENGINES)
+_native_lock = threading.Lock()
+_native_probing = set()
+
+
+def native_path():
+    return os.path.join(root_dir(), "native.json")
+
+
+def read_native():
+    try:
+        with open(native_path()) as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_native(data):
+    tmp = native_path() + ".%d" % os.getpid()
+    try:
+        with open(tmp, "w") as handle:
+            json.dump(data, handle)
+        os.replace(tmp, native_path())
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def native_stale(data, engine):
+    entry = data.get(engine)
+    if not isinstance(entry, dict):
+        return True
+    return time.time() - entry.get("at", 0) > NATIVE_TTL[engine]
+
+
+def cli_lines(args, timeout=90):
+    """Lines of stdout from the CLI, or None when it said it had no answer."""
+    try:
+        done = subprocess.run(["bash", CLI, *args], capture_output=True,
+                              text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    return [line.strip() for line in done.stdout.splitlines() if line.strip()]
+
+
+def probe_native(selector, timeout=90):
+    try:
+        done = subprocess.run(["bash", CLI, "probe", selector],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.returncode == 0
+
+
+def webkit_native_floor(ids):
+    """The oldest WebKit build this host can still download, by halving.
+
+    Playwright deletes from the old end and never from the middle, so one probe
+    rules out or admits half the shelf at a time: six requests instead of the
+    fifty-three that asking about every row would take. Returns None when even
+    the newest has no archive for this host - which is the whole answer on
+    Windows, where WebKit has no native build at all.
+    """
+    order = sorted(ids)
+    if not order:
+        return None
+    if not probe_native("webkit:%s" % order[-1]):
+        return None
+    low, high = 0, len(order) - 1
+    while low < high:
+        middle = (low + high) // 2
+        if probe_native("webkit:%s" % order[middle]):
+            high = middle
+        else:
+            low = middle + 1
+    return order[low]
+
+
+def refresh_native(engine, ids=None):
+    """Ask one vendor what it still serves, and keep the answer. Never on the
+    request path: the Edge feed is one request but the WebKit search is six, and
+    a page that waited for either would be a page that hangs when a CDN does."""
+    with _native_lock:
+        if engine in _native_probing:
+            return
+        _native_probing.add(engine)
+    try:
+        found = None
+        if engine == "edge":
+            offers = cli_lines(["offers", "edge"], timeout=45)
+            if offers is not None:
+                found = {"offers": offers}
+        elif engine == "webkit":
+            floor = webkit_native_floor(ids or [])
+            found = {"floor": floor}
+        if found is None:
+            return
+        with _native_lock:
+            data = read_native()
+            data[engine] = dict(found, at=time.time())
+            write_native(data)
+    finally:
+        with _native_lock:
+            _native_probing.discard(engine)
+
+
+def fill_versions(milestones):
+    """Ask the dashboard what the uncatalogued Chromium milestones are called.
+
+    Twenty-one milestones carry a hand-written version; the other seventy had
+    nothing to print under their name, because a milestone number is not a
+    version and inventing one would be worse than a blank. One request each, and
+    the answer is a V row in the catalog cache - permanent, and no claim that a
+    build has been found for this machine.
+    """
+    with _native_lock:
+        if "versions" in _native_probing:
+            return
+        _native_probing.add("versions")
+    try:
+        cli_lines(["name-versions", *[str(m) for m in milestones]], timeout=180)
+        with _native_lock:
+            data = read_native()
+            # Stamped even when some milestone could not be resolved, so a
+            # dashboard that is down does not turn into a request every four
+            # seconds for as long as the manager is open.
+            data["versions"] = {"at": time.time()}
+            write_native(data)
+    finally:
+        with _native_lock:
+            _native_probing.discard("versions")
+
+
+def native_available(engine, ident, native):
+    """Can this host download this row, as far as anything here knows?
+
+    True when nothing says otherwise: an unasked question is not a no, and a row
+    that has never been probed behaves exactly as it did before any of this.
+    """
+    entry = native.get(engine)
+    if not isinstance(entry, dict):
+        return True
+    if engine == "edge":
+        offers = entry.get("offers")
+        return True if not isinstance(offers, list) else ident in offers
+    if engine == "webkit":
+        floor = entry.get("floor")
+        if floor is None:
+            return False
+        try:
+            return int(ident) >= int(floor)
+        except (TypeError, ValueError):
+            return True
+    return True
+
+
 # The first Firefox whose mac package is universal. Below it Apple Silicon runs an
 # x86_64 build under Rosetta, with no arm64 build to fall back to.
 FIREFOX_UNIVERSAL = 84
@@ -629,7 +804,7 @@ def milestone_of(revision, builds):
 # button the list does, and it cannot know that without this.
 _CELL_FIELDS = ("engine", "label", "id", "date", "selector", "key",
                 "supported", "installed", "sizeBytes", "profileBytes", "docker",
-                "native", "knownBad")
+                "native", "knownBad", "nativeAvailable")
 
 
 def build_matrix(rows):
@@ -674,7 +849,7 @@ def build_matrix(rows):
 
 
 def shelf_row(engine, release, installed, builds, hosts, notes, docker,
-               known_bad, rosetta_max):
+               known_bad, rosetta_max, native):
     """One release, in the shape the list draws.
 
     The matrix and the list are two views of the same shelf, so both are built
@@ -695,6 +870,10 @@ def shelf_row(engine, release, installed, builds, hosts, notes, docker,
         "docker": None,
         "native": True,
         "knownBad": False,
+        # Whether the vendor will still hand this over. Separate from "native",
+        # which is about architecture: a build can be perfectly runnable here and
+        # simply no longer downloadable.
+        "nativeAvailable": True,
     }
 
     if engine == "chromium":
@@ -755,6 +934,7 @@ def shelf_row(engine, release, installed, builds, hosts, notes, docker,
             head = ident.split(".")[0]
             if head.isdigit() and int(head) < FIREFOX_UNIVERSAL:
                 row["native"] = False
+        row["nativeAvailable"] = native_available(engine, ident, native)
         row["key"] = "%s-%s" % (engine, ident)
         # The id, not the label: two WebKit builds are both called 26.5 and only
         # the id says which one this is.
@@ -791,6 +971,7 @@ def build_state():
     notes = {entry["milestone"]: entry for entry in versions}
     known_bad = known_bad_keys()
     rosetta_max = rosetta_ceiling(builds)
+    native = read_native()
 
     # The list used to be the V rows and nothing else - twenty-one curated
     # Chromium milestones - so it showed Chromium alone while the matrix beside
@@ -799,7 +980,37 @@ def build_state():
     for engine, releases in read_shelf().items():
         for release in releases:
             rows.append(shelf_row(engine, release, everything, builds, hosts,
-                                  notes, docker, known_bad, rosetta_max))
+                                  notes, docker, known_bad, rosetta_max,
+                                  native))
+    # Asked in the background, after the rows are built from whatever the last
+    # answer was: the first page load of a fresh install is exactly as fast as
+    # before, and the shelf sharpens a few seconds later.
+    for engine in ("edge", "webkit"):
+        if native_stale(native, engine):
+            ids = [r["id"] for r in rows if r["engine"] == engine]
+            threading.Thread(target=refresh_native, args=(engine, ids),
+                             daemon=True).start()
+
+    if native_stale(native, "versions"):
+        unnamed = [row["milestone"] for row in rows
+                   if row["engine"] == "chromium" and row["milestone"]
+                   and row["version"] == row["label"]]
+        if unnamed:
+            threading.Thread(target=fill_versions, args=(unnamed,),
+                             daemon=True).start()
+
+    # Nothing anywhere can run this version: the vendor stopped serving it and its
+    # engine has no container either. A row that cannot be acted on at all is not
+    # information, it is a dead entry in a list of 288.
+    #
+    # Deliberately not "and Docker is not installed on this machine": that would
+    # hide seventy versions from someone who has yet to set Docker up and hand
+    # them back when they do, which is a shelf that changes size for reasons
+    # nobody can see. As it stands all four engines have a container, so this
+    # removes nothing - it is one vendor decision away from mattering.
+    rows = [row for row in rows
+            if row["nativeAvailable"] or row["engine"] in CONTAINERISED]
+
     # Newest first across engines. A release date is the only ordering four
     # numbering schemes share; the page re-sorts, this just makes the default sane.
     rows.sort(key=lambda r: r["date"], reverse=True)
@@ -817,8 +1028,8 @@ def build_state():
         engine = info["engine"]
         row = dict(info, note="Installed by revision.", supported=True,
                    native=True, docker=None, milestone=None, revision=None,
-                   knownBad=False, label=info["version"], id=key, year=None,
-                   date="")
+                   knownBad=False, nativeAvailable=True,
+                   label=info["version"], id=key, year=None, date="")
         row["id"] = key if engine == "chromium" else key[len(engine) + 1:]
         if engine == "chromium" and key.isdigit():
             revision = int(key)

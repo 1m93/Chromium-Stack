@@ -156,7 +156,7 @@ One page, served locally, with everything on it.
 | **Two views of one shelf** | The list it opens on — every release of all four engines, one per row, with the actions — or the grid below, for comparing across engines. |
 | **Grouped by era** | In the list, rows sit under the years they belong to, four engines interleaved by release date, with what each era brought — jump straight to one, or sort by age or disk used. |
 | **Search and filters** | Narrow to one engine, or search by version, revision, release date or feature — `:has()`, `dvh`, `flex gap` — or by what is installed, running, or stuck on Rosetta. |
-| **Add by revision** | Any build in the Chromium snapshot archive, not just the catalogued milestones. |
+| **Any revision at all** | Every build in the Chromium snapshot archive is runnable, not just the catalogued milestones — from the CLI, which takes a bare position as a selector. |
 | **System check** | Tells you what is missing before it matters, with buttons that install it. |
 | **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job when several are in flight. |
 | **Honest disk accounting** | A running total split between browsers, profiles and Docker images, so it is obvious when to clear something out. |
@@ -239,8 +239,8 @@ Newer milestones are added on the same spacing as Chrome releases them — run
 
 <br>
 
-Use **Add by revision** in the manager, or pass the revision straight to the CLI. To find
-the branch base position for a milestone:
+Pass the revision straight to the CLI — `./engineshelf.sh run 638880`. To find the branch
+base position for a milestone:
 
 ```bash
 curl -s "https://chromiumdash.appspot.com/fetch_milestones?mstone=74" \
@@ -486,11 +486,11 @@ you nothing there. Use `.\engineshelf.ps1 run 74` instead.
 <br>
 
 **This only affects the older milestones.** Chromium publishes native arm64 macOS builds
-from roughly M92 on, so **95 and later run natively** and behave like any other Mac app. The
-manager labels those rows *native arm64*.
+from roughly M92 on, so **95 and later run natively** and behave like any other Mac app — the
+manager draws those rows with a full blue screen mark.
 
-**60 through 90 have no arm64 build**, so they run through Rosetta — the rows marked
-*x86_64 · Rosetta*. Two failure modes come out of that:
+**60 through 90 have no arm64 build**, so they run through Rosetta, and their screen mark is
+half. Two failure modes come out of that:
 
 **1. GPU process crash — fixed.** The Apple GPU driver cannot answer the browser's query for
 the system memory size (`AGX: getSystemMemorySize(): Verification failed`), the GPU process
@@ -541,24 +541,96 @@ engine that dies before its window records that version against this macOS major
 - a macOS upgrade clears the verdict, because the record is keyed by OS major — the question
   gets asked again rather than inherited
 
+### When the vendor has stopped serving a version
+
+A shelf row says a version was *released*. Whether it can still be *downloaded* is a different
+question, and only the vendor can answer it:
+
+| Engine | Measured here | Why |
+|---|---|---|
+| **Edge** | 34 of 39 shelf rows cannot be fetched on macOS | the enterprise feed is the only source for a mac or Windows Edge and keeps about six months. On **Windows** it is all of them: Microsoft ships only an MSI, whose payload is an installer stream rather than an archive |
+| **WebKit** | 36 of 53 cannot be fetched | Playwright deletes the older macOS archives — the boundary here is r2051 (18.0) — and keeps the Linux ones |
+| **Chromium** | 34 of 34 catalogued revisions still live | the snapshot archive keeps them, and an uncatalogued milestone is resolved against it on demand |
+| **Firefox** | none missing | `ftp.mozilla.org` has kept every release Mozilla ever shipped |
+
+Those rows used to be ordinary downloads that failed at the vendor, which is the worst place to
+find out. The shelf now asks first, in the background, and never on the page's own request path:
+
+- **Edge** takes one request — the feed lists exactly what it will serve — cached for six hours
+- **WebKit** takes six, not fifty-three: Playwright deletes from the old end and never from the
+  middle, so halving the shelf finds the boundary. Cached for three days
+- both answers land in `~/.engineshelf/native.json`, and a row with no answer yet behaves exactly
+  as it did before any of this — an unasked question is not a no
+
+A row the vendor has dropped keeps its place on the shelf and **loses every native option**: no
+Get, no *Download only*, no *Download and launch natively*. Its native mark goes grey
+and its button is the container. A copy already on disk is untouched — that one still launches,
+because it is already here.
+
+**A row is removed from the list only when nothing anywhere can run it** — the vendor dropped it
+*and* its engine has no container. All four engines have one, so today this removes nothing. It
+is deliberately not "and Docker is not installed on this machine": that would hide seventy
+versions from someone who has yet to set Docker up and hand them back when they do.
+
 ### What a row says, and what its button does
 
 Each row carries up to two badges, because they answer two different questions and one badge
 answering both was unreadable.
 
-The first says **what this version is on this machine**: `native arm64`, `x86_64 · Rosetta`,
-`x86_64 · needs Rosetta`, `crashes on this macOS`, `no build for this host`.
+Every version can be run two ways, so every row carries **two marks** — a screen for the native
+build, a cube for the container:
 
-The second says **what to do about it** — **Docker run recommended** — and where it appears,
-the row's button runs the container rather than the native build. Recommending one thing and
+| Mark | States |
+|---|---|
+| **screen** (native) | **blue** it runs here · **half blue**, split down the middle, it runs but the container is the better bet · **grey** there is no native route at all |
+| **cube** (Docker) | **green** there is a container for this version · **grey** there is not |
+
+The cube is on or off and never half: a container either exists or it does not, and it runs the
+same Linux build either way. Which of the two routes to *prefer* is the screen's business —
+saying it twice, once per mark, made the pair read as a comparison of two unrelated things.
+
+So a modern Chromium is *blue screen, green cube*: run it natively, the container is there if
+you want it. Chromium 74 is *half screen, green cube*: it downloads and starts, and dies in its
+first second, so take the container. An Edge the feed has dropped is *grey screen, green cube*:
+nothing left to download, and the container has it.
+
+Half is a hard vertical split rather than a tint: at 18px a tint is indistinguishable from full
+colour on a dim screen, and the state has to be legible at a glance to be worth drawing.
+
+**The rest of a row.** A date tag comes first — every row has one and most rows get picked by it,
+because nobody hunts for "Chromium 88", they hunt for something from early 2021. Above it sits
+the changelog, on one line, with a button to open the rest when there is more than fits; rows
+with no changelog say `N/A`, which most of the shelf does, because nobody wrote one. The feature
+pills that used to sit beside the date are gone: they were lifted out of the changelog printed
+directly above them and said the same thing twice.
+
+**Sizes.** Two right-aligned lines, each marked with the glyph its route uses and in its colour —
+a blue screen for the native build, a green cube for the container image. The words "Native" and
+"Docker" were there first, in a column with a fixed width and `overflow: hidden`, so the second
+line came out as *er 898 MB*. The column is sized by what is in it now: the next unit up will be
+longer again.
+
+Nothing beside them is text. Everything a row used to spell out — the architecture, *crashes on this macOS*, *no longer
+downloadable*, *no build for this host*, *Docker run recommended* — is a sentence in the mark's
+tooltip, which is the page's own tooltip
+rather than a `title`: a title waits about a second, cannot be wrapped or styled, and on a shelf
+where the marks are the only words left that second is the whole answer. Each mark carries the
+same sentence as its `aria-label`, so a screen reader gets what the eye gets.
+
+**Sizes read in one place.** A version on disk twice — the native build and the container image
+— has two lines in the right-hand column, one each, rather than a size in the column and another
+inside a tag. What used to be on that top line was the version, which only Chromium ever had a
+different one of; it reads under the name now, where the other three engines have always put
+theirs, and Chromium's snapshot revision moved into that line's tooltip. Recommending one thing and
 offering another asks someone to read a badge, work out what it means, and then reject the
 button in front of them. It appears on three kinds of row:
 
 | Row | Why |
 |---|---|
 | no build for this host | there is nothing to launch natively |
+| the vendor no longer serves it | there is nothing left to download |
 | already watched crash here | it starts and dies, every time |
-| Chromium under Rosetta | it does run, and loses about a third of sessions on a heavy page |
+| any x86_64 build on Apple Silicon | it does run, translated — and translation is where every failure this shelf knows about lives |
 
 There are two ways to run a version and each has the same three states, so each has the same
 three buttons — colour included. **Accent means "this runs now"**: a row with a multi-minute
@@ -567,20 +639,37 @@ on Get.
 
 | State | Native | Docker |
 |---|---|---|
-| nothing on disk | **Get** | **Get & launch in Docker** |
-| on disk | **Launch** | **Launch in Docker** |
+| nothing on disk | ⤓ **Get** | ⬢ **Get** |
+| on disk | ▶ **Launch** | ⬢ **Launch** |
 | fetch it, run it later | *Download only* (**···** menu) | *Get the container only* (**···** menu) |
+
+Same words on both sides, and the cube carries the difference. They used to read *Get* against
+*Get & launch in Docker* — one button four times the width of the other, on rows sitting
+directly above each other.
 
 `Get the container only` is `./engineshelf-docker.sh build <version>` — the image built and
 nothing started, so the eight minutes happen when it suits rather than in front of someone who
 wanted a browser.
 
-Rosetta by itself is not on that list. Old **Firefox** builds are x86_64 too — Mozilla's mac
-package is universal only from 84 on — so those rows say `x86_64 · Rosetta` and stop there:
-translation alone is not a reason to send anyone to a container, and no crash rate has been
-measured for them. Edge and WebKit say nothing before a download, because nothing in the shelf
-data settles which architecture they arrive as. All four engines still switch to Docker the
-moment one is actually watched fail.
+**Translation is the line.** Every x86_64 build on an Apple Silicon machine gets the half mark
+and the container button — 63 rows here: Chromium 60–90, and Firefox 51–83, whose mac package is
+universal only from 84 on. Both failure modes under [Stability](#good-to-know) are translation
+failures, and the startup abort that kills the oldest Chromium is a 2019 allocator meeting this
+year's `libsystem_malloc`, which is a macOS problem the Linux build in a container does not have.
+
+Only Chromium's rate is measured — about a third of sessions on a heavy page — and its tooltip
+says so with the number. Firefox's says the same translation path is there and stops, rather
+than borrowing a figure that was never measured for it.
+
+Edge and WebKit say nothing about architecture before a download, because nothing in the shelf
+data settles which one they arrive as. All four engines still switch to Docker the moment one is
+actually watched fail, whatever the architecture.
+
+**Every Chromium milestone knows what it is called.** Twenty-one carry a hand-written version;
+the other seventy had nothing under their name, because a milestone number is not a version and
+inventing one is worse than a blank. One request each to the milestone dashboard fills them in,
+in the background, cached as `V` rows in `~/.engineshelf/catalog.cache.tsv` — a name, with no
+claim that a build has been found for this machine.
 
 The Rosetta badge appears before a download too. Only about twenty Chromium milestones carry a
 verified platform row, so the rest used to say nothing about Rosetta until they had been
@@ -685,6 +774,7 @@ there.
 | `~/.engineshelf/builds/<revision>/` | a downloaded browser |
 | `~/.engineshelf/profiles/<revision>/` | that version's profile (cookies, logins, storage) |
 | `~/.engineshelf/logs/<revision>.log` | that version's stderr from its last run |
+| `~/.engineshelf/native.json` | when each background question was last asked, and what each vendor still serves for this host: the Edge versions its feed lists, and the oldest WebKit build with an archive for this macOS. Refreshed in the background, six hours for Edge and three days for WebKit. Delete it to make the shelf ask again. |
 | `~/.engineshelf/arch-fallback.cache` | one line per macOS major version and version that started here and died before its window — a bare milestone for Chromium, `engine:id` for the other three. Written by the first such launch, read by the CLI and the manager so neither leads with a native launch again. Delete it to make the shelf ask again. |
 | `~/.engineshelf/manager.json` | which port the running manager is on, so opening the app again finds it instead of starting a second one. Removed when it quits. |
 | `~/.engineshelf/manager-window/` | the browser profile behind the manager's own window on Windows and Linux — a few tens of MB of browser plumbing, not something EngineShelf downloaded. Safe to delete when the manager is closed; it is rebuilt on the next start. The macOS app draws its own window and needs none of it. |

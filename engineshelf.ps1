@@ -852,6 +852,26 @@ function Invoke-ResolveFor {
     Write-Output $build.Revision
 }
 
+function Invoke-Probe {
+    <#
+      Can this host download this one version natively, right now? Exit 0 yes,
+      1 no, and nothing on stdout: the status is the whole answer. Asked through
+      the same resolver a launch uses, so the answer cannot drift from what a
+      launch will find - which is the whole point of not reimplementing the
+      vendor checks in the manager.
+
+      Not in the help; nobody types it. The manager uses it to find where a
+      vendor's archive stops.
+    #>
+    param([string]$Sel)
+    try {
+        Resolve-Selector $Sel | Out-Null
+    } catch {
+        exit 1
+    }
+    exit 0
+}
+
 function Invoke-Doctor {
     param([string[]]$Options)
 
@@ -949,6 +969,7 @@ switch -Regex ($Command) {
     }
     '^(doctor|check)$'     { Invoke-Doctor (@($Selector) + $Rest | Where-Object { $_ }); break }
     '^resolve-for$'        { Invoke-ResolveFor $Selector $Rest[0]; break }
+    '^probe$'              { Invoke-Probe $Selector; break }
     '^gui$'                { & (Join-Path $ScriptDir 'gui.ps1') @Rest; break }
     '^(|-h|--help|help)$'  { Show-Usage; break }
     default                { Die "Unknown command: $Command (try --help)" }

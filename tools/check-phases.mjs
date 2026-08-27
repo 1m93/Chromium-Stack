@@ -37,6 +37,11 @@ globalThis.document = {
 // property on window, so importing it needs one to assign to. Same object, so
 // window.x and globalThis.x are the one variable the browser has.
 globalThis.window = globalThis;
+// A browser has these on window; the page hangs its tooltip teardown off them.
+globalThis.addEventListener = () => {};
+globalThis.removeEventListener = () => {};
+globalThis.innerWidth = 1440;
+globalThis.innerHeight = 900;
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.location = { search: '', reload: () => {} };
 globalThis.matchMedia = () => ({ matches: false });

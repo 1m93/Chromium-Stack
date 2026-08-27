@@ -1137,6 +1137,72 @@ cmd_resolve_for() {
   printf '%s\n' "$(printf '%s' "$build" | cut -d' ' -f1)"
 }
 
+# Two questions the manager cannot answer for itself, both about what a vendor is
+# still willing to serve. Neither is in the help: nobody types these, and the
+# answers are only useful to something building a shelf.
+#
+# The point of routing them through here rather than reimplementing the checks in
+# the manager is that these use the same resolvers a launch uses. An answer that
+# came from a second copy of each vendor's URLs would drift from what a launch
+# actually finds, which is the failure this is meant to prevent.
+
+# What this host can still download natively, one id per line, for the engines
+# whose index can be listed at all. Exit 1 means "there is no list to give" -
+# Mozilla keeps every release and needs none, Playwright publishes no index, and
+# Chromium milestones are resolved one at a time - which is not the same answer as
+# an empty list.
+cmd_offers() {
+  local engine="${1:-}" platform
+  engine_known "$engine" || die "Unknown engine: $engine. Known: $ENGINES"
+  case "$engine" in
+    edge)
+      platform="$(engine_platforms edge)" || die "Edge has no build for this machine."
+      edge_api_versions "$platform" ;;
+    *) exit 1 ;;
+  esac
+}
+
+# Just the version string for a milestone, cached. One request each - the
+# milestone dashboard already carries the branch number, and
+# `<milestone>.0.<branch>.0` is the version - where a full resolve also lists the
+# bucket to find a revision and an archive, which is three more.
+#
+# Written as a V row with no B row beside it, which is exactly what it is: this
+# says what Chromium 62 is called, not that a build of it has been found for this
+# machine. The shelf reads the name; nothing reads a build that is not there.
+cmd_versions() {
+  local milestone info branch tmpdir running=0
+  [ $# -gt 0 ] || return 0
+  tmpdir="$(mktemp -d "$ROOT/.versions.XXXXXX" 2>/dev/null)" || return 0
+  for milestone in "$@"; do
+    case "$milestone" in ''|*[!0-9]*) continue ;; esac
+    [ -n "$(catalog_version_of "$milestone")" ] && continue
+    (
+      info="$(live_milestone_info "$milestone")" || exit 0
+      branch="${info##* }"
+      [ -n "$branch" ] || exit 0
+      # No note. This row is a name, not a changelog, and filling the note with
+      # "resolved from the live archive" put a sentence about plumbing where the
+      # page shows what a version brought.
+      printf 'V\t%s\t%s.0.%s.0\t\n' \
+        "$milestone" "$milestone" "$branch" > "$tmpdir/$milestone"
+    ) &
+    running=$((running + 1))
+    if [ "$running" -ge 6 ]; then wait; running=0; fi
+  done
+  wait
+  cat "$tmpdir"/* 2>/dev/null | cache_add || true
+  rm -rf "$tmpdir"
+}
+
+# Can this host download this one version natively, right now? Exit 0 yes, 1 no,
+# and nothing on stdout: the status is the whole answer. In a subshell because
+# resolving sets a dozen globals and this is a question, not a step.
+cmd_probe() {
+  ( resolve_selector "${1:-}" ) >/dev/null 2>&1 || exit 1
+  exit 0
+}
+
 cmd_doctor() {
   local mode="report" component="" assume_yes=""
   while [ $# -gt 0 ]; do
@@ -1234,6 +1300,9 @@ case "$COMMAND" in
   clean)            cmd_clean "$@" ;;
   doctor|check)     cmd_doctor "$@" ;;
   resolve-for)      cmd_resolve_for "$@" ;;
+  offers)           cmd_offers "$@" ;;
+  name-versions)    cmd_versions "$@" ;;
+  probe)            cmd_probe "$@" ;;
   gui)              exec "$SCRIPT_DIR/gui.sh" "$@" ;;
   ''|-h|--help|help) usage ;;
   *)                die "Unknown command: $COMMAND (try --help)" ;;
