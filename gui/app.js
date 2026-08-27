@@ -239,6 +239,9 @@ const WORK_WORD = {
   remove: 'removing',
   clean: 'resetting',
   docker: 'docker',
+  // A dependency install is a job like any other and its log has a head like any
+  // other; without a word of its own the panel read "working..." over it.
+  doctor: 'installing',
 };
 
 // Which jobs the manager offers to interrupt. A download or an image build is

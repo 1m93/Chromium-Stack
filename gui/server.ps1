@@ -690,6 +690,12 @@ function Get-State {
         # so with no jobs running this arrives as $null and with one as a bare
         # object - and the page, which expects a list, breaks on both.
         jobs = @(Get-JobSummary)
+        # The tab strip, rebuilt from the manager rather than from the page's own
+        # memory of what it started: that is what makes it survive a reload and
+        # show what the other window is doing. Absent entirely - which is what
+        # this used to be - the page reads the manager as older than itself and
+        # says so in place of every log.
+        logs = @(Get-StreamList)
     }
 }
 
@@ -700,16 +706,145 @@ function Get-State {
 $script:Jobs = @{}
 $script:NextJob = 1
 
+# ---------- streams ----------
+# Output is read back against a *stream* rather than against the job that
+# produced it, exactly as gui/server.py serves it. A stream is one target - one
+# row of the shelf, or one dependency the doctor fixes - and every job that
+# touches that target reads back as one log with a divider between the runs.
+# Cancel a download and start it again and the record of what went wrong the
+# first time is still above the divider, which is what someone watching a
+# version actually wants.
+#
+# This layer used to be missing here, and the page is built on it: it takes the
+# stream key out of the answer to whatever it started and polls /api/log/<key>
+# for the rest. With no key in the answer it opened no panel and no tab, so on
+# Windows every job ran with its output unreachable - most visibly a dependency
+# install, which has no progress bar on its row to stand in for the log.
+#
+# Where server.py appends each line to a buffer as it arrives, this renders the
+# stream from the job files on demand: the HTTP loop is the only thread there is,
+# so there is nobody here to do the appending. A finished job's file never
+# changes again, so its lines are rendered once and kept; only a live job is
+# re-read.
+$script:Streams = @{}
+
+# What one stream keeps, and how many streams a manager left running for a week
+# holds on to. Both match server.py, so a log reads the same on either platform.
+$StreamLines = 1500
+$StreamMax   = 60
+
+# The divider server.py writes between two runs on one target. Built from code
+# points rather than typed: this file is ASCII, and PowerShell 5.1 reads a .ps1
+# with no BOM as ANSI - a box-drawing character written literally here would
+# reach the page as mojibake.
+$StreamRule = [string][char]0x2500
+$StreamDot  = [string][char]0x00B7
+
+# Same guard server.py puts on a stream key: it names a log, and it comes off the
+# page rather than out of this process.
+$StreamPattern = '^[0-9A-Za-z][0-9A-Za-z.:_-]{0,63}$'
+
+function Get-StreamKey {
+    <# Which log a request wants its output filed under.
+
+       Absent or malformed, it falls back to filing by selector - which is what
+       an older page, or a request made by hand, gets. #>
+    param($Body, [string]$Revision)
+    $wanted = [string](Get-Field $Body 'stream')
+    if ($wanted -and $wanted -match $StreamPattern) { return $wanted }
+    return "sel:$Revision"
+}
+
+function Get-StreamLabel {
+    <# What the page calls this row. The tab wears it, so it is trimmed rather
+       than trusted. #>
+    param($Body)
+    $label = [string](Get-Field $Body 'streamLabel')
+    if ($label.Length -gt 80) { $label = $label.Substring(0, 80) }
+    return $label
+}
+
+function Resolve-Stream {
+    param([string]$Key, [string]$Label)
+    $stream = $script:Streams[$Key]
+    if (-not $stream) {
+        $name = if ($Label) { $Label } else { $Key }
+        $stream = @{
+            key = $Key; label = $name
+            jobs = (New-Object System.Collections.ArrayList)
+            started = [DateTime]::UtcNow
+        }
+        $script:Streams[$Key] = $stream
+        Remove-IdleStreams
+    } elseif ($Label) {
+        # The newest name wins: a row relabelled between two runs - a Chromium
+        # milestone that resolved to a revision - should not keep answering to
+        # what it was called the first time.
+        $stream.label = $Label
+    }
+    return $stream
+}
+
+function Get-StreamUpdated {
+    <# When this stream was last written to, in seconds since the epoch.
+
+       Read off the job files rather than tracked: nothing here is told when a
+       child process writes a line.
+
+       Fractional, like the float server.py sends. Whole seconds would be enough
+       for the page, which only carries this value around - but this is also what
+       orders the tab strip and picks the stream eviction drops, and half a dozen
+       jobs started in one second all tie. #>
+    param($Stream)
+    $newest = $Stream.started
+    foreach ($id in @($Stream.jobs)) {
+        if (-not $script:Jobs.ContainsKey($id)) { continue }
+        $job = $script:Jobs[$id]
+        foreach ($file in @($job.out, $job.err)) {
+            try {
+                $at = [IO.File]::GetLastWriteTimeUtc($file)
+                if ($at -gt $newest) { $newest = $at }
+            } catch { }
+        }
+    }
+    return ($newest - [DateTime]'1970-01-01').TotalSeconds
+}
+
+function Remove-IdleStreams {
+    <# Beyond $StreamMax the least recently written idle stream goes. Not a
+       display limit - the page shows every stream it is given - just a ceiling
+       on a manager that has been up for a week. #>
+    if ($script:Streams.Count -le $StreamMax) { return }
+    $busy = @{}
+    foreach ($id in @($script:Jobs.Keys)) {
+        $job = $script:Jobs[$id]
+        if ($job.stream -and -not $job.proc.HasExited) { $busy[$job.stream] = $true }
+    }
+    $oldest = @($script:Streams.Keys |
+                Sort-Object { Get-StreamUpdated $script:Streams[$_] })
+    foreach ($key in $oldest) {
+        if ($script:Streams.Count -le $StreamMax) { return }
+        if ($busy.ContainsKey($key)) { continue }
+        $script:Streams.Remove($key)
+    }
+}
+
 function Start-Job2 {
-    param([string]$Kind, [string]$Revision, [string[]]$CliArgs, [string]$Label, [string]$Script = $null)
+    param([string]$Kind, [string]$Revision, [string[]]$CliArgs, [string]$Label,
+          [string]$Script = $null, [string]$Stream = $null,
+          [string]$StreamLabel = $null, [string]$Action = $null)
     if (-not $Script) { $Script = $script:Cli }
+    $key = if ($Stream) { $Stream } else { "sel:$Revision" }
 
     $id = [string]$script:NextJob
     $script:NextJob++
     $out = Join-Path $JobsDir "$id.out"
     $err = Join-Path $JobsDir "$id.err"
-    '' | Set-Content -Path $out
-    '' | Set-Content -Path $err
+    # Truly empty, not an empty line: Set-Content would put a newline in each
+    # file, and the log is rendered from them - so every run would open with a
+    # blank line the other platforms do not have.
+    [IO.File]::WriteAllText($out, '')
+    [IO.File]::WriteAllText($err, '')
 
     $psArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Script) + $CliArgs
     $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $psArgs `
@@ -719,7 +854,16 @@ function Start-Job2 {
     $script:Jobs[$id] = @{
         id = $id; kind = $Kind; revision = $Revision; label = $Label
         proc = $proc; out = $out; err = $err; stopping = $false
+        # Which log this writes to, and which docker verb it is. The page reads
+        # both off the job: a container's job ends as soon as the desktop
+        # answers, so without the verb a stop that succeeded looked exactly like
+        # a build that did.
+        stream = $key; action = $Action
+        startedAt = (Get-Date -Format 'HH:mm:ss')
+        lineCache = $null; lineFinal = $false
     }
+    $log = Resolve-Stream $key $StreamLabel
+    [void]$log.jobs.Add($id)
     return $id
 }
 
@@ -821,6 +965,185 @@ function Read-JobFile {
     }
 }
 
+function Get-JobState {
+    <# Where a job has got to, without reading a byte of its output. #>
+    param($Job)
+    if (-not $Job.proc.HasExited) { return @{ status = 'running'; code = $null } }
+    $code = $Job.proc.ExitCode
+    $status = if ($Job.stopping) { 'stopped' }
+              elseif ($code -eq 0) { 'done' }
+              else { 'error' }
+    return @{ status = $status; code = $code }
+}
+
+function Get-JobBrief {
+    <# One job as the page reads it: the same fields gui/server.py sends, output
+       excluded. `stream` is the one the page cannot work out for itself. #>
+    param($Job)
+    $state = Get-JobState $Job
+    return @{ id = $Job.id; kind = $Job.kind; revision = $Job.revision
+              label = $Job.label; status = $state.status; code = $state.code
+              stream = $Job.stream; action = $Job.action }
+}
+
+function Split-JobText {
+    <# Whole lines only. A running job's file can end mid-line, and handing that
+       back would put a line in the page's buffer that the next poll contradicts
+       - it holds what it has already been sent and asks only for what follows.
+
+       Callers must wrap this in @(): a one-line job would otherwise arrive as a
+       bare string. #>
+    param([string]$Text, [bool]$Running)
+    $parts = New-Object System.Collections.ArrayList
+    if (-not $Text) { return $parts }
+    foreach ($line in ($Text -split "`r?`n")) { [void]$parts.Add($line) }
+    # The trailing element is either the empty string after the last newline or a
+    # line still being written.
+    if ($parts.Count -gt 0 -and ($Running -or $parts[$parts.Count - 1] -eq '')) {
+        $parts.RemoveAt($parts.Count - 1)
+    }
+    return $parts
+}
+
+function Get-JobLines {
+    <# One job's share of its stream: the divider, then its output.
+
+       Rendered once and kept as soon as the process has exited - that file
+       cannot change again, and a stream can hold a dozen finished runs that
+       would otherwise be re-read on every poll.
+
+       Callers must wrap this in @(). #>
+    param($Job)
+    if ($Job.lineFinal) { return $Job.lineCache }
+
+    $running = -not $Job.proc.HasExited
+    $text = ''
+    foreach ($file in @($Job.out, $Job.err)) {
+        $chunk = Read-JobFile $file
+        if ($chunk) { $text += $chunk }
+    }
+
+    $lines = New-Object System.Collections.ArrayList
+    # A divider rather than a log of its own: this is the same target as whatever
+    # ran before it, and the point is to be able to read both.
+    [void]$lines.Add('')
+    [void]$lines.Add("$StreamRule$StreamRule $($Job.label) $StreamDot $($Job.startedAt) $StreamRule$StreamRule")
+    [void]$lines.Add('')
+    foreach ($line in @(Split-JobText $text $running)) { [void]$lines.Add($line) }
+
+    $Job.lineCache = $lines
+    $Job.lineFinal = -not $running
+    return $lines
+}
+
+function Get-StreamJobs {
+    <# Every job on a stream this manager still holds, oldest first. Callers must
+       wrap this in @(). #>
+    param($Stream)
+    $out = New-Object System.Collections.ArrayList
+    foreach ($id in @($Stream.jobs)) {
+        if ($script:Jobs.ContainsKey($id)) { [void]$out.Add($script:Jobs[$id]) }
+    }
+    return $out
+}
+
+function Get-StreamRunning {
+    <# Everything still going on a stream, oldest first. More than one is
+       ordinary - a version can be downloading natively while its container
+       builds - and the page draws one control per entry. Wrap in @(). #>
+    param($Stream)
+    $out = New-Object System.Collections.ArrayList
+    foreach ($job in @(Get-StreamJobs $Stream)) {
+        if (-not $job.proc.HasExited) { [void]$out.Add((Get-JobBrief $job)) }
+    }
+    return $out
+}
+
+function Get-StreamLatest {
+    <# The job a stream is named by: the running one, else the last to run. #>
+    param($Stream)
+    $found = $null
+    $running = $null
+    foreach ($job in @(Get-StreamJobs $Stream)) {
+        $found = $job
+        if (-not $job.proc.HasExited) { $running = $job }
+    }
+    $pick = if ($running) { $running } else { $found }
+    if (-not $pick) { return $null }
+    return (Get-JobBrief $pick)
+}
+
+function Get-StreamLog {
+    <# A stream, from line $Since on.
+
+       Absolute line numbers, so the page asks for what it has not seen instead
+       of being sent the whole buffer every poll. `first` above what was asked
+       for means the log has grown past what is kept and the page redraws from
+       there. #>
+    param([string]$Key, [int]$Since = 0)
+    $stream = $script:Streams[$Key]
+    if (-not $stream) { return $null }
+
+    $blocks = New-Object System.Collections.ArrayList
+    $total = 0
+    foreach ($job in @(Get-StreamJobs $stream)) {
+        $lines = @(Get-JobLines $job)
+        $total += $lines.Count
+        [void]$blocks.Add($lines)
+    }
+
+    # Newest run first, stopping as soon as there is a bufferful: only the tail
+    # is ever drawn, and a stream that has been retried all morning should not
+    # cost more to read than one that ran once.
+    $kept = @()
+    for ($at = $blocks.Count - 1; $at -ge 0; $at--) {
+        if ($kept.Count -ge $StreamLines) { break }
+        $block = @($blocks[$at])
+        $room = $StreamLines - $kept.Count
+        if ($block.Count -gt $room) { $block = @($block | Select-Object -Last $room) }
+        $kept = $block + $kept
+    }
+
+    $dropped = $total - $kept.Count
+    $first = [Math]::Max($Since, $dropped)
+    if ($first -gt $total) { $first = $total }
+    $body = @()
+    if ($first -lt $total) { $body = @($kept | Select-Object -Skip ($first - $dropped)) }
+
+    return @{
+        key = $Key; label = $stream.label
+        updated = (Get-StreamUpdated $stream)
+        jobs = @(Get-StreamRunning $stream)
+        first = $first
+        total = $total
+        lines = @($body)
+        job = (Get-StreamLatest $stream)
+    }
+}
+
+function Get-StreamList {
+    <# Every stream, least recently written first - what a reloaded page rebuilds
+       its tab strip from. Without it a reload lost the lot: the tabs lived only
+       in the page, so the output was still here and unreachable.
+
+       Callers must wrap this in @(): see Get-State. #>
+    $out = New-Object System.Collections.ArrayList
+    $keys = @($script:Streams.Keys |
+              Sort-Object { Get-StreamUpdated $script:Streams[$_] })
+    foreach ($key in $keys) {
+        $stream = $script:Streams[$key]
+        $count = 0
+        foreach ($job in @(Get-StreamJobs $stream)) { $count += @(Get-JobLines $job).Count }
+        [void]$out.Add(@{
+            key = $key; label = $stream.label; lines = $count
+            updated = (Get-StreamUpdated $stream)
+            jobs = @(Get-StreamRunning $stream)
+            job = (Get-StreamLatest $stream)
+        })
+    }
+    return $out
+}
+
 function Get-JobRecord {
     param([string]$Id)
     if (-not $script:Jobs.ContainsKey($Id)) { return $null }
@@ -830,10 +1153,7 @@ function Get-JobRecord {
         $chunk = Read-JobFile $file
         if ($chunk) { $text += $chunk }
     }
-    $exited = $job.proc.HasExited
-    $code = $null
-    $status = 'running'
-    if ($exited -and -not $job.settled) {
+    if ($job.proc.HasExited -and -not $job.settled) {
         # A finished job has usually just changed what Docker holds, and the page
         # asks for the state again the moment it sees the job end. Once per job:
         # this is read on every poll, including polls of a job that ended long ago.
@@ -841,14 +1161,10 @@ function Get-JobRecord {
         $script:DockerCache.Value = $null
         $script:VolumeCache.Value = $null
     }
-    if ($exited) {
-        $code = $job.proc.ExitCode
-        if ($job.stopping) { $status = 'stopped' }
-        elseif ($code -eq 0) { $status = 'done' }
-        else { $status = 'error' }
-    }
+    $state = Get-JobState $job
     return @{ id = $job.id; kind = $job.kind; revision = $job.revision; label = $job.label
-              status = $status; code = $code; output = $text }
+              status = $state.status; code = $state.code; stream = $job.stream
+              action = $job.action; output = $text }
 }
 
 # Callers must wrap this in @(): see Get-State. PowerShell unrolls the collection
@@ -875,13 +1191,12 @@ function Get-JobsRevision {
 }
 
 function Get-JobSummary {
+    # Oldest first: a hashtable's keys come back in whatever order it likes, and
+    # the page reads "whatever is running" off the front of this list.
     $running = New-Object System.Collections.ArrayList
-    foreach ($id in @($script:Jobs.Keys)) {
+    foreach ($id in @($script:Jobs.Keys | Sort-Object { [int]$_ })) {
         $job = $script:Jobs[$id]
-        if (-not $job.proc.HasExited) {
-            [void]$running.Add(@{ id = $job.id; kind = $job.kind; revision = $job.revision
-                                  label = $job.label; status = 'running' })
-        }
+        if (-not $job.proc.HasExited) { [void]$running.Add((Get-JobBrief $job)) }
     }
     return $running
 }
@@ -1229,6 +1544,28 @@ function Invoke-Route {
             if ($job) { Send-Json $Stream $job } else { Send-Json $Stream @{ error = 'no such job' } 404 }
             return
         }
+        # Every log this manager holds. A page that has just been reloaded knows
+        # nothing about what ran before it, and the output was here all along -
+        # this is what it reads to put the tab strip back.
+        if ($path -eq '/api/logs') {
+            if (-not (Test-Authorised $Request)) { Send-Json $Stream @{ error = 'unauthorised' } 403; return }
+            Send-Json $Stream @{ streams = @(Get-StreamList) }; return
+        }
+        # One log, from a line number on. Asked for more than once a second while
+        # a download runs, so it sends the difference rather than the buffer.
+        if ($path -like '/api/log/*') {
+            if (-not (Test-Authorised $Request)) { Send-Json $Stream @{ error = 'unauthorised' } 403; return }
+            # A stream key holds colons - "doctor:docker", "firefox:115" - so it
+            # arrives percent-encoded.
+            $key = [Uri]::UnescapeDataString($path.Substring('/api/log/'.Length))
+            $since = 0
+            $query = ''
+            if ($Request.path.Contains('?')) { $query = ($Request.path -split '\?', 2)[1] }
+            if ($query -match '(?:^|&)since=(\d{1,9})') { $since = [int]$Matches[1] }
+            $found = Get-StreamLog $key $since
+            if ($found) { Send-Json $Stream $found } else { Send-Json $Stream @{ error = 'no such log' } 404 }
+            return
+        }
         Send-Static $Stream $path
         return
     }
@@ -1260,11 +1597,21 @@ function Invoke-Route {
         Send-Json $Stream (Get-DoctorReport); return
     }
 
+    # Before the selector guard below, like /api/stop: a dependency is named by
+    # component and has no revision to check.
     if ($path -eq '/api/doctor-install') {
         $component = [string](Get-Field $body 'component')
         if ($component -notmatch '^[a-z0-9]+$') { Send-Json $Stream @{ error = 'bad component' } 400; return }
-        $id = Start-Job2 'doctor' $component @('doctor', '--install', $component, '--yes') "Installing $component"
-        Send-Json $Stream @{ job = $id }; return
+        # Its own log, filed under the component being fixed - not under a shelf
+        # row, because a dependency is not one.
+        $streamKey = "doctor:$component"
+        # "Docker" rather than "docker": the page knows what the component is
+        # called, and the tab is what wears the name.
+        $streamLabel = Get-StreamLabel $body
+        if (-not $streamLabel) { $streamLabel = $component }
+        $id = Start-Job2 'doctor' $component @('doctor', '--install', $component, '--yes') `
+            "Installing $component" -Stream $streamKey -StreamLabel $streamLabel
+        Send-Json $Stream @{ job = $id; stream = $streamKey }; return
     }
 
     if ($path -eq '/api/stop') {
@@ -1290,10 +1637,17 @@ function Invoke-Route {
     if ($selector -notmatch $SelectorPattern) { Send-Json $Stream @{ error = 'bad selector' } 400; return }
     $label = Get-SelectorLabel $selector
 
+    # Which row of the shelf this is for, and what that row is called. One log per
+    # row, not per job: a version's native build and its container are two ways of
+    # running the same thing, and the page shows them on one tab.
+    $streamKey = Get-StreamKey $body $selector
+    $streamLabel = Get-StreamLabel $body
+
     switch ($path) {
         '/api/install' {
-            $id = Start-Job2 'install' $selector @('install', $selector) "Installing $label"
-            Send-Json $Stream @{ job = $id }; return
+            $id = Start-Job2 'install' $selector @('install', $selector) "Installing $label" `
+                -Stream $streamKey -StreamLabel $streamLabel
+            Send-Json $Stream @{ job = $id; stream = $streamKey }; return
         }
         '/api/launch' {
             $cliArgs = @('run', $selector)
@@ -1303,18 +1657,21 @@ function Invoke-Route {
             if ($size) { $cliArgs += @('--size', $size) }
             $gpu = Get-Field $body 'gpu'
             if ($gpu -eq $true) { $cliArgs += '--gpu' } elseif ($gpu -eq $false) { $cliArgs += '--no-gpu' }
-            $id = Start-Job2 'launch' $selector $cliArgs $label
-            Send-Json $Stream @{ job = $id }; return
+            $id = Start-Job2 'launch' $selector $cliArgs $label `
+                -Stream $streamKey -StreamLabel $streamLabel
+            Send-Json $Stream @{ job = $id; stream = $streamKey }; return
         }
         '/api/remove' {
             $cliArgs = @('remove', $selector)
             if (Get-Field $body 'withProfile') { $cliArgs += '--with-profile' }
-            $id = Start-Job2 'remove' $selector $cliArgs "Removing $label"
-            Send-Json $Stream @{ job = $id }; return
+            $id = Start-Job2 'remove' $selector $cliArgs "Removing $label" `
+                -Stream $streamKey -StreamLabel $streamLabel
+            Send-Json $Stream @{ job = $id; stream = $streamKey }; return
         }
         '/api/clean' {
-            $id = Start-Job2 'clean' $selector @('clean', $selector) "Resetting profile $label"
-            Send-Json $Stream @{ job = $id }; return
+            $id = Start-Job2 'clean' $selector @('clean', $selector) "Resetting profile $label" `
+                -Stream $streamKey -StreamLabel $streamLabel
+            Send-Json $Stream @{ job = $id; stream = $streamKey }; return
         }
         '/api/docker' {
             $action = [string](Get-Field $body 'action')
@@ -1335,8 +1692,9 @@ function Invoke-Route {
             if ($action -eq 'purge' -and (Get-Field $body 'withProfile')) {
                 $cliArgs += '--with-profile'
             }
-            $id = Start-Job2 'docker' $selector $cliArgs "Docker $action $selector" $DockerCli
-            Send-Json $Stream @{ job = $id }; return
+            $id = Start-Job2 'docker' $selector $cliArgs "Docker $action $selector" $DockerCli `
+                -Stream $streamKey -StreamLabel $streamLabel -Action $action
+            Send-Json $Stream @{ job = $id; stream = $streamKey }; return
         }
         default { Send-Json $Stream @{ error = 'no such endpoint' } 404; return }
     }
