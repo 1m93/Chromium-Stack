@@ -176,6 +176,14 @@ const view = {
   gpu: 'auto',
 };
 
+// What each version was first to support, keyed "<engine>:<id>". Fetched once,
+// from its own endpoint rather than out of the state document: it describes
+// releases that already happened, so re-sending 146 KB of it every second a job
+// runs would be 146 KB an hour of nothing changing. Empty until it arrives, and
+// empty for good if the server has no features.tsv - the rows then read exactly
+// as they did before any of this existed.
+let featureIndex = {};
+
 const stopping = new Set(); // jobs the user has asked to stop or cancel
 
 // Four engines name platforms four different ways and not one of the names is
@@ -602,7 +610,7 @@ function decorate(row) {
   // says this version was first to support. Both are "what did this release
   // bring"; the difference is that twenty of them are hand-written and 260 are
   // derived, and the derived ones are why the other 270 rows are no longer blank.
-  const feats = row.features || null;
+  const feats = featureIndex[`${engine}:${row.id}`] || null;
   const curated = raw.replace(/`/g, '');
   const listed = feats ? feats.names.join(', ') : '';
   const note = curated || listed;
@@ -760,6 +768,10 @@ function decorate(row) {
       identOf(engine, row),
       row.date,
       raw,
+      // Every feature the version was first to support, so "aspect-ratio" finds
+      // Chromium 88 and ":has" finds the three that shipped it. This is the whole
+      // list, not the handful the row has room to print.
+      feats ? feats.names.join(' ') : '',
     ]
       .join(' ')
       .toLowerCase(),
@@ -2753,6 +2765,16 @@ async function refresh() {
   );
 
   TOKEN = (await (await fetch('/api/token')).json()).token;
+
+  // Before the first paint, so no row is drawn twice - once blank and once with
+  // its features. Not fatal if it fails: an older server has no such endpoint,
+  // and the shelf then reads as it did before there were any features to read.
+  try {
+    featureIndex = await api('/api/features');
+  } catch {
+    featureIndex = {};
+  }
+
   await refresh();
 
   // The heartbeat that tells the server this window still exists. Deliberately

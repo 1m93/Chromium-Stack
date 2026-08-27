@@ -155,7 +155,7 @@ One page, served locally, with everything on it.
 | **Per-row menu** | Download without launching, run that version in Docker, reset its profile, or delete it. |
 | **Two views of one shelf** | The list it opens on — every release of all four engines, one per row, with the actions — or the grid below, for comparing across engines. |
 | **Grouped by era** | In the list, rows sit under the years they belong to, four engines interleaved by release date, with what each era brought — jump straight to one, or sort by age or disk used. |
-| **Search and filters** | Narrow to one engine, or search by version, revision, release date or feature — `:has()`, `dvh`, `flex gap` — or by what is installed, running, or stuck on Rosetta. |
+| **Search and filters** | Narrow to one engine, or search by version, revision, release date, or by **any feature a version was first to support** — type `aspect-ratio` and get Chromium 88 and Firefox 89 — or by what is installed, running, or stuck on Rosetta. |
 | **Any revision at all** | Every build in the Chromium snapshot archive is runnable, not just the catalogued milestones — from the CLI, which takes a bare position as a selector. |
 | **System check** | Tells you what is missing before it matters, with buttons that install it. |
 | **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job when several are in flight. |
@@ -676,9 +676,17 @@ machine, so nothing here fetches it and the shelf works offline.
 | WebKit | 25 / 53 — the 28 oldest are labelled by Playwright revision, with no Safari version for the data to be keyed on |
 
 A hand-written note still wins where there is one: it says *why you would pick this version*,
-which compat data cannot. Otherwise the row names the most notable features and the **⤢** button
-opens the rest — the file ships fourteen names per version out of as many as sixty-seven, and
-the modal says how many were left out. Rows with neither say `N/A`.
+which compat data cannot. Otherwise the row names as many features as the line holds, ordered so
+that a CSS property comes before the fourteenth method on an obscure interface, and the **⤢**
+button opens the full list. Rows with neither say `N/A`.
+
+**Which is what makes the search box mean it.** Typing `aspect-ratio` finds Chromium 88 and
+Firefox 89 — the two versions that were first to support it — because every name in the file is
+in the haystack, not just the handful a row has room to print. The whole index is fetched **once**
+from `/api/features` rather than carried in the state document: it describes releases that
+already happened, so re-sending 146 KB of it every second a download is running would be 146 KB
+an hour of nothing changing. Dropping it out of the state took that payload from 227 KB to
+155 KB.
 
 **Every Chromium milestone knows what it is called.** Twenty-one carry a hand-written version;
 the other seventy had nothing under their name, because a milestone number is not a version and

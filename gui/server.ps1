@@ -280,6 +280,36 @@ function Get-NativeAvailable {
     return $true
 }
 
+# ---------- what each version brought ----------
+# Written by tools/features.py out of MDN's browser-compat-data and shipped with
+# the release: twenty megabytes of compat data inverted once, on a maintainer's
+# machine, so nothing here fetches anything and the shelf works offline. Keyed
+# "<engine>:<id>", which is what the page looks up.
+$FeaturesFile = Join-Path $Project 'features.tsv'
+$script:FeaturesCache = $null
+$script:FeaturesStamp = $null
+
+function Get-Features {
+    if (-not (Test-Path $FeaturesFile)) { return @{} }
+    $stamp = (Get-Item $FeaturesFile).LastWriteTimeUtc
+    if ($script:FeaturesStamp -eq $stamp -and $null -ne $script:FeaturesCache) {
+        return $script:FeaturesCache
+    }
+    $found = @{}
+    foreach ($line in (Get-Content $FeaturesFile)) {
+        if ($line -match '^\s*#' -or $line.Trim() -eq '') { continue }
+        $f = $line -split "`t"
+        if ($f.Count -lt 5 -or $f[0] -ne 'F') { continue }
+        $count = 0
+        if (-not [int]::TryParse($f[3], [ref]$count)) { continue }
+        $names = @($f[4] -split '\|' | Where-Object { $_ })
+        $found["$($f[1]):$($f[2])"] = @{ count = $count; names = $names }
+    }
+    $script:FeaturesCache = $found
+    $script:FeaturesStamp = $stamp
+    return $found
+}
+
 function Get-DockerRow {
     <#
       The Docker side of one shelf row, or $null if there is nothing to offer.
@@ -1100,6 +1130,14 @@ function Invoke-Route {
         if ($path -eq '/api/state') {
             if (-not (Test-Authorised $Request)) { Send-Json $Stream @{ error = 'unauthorised' } 403; return }
             Send-Json $Stream (Get-State); return
+        }
+        # Its own endpoint, and not part of the state document, because it never
+        # changes: a shipped file describing releases that already happened. In
+        # the state it would have been 146 KB re-sent every second a job runs, for
+        # a search box that needs it once.
+        if ($path -eq '/api/features') {
+            if (-not (Test-Authorised $Request)) { Send-Json $Stream @{ error = 'unauthorised' } 403; return }
+            Send-Json $Stream (Get-Features); return
         }
         if ($path -like '/api/job/*') {
             if (-not (Test-Authorised $Request)) { Send-Json $Stream @{ error = 'unauthorised' } 403; return }

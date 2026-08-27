@@ -15,7 +15,7 @@ is asking: what can I test in this one that I could not test in the one before.
     python3 tools/features.py                    # print what would be written
     python3 tools/features.py --write            # write features.tsv
     python3 tools/features.py --bcd path.json    # use a copy already downloaded
-    python3 tools/features.py --names 12         # how many to name per version
+    python3 tools/features.py --names 12         # cap the names per version
 
 Run after tools/discover.py, because it only emits rows for versions the shelf
 actually has. The output ships with the release: 20 MB of compat data resolved
@@ -170,15 +170,19 @@ def build(per, names_wanted):
             missing.append("%s %s" % (engine, label or ident))
             continue
         ordered = sorted(slot, key=lambda name: (slot[name], name.lower()))
-        rows.append((engine, ident, len(slot), ordered[:names_wanted]))
+        rows.append((engine, ident, len(slot),
+                     ordered[:names_wanted] if names_wanted else ordered))
     return rows, missing
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bcd", help="a data.json already downloaded")
-    parser.add_argument("--names", type=int, default=14,
-                        help="how many features to name per version")
+    # Every name, by default. Capping was tried at fourteen and the file came out
+    # at 56 KB against 146 KB for all of it - which bought nothing and cost the
+    # search box the other two thirds of what it could have matched.
+    parser.add_argument("--names", type=int, default=0,
+                        help="cap the names per version; 0 for all of them")
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
 
@@ -189,10 +193,10 @@ def main():
              "browser-compat-data.",
              "# Written by tools/features.py. F <engine> <id> <count> "
              "<name>|<name>|...",
-             "# The count is every feature that version was first to support; "
-             "the names are the",
-             "# most notable %d of them, so a row can say what it brought "
-             "without shipping all of it." % args.names]
+             "# Ordered by how notable each one is, so a row that has room for "
+             "six names shows the",
+             "# six worth showing. The count is there for the rows a cap has "
+             "trimmed."]
     for engine, ident, count, names in rows:
         lines.append("F\t%s\t%s\t%d\t%s" % (engine, ident, count, "|".join(names)))
     body = "\n".join(lines) + "\n"

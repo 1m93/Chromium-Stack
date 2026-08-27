@@ -840,7 +840,7 @@ def milestone_of(revision, builds):
 
 
 def shelf_row(engine, release, installed, builds, hosts, notes, docker,
-               known_bad, rosetta_max, native, features):
+               known_bad, rosetta_max, native):
     """One release, in the shape the list draws.
 
     Built from the S rows, which is where the whole shelf lives, plus everything
@@ -864,8 +864,6 @@ def shelf_row(engine, release, installed, builds, hosts, notes, docker,
         # which is about architecture: a build can be perfectly runnable here and
         # simply no longer downloadable.
         "nativeAvailable": True,
-        # What this version was first to support, when the compat data knows.
-        "features": features.get((engine, ident)),
     }
 
     if engine == "chromium":
@@ -964,7 +962,6 @@ def build_state():
     known_bad = known_bad_keys()
     rosetta_max = rosetta_ceiling(builds)
     native = read_native()
-    features = read_features()
 
     # The list used to be the V rows and nothing else - twenty-one curated
     # Chromium milestones - so it showed Chromium alone while the S rows beside
@@ -974,7 +971,7 @@ def build_state():
         for release in releases:
             rows.append(shelf_row(engine, release, everything, builds, hosts,
                                   notes, docker, known_bad, rosetta_max,
-                                  native, features))
+                                  native))
     # Asked in the background, after the rows are built from whatever the last
     # answer was: the first page load of a fresh install is exactly as fast as
     # before, and the shelf sharpens a few seconds later.
@@ -1021,7 +1018,7 @@ def build_state():
         engine = info["engine"]
         row = dict(info, note="Installed by revision.", supported=True,
                    native=True, docker=None, milestone=None, revision=None,
-                   knownBad=False, nativeAvailable=True, features=None,
+                   knownBad=False, nativeAvailable=True,
                    label=info["version"], id=key, year=None, date="")
         row["id"] = key if engine == "chromium" else key[len(engine) + 1:]
         if engine == "chromium" and key.isdigit():
@@ -1589,6 +1586,17 @@ class Handler(BaseHTTPRequestHandler):
             if not self._authorised():
                 return self._json({"error": "unauthorised"}, 403)
             return self._json(build_state())
+
+        # Its own endpoint, and not part of the state document, because it never
+        # changes: a shipped file describing releases that already happened. In
+        # the state it would have been 146 KB re-sent every second a job is
+        # running, for the sake of a search box that only needs it once.
+        if path == "/api/features":
+            if not self._authorised():
+                return self._json({"error": "unauthorised"}, 403)
+            found = read_features()
+            return self._json({"%s:%s" % key: value
+                               for key, value in found.items()})
 
         if path.startswith("/api/job/"):
             if not self._authorised():
