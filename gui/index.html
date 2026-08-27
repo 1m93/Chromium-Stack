@@ -198,12 +198,12 @@
           <span class="side-title">Job log</span>
           <div class="log-tabs" id="log-tabs"></div>
           <strong id="log-title"></strong>
-          <span class="log-status" id="log-status"></span>
           <div class="spacer"></div>
-          <button class="btn warn log-cancel" id="log-cancel" hidden>
-            <span data-icon="x" id="log-cancel-icon"></span
-            ><span id="log-cancel-label">Cancel</span>
-          </button>
+          <!-- One control per thing this version is doing. A native download and
+               a container build can be in flight at once, and both write to this
+               one log - so a single status and a single Stop left one of them
+               invisible and impossible to call off from here. -->
+          <div class="log-jobs" id="log-jobs"></div>
           <!-- Tabs no longer push each other off the end, so a session with
                twenty finished downloads in it needs one press to tidy up.
                Hides them: nothing is thrown away, and anything written to one of
@@ -224,12 +224,10 @@
       </section>
 
       <footer class="status">
-        <span class="dot" id="job-dot" data-state="idle"></span>
-        <span class="job-title" id="job-title">Ready</span>
-        <span class="job-detail mono" id="job-detail"></span>
-        <span class="job-bar" id="job-bar" hidden
-          ><i id="job-bar-fill"></i
-        ></span>
+        <!-- One entry per thing running, because a version can be doing two at
+             once and this used to show whichever activeJob() picked and count
+             the other under "+1 more". -->
+        <div class="job-line" id="job-line"></div>
         <button class="job-more" id="job-more" hidden></button>
         <div class="spacer"></div>
         <button
@@ -313,9 +311,10 @@
           <span class="row-size" data-size hidden></span>
           <span class="row-size" data-size-docker hidden></span>
         </div>
-        <div class="row-progress" data-progress hidden>
-          <i data-progress-bar></i>
-        </div>
+        <!-- One meter per route in flight, filled in by app.js: a single bar
+             could only belong to one of them, and with a download and a
+             container build both going it said nothing about which. -->
+        <div class="row-progress" data-progress hidden></div>
         <div class="row-actions" data-actions></div>
       </article>
     </template>

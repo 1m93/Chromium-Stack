@@ -1137,6 +1137,12 @@ class Jobs:
         if stream is None:
             stream = {
                 "key": key, "label": label or key, "lines": [],
+                # Which job wrote each line, one entry per line. Two jobs can run
+                # against one version at once - a native download and a container
+                # build - and they land in this one buffer interleaved; without
+                # this, one job's output was read as the other's, and the row took
+                # the container build's percentage off the download.
+                "owners": [],
                 # Lines trimmed off the front. Every index a job or a page holds
                 # is absolute, so this is what makes them keep meaning something
                 # after the buffer wraps.
@@ -1165,20 +1171,26 @@ class Jobs:
             if key not in busy:
                 del self._streams[key]
 
-    def _append(self, stream, lines):
+    def _append(self, stream, lines, owner=""):
         """Add output, collapsing a redrawn progress meter. Under the lock."""
         for line in lines:
+            # Only the same job's own meter collapses onto itself: two downloads
+            # interleaved would otherwise overwrite each other's last frame and
+            # neither would have a percentage.
             if (is_meter(line) and stream["lines"]
-                    and is_meter(stream["lines"][-1])):
+                    and is_meter(stream["lines"][-1])
+                    and stream["owners"][-1] == owner):
                 stream["lines"][-1] = line
             else:
                 stream["lines"].append(line)
+                stream["owners"].append(owner)
         extra = len(stream["lines"]) - self.STREAM_LINES
         if extra > 0:
             # A block at a time rather than one line per append: shifting a
             # 1500-element list on every meter frame is work for nothing.
             block = max(extra, 200)
             del stream["lines"][:block]
+            del stream["owners"][:block]
             stream["dropped"] += block
         stream["updated"] = time.time()
 
@@ -1189,13 +1201,10 @@ class Jobs:
             job_id = str(self._next)
             self._next += 1
             log = self._stream(key, stream_label)
-            # Where this job's own output starts, so /api/job/<id> can still cut
-            # its slice out of a buffer several jobs deep.
-            start = log["dropped"] + len(log["lines"])
             job = {
                 "id": job_id, "kind": kind, "revision": revision, "label": label,
                 "status": "running", "started": time.time(), "code": None,
-                "stream": key, "start": start,
+                "stream": key,
                 # Which docker verb this was. A container's job ends as soon as
                 # the desktop answers, so "done" is all the page could see - and
                 # a stop that succeeded looked exactly like a build that did.
@@ -1206,7 +1215,7 @@ class Jobs:
             # A divider rather than a fresh log: this is the same target as
             # whatever ran before it, and the point is to be able to read both.
             self._append(log, ["", "── %s · %s ──"
-                               % (label, time.strftime("%H:%M:%S")), ""])
+                               % (label, time.strftime("%H:%M:%S")), ""], job_id)
         threading.Thread(target=self._run, args=(job, argv, env or {}), daemon=True).start()
         return job_id
 
@@ -1220,7 +1229,8 @@ class Jobs:
         except OSError as error:
             with self._lock:
                 job["status"] = "error"
-                self._append(self._stream(job["stream"], None), [str(error)])
+                self._append(self._stream(job["stream"], None), [str(error)],
+                             job["id"])
             return
 
         with self._lock:
@@ -1235,7 +1245,7 @@ class Jobs:
                 # the rest of the run.
                 if log is None:
                     log = self._stream(job["stream"], None)
-                self._append(log, [line])
+                self._append(log, [line], job["id"])
         code = process.wait()
         invalidate_sizes()
         forget_doctor()
@@ -1272,31 +1282,41 @@ class Jobs:
     def _output(self, job):
         """One job's own share of its stream. Called under the lock.
 
-        Bounded above by whatever ran next on the same stream: without that, an
-        install that was cancelled and retried reported the retry's output as its
-        own, and the row read the new download's percentage off the old job.
+        The lines this job wrote, and no others. It used to be a span - from this
+        job's first line to the next job's - which is right only while runs are
+        one after another. Two at once on the same version, a native download
+        beside a container build, and the span held both: the row read whichever
+        percentage had been printed last, off whichever job it was reading.
         """
         log = self._streams.get(job["stream"])
         if not log:
             return ""
-        after = log["dropped"] + len(log["lines"])
-        following = log["jobs"][log["jobs"].index(job["id"]) + 1:] \
-            if job["id"] in log["jobs"] else []
-        for job_id in following:
-            nxt = self._jobs.get(job_id)
-            if nxt:
-                after = nxt["start"]
-                break
-        first = max(0, job["start"] - log["dropped"])
-        return "\n".join(log["lines"][first:max(first, after - log["dropped"])])
+        mine = job["id"]
+        return "\n".join(text for text, owner in zip(log["lines"], log["owners"])
+                          if owner == mine)
 
     def get(self, job_id):
         with self._lock:
             job = self._jobs.get(job_id)
             if not job:
                 return None
-            return ({k: v for k, v in job.items() if k != "start"}
-                    | {"output": self._output(job)})
+            return dict(job) | {"output": self._output(job)}
+
+    def _running(self, key):
+        """Every job still going on a stream, oldest first. Under the lock.
+
+        More than one is ordinary: a version can be downloading natively while
+        its container builds, and both write here.
+        """
+        log = self._streams.get(key)
+        if not log:
+            return []
+        out = []
+        for job_id in log["jobs"]:
+            job = self._jobs.get(job_id)
+            if job and job["status"] == "running":
+                out.append(job)
+        return out
 
     def _latest(self, key):
         """The job a stream is named by: the running one, else the last to run."""
@@ -1337,12 +1357,13 @@ class Jobs:
             return {
                 "key": key, "label": log["label"],
                 "updated": log["updated"],
+                # Everything still going here. The page draws one control per
+                # entry, so two jobs at once get two Stops rather than one of
+                # them being the only one the panel could see.
+                "jobs": [self._summary(j) for j in self._running(key)],
                 "first": first,
                 "total": log["dropped"] + len(log["lines"]),
                 "lines": log["lines"][first - log["dropped"]:],
-                # Where the current run starts, so the page can read the phase
-                # and the meter off this run rather than off one that ended.
-                "mark": max(job["start"], log["dropped"]) if job else log["dropped"],
                 "job": self._summary(job) if job else None,
             }
 
@@ -1358,6 +1379,7 @@ class Jobs:
                     "key": key, "label": log["label"],
                     "lines": log["dropped"] + len(log["lines"]),
                     "updated": log["updated"],
+                    "jobs": [self._summary(j) for j in self._running(key)],
                     "job": self._summary(job) if job else None,
                 })
             return out

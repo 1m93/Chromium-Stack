@@ -1156,22 +1156,43 @@ body.booting #disk-text {
   color: var(--c-ok);
 }
 
+/* A column, because there can be two: the native download and the container
+   build, in the same order as the buttons beside them. */
 .row-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+.row-bar {
+  display: block;
   width: 96px;
   height: 4px;
-  flex: none;
   border-radius: 999px;
   background: var(--c-line);
   overflow: hidden;
 }
-.row-progress i {
+.row-bar i {
   display: block;
   height: 100%;
   background: var(--c-accent);
 }
-.row-progress.indeterminate i {
+.row-bar.indeterminate i {
   width: 40%;
   animation: slide 1.4s ease-in-out infinite;
+}
+
+/* Stacked buttons line up: one route's word is "34%" and the other's is
+   "Starting...", and left to their own widths they sat one above the other at
+   two different lengths. */
+.row-actions.two-routes .row-lines {
+  align-items: stretch;
+}
+.row-actions.two-routes .row-line {
+  justify-content: flex-end;
+}
+.row-actions.two-routes .row-line .btn:not(.icon-btn) {
+  flex: 1;
 }
 @keyframes slide {
   0% {
@@ -1188,6 +1209,21 @@ body.booting #disk-text {
   gap: 6px;
   flex: none;
   position: relative;
+}
+/* One line per route, and only when both have something to say - which is the
+   same shape the size column beside it already uses: the native build on top,
+   the container under it. With one route it is a single line and reads exactly
+   as it did before there were two. */
+.row-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.row-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .row-actions .btn {
   min-width: 88px;
@@ -1289,13 +1325,63 @@ body.booting #disk-text {
   font-size: 13px;
   font-weight: 500;
 }
-/* Shown only while the job in view can still be called off, so it sits beside
-   Close rather than taking a fixed slot the rest of the time. */
-.log-cancel {
-  height: 28px;
-  padding: 0 10px;
+/* ---------- what the version in view is doing ----------
+   One pill per thing, because there can be two: a native download and a
+   container build write to the same log, and a single status line with a single
+   Stop beside it could only ever show one of them. */
+.log-jobs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  /* Allowed to shrink but never to grow: three things at once should squeeze the
+     pills before it squeezes the tab strip out of existence. */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.log-job {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 1 auto;
+  min-width: 92px;
+  max-width: 300px;
+  height: 26px;
+  padding: 0 4px 0 9px;
+  border: 1px solid var(--c-line);
+  border-radius: 999px;
   font-size: 12.5px;
+  color: var(--c-dim);
+}
+.log-job .what {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Warn-coloured and next to the thing it acts on, so with two pills up there is
+   no question which Stop belongs to which. */
+.log-job .stop {
+  display: flex;
+  align-items: center;
   flex: none;
+  padding: 3px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--c-danger);
+  cursor: pointer;
+}
+.log-job .stop .i {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
+}
+.log-job .stop:hover {
+  background: color-mix(in srgb, var(--c-danger) 16%, transparent);
+}
+.log-job .stop:disabled {
+  color: var(--c-faint);
+  cursor: default;
+  background: transparent;
 }
 
 /* One tab per log. With a single log there is nothing to switch between, so
@@ -1533,13 +1619,13 @@ body.booting #disk-text {
 .log-clear:hover {
   color: var(--c-text);
 }
-/* Capped, because "downloading · 45.2M of 86.4M, 12s left" beside a strip of
-   tabs is the longest thing on the head and the tabs are what has to fit. */
+/* Only when nothing is running - otherwise the pills above say it. Capped,
+   because it is the longest thing on the head and the tabs are what has to fit. */
 .log-status {
   font-size: 12.5px;
   color: var(--c-faint);
   flex: none;
-  max-width: 32%;
+  max-width: 34vw;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1597,6 +1683,44 @@ body.booting #disk-text {
   font-size: 12.5px;
   padding: 0 10px;
 }
+/* One group per running job, side by side. Two of them have to fit a 44px bar
+   with the path and the buttons already on it, so a second entry gets a shorter
+   meter and both drop the words they can afford to lose. */
+.job-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* Shrinks rather than pushing the path and the buttons off the end, and never
+     wraps: the strip is 44px tall, so a second line of text is a clipped one. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.job-one {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.job-line.many .job-one {
+  gap: 7px;
+}
+.job-line.many .job-bar {
+  width: 90px;
+}
+.job-line.many .job-title {
+  max-width: 170px;
+}
+/* Wide enough for "23 MB / 113 MB · 13s left", which is the longest thing curl
+   reports; the whole strip shrinks before this does. */
+.job-line.many .job-detail {
+  max-width: 210px;
+}
+.job-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .job-title {
   font-size: 13px;
   font-weight: 500;
@@ -1604,6 +1728,9 @@ body.booting #disk-text {
 .job-detail {
   font-size: 12.5px;
   color: var(--c-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .job-bar {
   display: block;
@@ -1635,9 +1762,17 @@ body.booting #disk-text {
 .job-more:hover {
   text-decoration: underline;
 }
+/* The last thing that may take space, and the first that gives it up: a home
+   directory several levels deep wrapped onto a second line and pushed the strip
+   out of its own 44px. */
 .foot-path {
   font-size: 11.5px;
   color: var(--c-faint);
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rule {
   width: 1px;

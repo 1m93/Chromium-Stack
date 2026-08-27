@@ -309,7 +309,13 @@ function jobTitle(job, info) {
   const name = jobName(job);
   if (info && info.phase === 'open') return name;
   if (info && info.phase === 'ready') return `Starting ${name}`;
-  if (job.kind === 'docker') return `Docker · ${name}`;
+  // With the verb, where there is one to say: a stop, a build and an image purge
+  // all read "Docker · Firefox 55" otherwise, and two of them can be on the
+  // status bar at the same time.
+  if (job.kind === 'docker')
+    return job.action && job.action !== 'start'
+      ? `Docker ${job.action} · ${name}`
+      : `Docker · ${name}`;
   // A launch downloads and unpacks first, so both endpoints read as "Installing".
   if (job.kind === 'launch' || job.kind === 'install')
     return `Installing ${name}`;
@@ -706,6 +712,30 @@ function decorate(row) {
     : null;
 
   const launchJob = selector ? runningJobFor(selector) : null;
+  // The two routes' work, kept apart. They can both be going at once - a native
+  // download beside a container build - and a row that folded them into one
+  // could only ever show and cancel whichever the cascade reached first.
+  const live = state ? state.jobs : [];
+  // By the log it writes to first, because that is the one identity that does
+  // not move: a Chromium row's selector is its milestone until the build lands
+  // and its revision afterwards, so a job started as "105" stopped matching the
+  // row the moment it succeeded. The selectors are still checked, for a job an
+  // older page or a hand-made request started without naming a stream.
+  const streamKey = streamKeyFor(engine, row.id ?? selector);
+  const onThisRow = (entry) =>
+    entry.stream === streamKey ||
+    String(entry.revision) === selector ||
+    (dockerSelector && String(entry.revision) === dockerSelector);
+  const nativeBusy =
+    live.find(
+      (entry) =>
+        onThisRow(entry) &&
+        entry.kind !== 'launch' &&
+        entry.kind !== 'doctor' &&
+        entry.kind !== 'docker',
+    ) || null;
+  const dockerBusy =
+    live.find((entry) => onThisRow(entry) && entry.kind === 'docker') || null;
   // A container's job is filed under the revision its image runs, which is not
   // the row's own - so an image building for a version with no native build here
   // used to leave the row saying nothing at all, still offering to start it.
@@ -739,6 +769,10 @@ function decorate(row) {
     info,
     busy,
     running: open, // a native window, which is what Stop acts on
+    // What each route is doing, for the buttons. `busy` above is still whichever
+    // of them the row's dot and progress bar read.
+    nativeJob: launchJob || nativeBusy,
+    dockerJob: dockerBusy,
     dockerRunning,
     dockerImage,
     dockerSelector,
@@ -1749,13 +1783,17 @@ function renderRow(row) {
   // image build put "docker…" on the top line, against the screen glyph in the
   // native colour - a row fetching a container looked like a row fetching a
   // build.
-  const busyLine = row.busy ? `${workWord(row.busy, row.info)}…` : '';
-  const dockerBusy = row.busy != null && row.busy.kind === 'docker';
+  // Each line says what its own route is doing, or what it holds on disk. Read
+  // off `busy` - the one job the row folded both routes into - the docker line
+  // went on reporting a gigabyte of image while that image was being rebuilt,
+  // and a native download put "downloading…" on whichever line came first.
+  const busyWord = (job) =>
+    job ? `${workWord(job, jobInfo.get(job.id) || null)}…` : '';
   sizeLine(
     node.querySelector('[data-size]'),
     'desktop',
-    row.busy && !dockerBusy
-      ? busyLine
+    row.nativeJob && !row.running
+      ? busyWord(row.nativeJob)
       : row.installed
         ? `${mb(row.sizeBytes)} · ${mb(row.profileBytes)} profile`
         : '',
@@ -1763,22 +1801,39 @@ function renderRow(row) {
   sizeLine(
     node.querySelector('[data-size-docker]'),
     'cube',
-    dockerBusy
-      ? busyLine
+    row.dockerJob
+      ? busyWord(row.dockerJob)
       : row.dockerImage
         ? `${mb(row.dockerImage)}` +
           (row.dockerProfileBytes ? ` · ${mb(row.dockerProfileBytes)} profile` : '')
         : '',
   );
 
-  if (row.busy) {
-    // Determinate while curl is reporting, a moving stripe for the steps that
-    // cannot be measured - unpacking, deleting, waiting on Docker.
-    const bar = node.querySelector('[data-progress]');
-    const percent = row.info ? row.info.percent : null;
-    bar.hidden = false;
-    if (percent == null) bar.classList.add('indeterminate');
-    else node.querySelector('[data-progress-bar]').style.width = `${percent}%`;
+  // One meter per route with work in flight, in the same order as the buttons.
+  // A browser that is already up is left out: its launch job runs for as long as
+  // the window does and there is nothing to measure, which is why an open
+  // browser never had a bar and still does not.
+  const meters = [row.nativeJob, row.dockerJob].filter((job) => {
+    if (!job) return false;
+    const info = jobInfo.get(job.id) || null;
+    return !(info && info.phase === 'open');
+  });
+  if (meters.length) {
+    const holder = node.querySelector('[data-progress]');
+    holder.hidden = false;
+    for (const job of meters) {
+      const info = jobInfo.get(job.id) || null;
+      const percent = info ? info.percent : null;
+      const bar = document.createElement('span');
+      bar.className = 'row-bar';
+      // Determinate while curl is reporting, a moving stripe for the steps that
+      // cannot be measured - unpacking, deleting, waiting on Docker.
+      if (percent == null) bar.classList.add('indeterminate');
+      const fill = document.createElement('i');
+      if (percent != null) fill.style.width = `${percent}%`;
+      bar.append(fill);
+      holder.append(bar);
+    }
   }
 
   // Dimmed only when there is nothing to be done with the row at all. A version
@@ -1795,101 +1850,198 @@ function renderRow(row) {
   return node;
 }
 
+/* ---------- what a row offers ----------
+   Native and Docker are two ways of running one version, and they can both be
+   busy at the same time: a build downloading while its container image builds, a
+   browser open while the container behind it is still up. This used to be one
+   cascade of else-ifs over a single job, so whichever branch matched first was
+   the whole row - a running container behind a running browser had no Stop here
+   at all, only an entry in the menu, on a row with the space to show it.
+
+   Each route now reports its own controls. One route busy reads exactly as it
+   did; both busy gets a line each, the same shape the size column beside it has
+   always used. */
+
 function renderActions(container, row) {
-  const selector = row.selector;
-  const action = document.createElement('button');
-  action.className = 'btn';
+  const lines = document.createElement('div');
+  lines.className = 'row-lines';
 
-  if (row.busy) {
-    // A download in progress used to leave this saying "Install & launch", which
-    // invited a second one while the first was still running.
-    const percent = row.info ? row.info.percent : null;
-    const word = workWord(row.busy, row.info);
-    if (stopping.has(row.busy.id)) {
-      // SIGTERM reaches curl a moment before the job ends, and a button still
-      // offering to cancel invited a second press at exactly the wrong time.
-      action.append(iconSpan('clock'), 'Cancelling…');
-      action.disabled = true;
-      action.title = 'Waiting for this to stop';
-    } else if (row.status === 'downloading' && percent != null) {
-      action.append(iconSpan('down-circle'), `${percent}%`);
-      action.title = 'Show what this is doing';
-      action.onclick = () => watch(row.busy.stream, row.name);
-    } else {
-      action.append(
-        iconSpan(row.status === 'downloading' ? 'down-circle' : 'clock'),
-        `${capitalise(word)}…`,
-      );
-      action.title = 'Show what this is doing';
-      action.onclick = () => watch(row.busy.stream, row.name);
-    }
-  } else if (row.running) {
-    // A disabled "Running" button is a dead end; closing the window is the other
-    // way out, but the button is right here.
-    const jobId = row.job.id;
-    if (stopping.has(jobId)) {
-      // SIGTERM to the process group takes a moment to bring the window down,
-      // and a button still reading "Stop" invited a second press.
-      action.append(iconSpan('clock'), 'Stopping…');
-      action.disabled = true;
-      action.title = 'Waiting for the browser to close';
-    } else {
-      // Two buttons while it is up. The window is open behind this one and the
-      // row had no way back to it: every route to a running version was either
-      // Stop or a fresh launch, and a fresh launch of a browser that is already
-      // running is not one.
-      const front = document.createElement('button');
-      front.className = 'btn accent';
-      front.append(iconSpan('desktop'), 'Open');
-      front.title = 'Bring this browser window to the front';
-      front.onclick = () => raiseNative(front, row);
-      container.append(front);
+  const native = nativeControls(row);
+  const docker = dockerControls(row);
 
-      action.classList.add('warn');
-      action.append(iconSpan('stop'), 'Stop');
-      action.title = 'Close this browser and everything it started';
-      action.onclick = () => cancelJob(jobId, `Stopping ${row.name}`);
-    }
-  } else if (row.dockerRunning) {
+  if (native.length && docker.length) {
+    container.classList.add('two-routes');
+    lines.append(controlLine(native), controlLine(docker));
+  } else {
+    lines.append(
+      controlLine(native.length || docker.length ? [...native, ...docker] : idleControls(row)),
+    );
+  }
+  container.append(lines);
+
+  // Only when it leads somewhere. With both routes busy every entry can be gated
+  // off, and a button that opens an empty menu is worse than no button.
+  if (menuPlan(row).length) {
+    const more = document.createElement('button');
+    more.className = 'btn icon-btn';
+    more.append(iconSpan('dots'));
+    more.title = 'More actions';
+    more.onclick = (event) => {
+      event.stopPropagation();
+      toggleMenu(container, row);
+    };
+    container.append(more);
+  }
+}
+
+const controlLine = (buttons) => {
+  const line = document.createElement('div');
+  line.className = 'row-line';
+  for (const button of buttons) line.append(button);
+  return line;
+};
+
+function button(kind, glyph, label, title, handler) {
+  const node = document.createElement('button');
+  node.className = `btn${kind ? ` ${kind}` : ''}`;
+  node.append(iconSpan(glyph), label);
+  node.title = title;
+  if (handler) node.onclick = () => handler(node);
+  else node.disabled = true;
+  return node;
+}
+
+/* ---------- the native route ---------- */
+
+function nativeControls(row) {
+  if (row.running) {
+    // SIGTERM to the process group takes a moment to bring the window down, and
+    // a button still reading "Stop" invited a second press.
+    if (stopping.has(row.job.id))
+      return [button('', 'clock', 'Stopping…', 'Waiting for the browser to close')];
+    // Two buttons while it is up. The window is open behind this one and the row
+    // had no way back to it: every route to a running version was either Stop or
+    // a fresh launch, and a fresh launch of a browser that is already running is
+    // not one.
+    return [
+      button('accent', 'desktop', 'Open', 'Bring this browser window to the front',
+        (node) => raiseNative(node, row)),
+      button('warn', 'stop', 'Stop', 'Close this browser and everything it started',
+        () => cancelJob(row.job.id, `Stopping ${row.name}`)),
+    ];
+  }
+  return row.nativeJob ? busyControls(row, row.nativeJob) : [];
+}
+
+/* ---------- the Docker route ---------- */
+
+function dockerControls(row) {
+  if (row.dockerRunning) {
+    const out = [];
     // The container is up, so the version is running even though no native
     // window is - and something is burning CPU that the row has to be able to
     // turn off. The way back to the desktop is the button beside it: it used to
     // be the first entry in the menu, one click behind the thing a running
     // container is for.
     if (row.dockerUrl) {
-      const open = document.createElement('button');
-      open.className = 'btn accent';
-      open.append(iconSpan('link'), 'Open');
-      open.title =
-        'Open the desktop this container is running. The tab it opened is ' +
-        'reused, so this focuses that one rather than making another.';
-      open.onclick = () => openDesktop(row);
-      container.append(open);
+      out.push(
+        button('accent', 'link', 'Open',
+          'Open the desktop this container is running. The tab it opened is ' +
+            'reused, so this focuses that one rather than making another.',
+          () => openDesktop(row)),
+      );
     }
-    action.classList.add('warn');
-    action.append(iconSpan('stop'), 'Stop');
-    action.title = 'Stop the Docker container running this version';
-    action.onclick = async () => {
-      action.disabled = true;
-      try {
-        const { stream } = await post('/api/docker', {
-          selector: row.dockerSelector,
-          action: 'stop',
-          ...streamBody(row),
-        });
-        watch(stream, row.name);
-      } catch (error) {
-        showJobFailure(`Stopping Docker · ${row.name}`, error.message);
-        action.disabled = false;
-        return;
-      }
-      refresh();
+    out.push(
+      button('warn', 'stop', 'Stop', 'Stop the Docker container running this version',
+        async (node) => {
+          node.disabled = true;
+          try {
+            const { stream } = await post('/api/docker', {
+              selector: row.dockerSelector,
+              action: 'stop',
+              ...streamBody(row),
+            });
+            watch(stream, row.name);
+          } catch (error) {
+            showJobFailure(`Stopping Docker · ${row.name}`, error.message);
+            node.disabled = false;
+            return;
+          }
+          refresh();
+        }),
+    );
+    return out;
+  }
+  return row.dockerJob ? busyControls(row, row.dockerJob) : [];
+}
+
+/* ---------- a job in flight, either route ---------- */
+
+function busyControls(row, job) {
+  const info = jobInfo.get(job.id) || null;
+  // SIGTERM reaches curl a moment before the job ends, and a button still
+  // offering to cancel invited a second press at exactly the wrong time.
+  if (stopping.has(job.id))
+    return [button('', 'clock', 'Cancelling…', 'Waiting for this to stop')];
+
+  const downloading = Boolean(info) && info.phase === 'downloading';
+  const percent = info ? info.percent : null;
+  // A download in progress used to leave this saying "Install & launch", which
+  // invited a second one while the first was still running.
+  const label =
+    downloading && percent != null
+      ? `${percent}%`
+      : `${capitalise(workWord(job, info))}…`;
+  const glyph = downloading
+    ? 'down-circle'
+    : job.kind === 'docker'
+      ? 'cube'
+      : 'clock';
+  const out = [
+    button('', glyph, label, 'Show what this is doing',
+      () => watch(job.stream, row.name)),
+  ];
+
+  // A download is minutes of network and an image build is longer, and until
+  // this the only way out of either was to quit the manager. Deletes and profile
+  // resets are deliberately not offered: they are over in a moment, and half a
+  // deleted directory is worse than waiting for it. Nor a stop already under
+  // way - interrupting `docker stop` is how a container ends up with a locked
+  // profile volume.
+  if (
+    CANCELLABLE.has(job.kind) &&
+    !(job.kind === 'docker' && job.action === 'stop')
+  ) {
+    const cancel = document.createElement('button');
+    cancel.className = 'btn icon-btn warn';
+    cancel.append(iconSpan('x'));
+    cancel.title =
+      job.kind === 'docker'
+        ? 'Cancel this Docker build'
+        : downloading
+          ? 'Cancel this download'
+          : 'Cancel this install';
+    cancel.onclick = (event) => {
+      event.stopPropagation();
+      cancelJob(job.id, `Cancelling ${row.name}`);
     };
-  } else if (row.dockerOnly) {
-    // Here the container is not a fallback, it is the only way this version
-    // runs on this machine - so it is the button, not something to be found in
-    // the menu behind it. Ahead of "installed" deliberately: a build that is on
-    // disk but cannot execute here is still not something to launch.
+    out.push(cancel);
+  }
+  return out;
+}
+
+/* ---------- nothing running: the one button that starts something ---------- */
+
+function idleControls(row) {
+  const selector = row.selector;
+  const action = document.createElement('button');
+  action.className = 'btn';
+
+  if (row.dockerOnly) {
+    // Here the container is not a fallback, it is the only way this version runs
+    // on this machine - so it is the button, not something to be found in the
+    // menu behind it. Ahead of "installed" deliberately: a build that is on disk
+    // but cannot execute here is still not something to launch.
     // Two ways to run a version, and each has the same three states, so each
     // gets the same three buttons:
     //
@@ -1947,43 +2099,7 @@ function renderActions(container, row) {
     action.title = 'Download this build and launch it';
     action.onclick = () => start(action, row);
   }
-  container.append(action);
-
-  // A download is minutes of network and an image build is longer, and until
-  // now the only way out of either was to quit the manager. Deletes and profile
-  // resets are deliberately not offered: they are over in a moment, and half a
-  // deleted directory is worse than waiting for it.
-  if (
-    row.busy &&
-    CANCELLABLE.has(row.busy.kind) &&
-    !stopping.has(row.busy.id)
-  ) {
-    const jobId = row.busy.id;
-    const cancel = document.createElement('button');
-    cancel.className = 'btn icon-btn warn';
-    cancel.append(iconSpan('x'));
-    cancel.title =
-      row.busy.kind === 'docker'
-        ? 'Cancel this Docker build'
-        : row.status === 'downloading'
-          ? 'Cancel this download'
-          : 'Cancel this install';
-    cancel.onclick = (event) => {
-      event.stopPropagation();
-      cancelJob(jobId, `Cancelling ${row.name}`);
-    };
-    container.append(cancel);
-  }
-
-  const more = document.createElement('button');
-  more.className = 'btn icon-btn';
-  more.append(iconSpan('dots'));
-  more.title = 'More actions';
-  more.onclick = (event) => {
-    event.stopPropagation();
-    toggleMenu(container, row);
-  };
-  container.append(more);
+  return [action];
 }
 
 async function start(button, row) {
@@ -2092,6 +2208,87 @@ async function cancelJob(jobId, title) {
   setTimeout(refresh, 400);
 }
 
+/* ---------- what the row's menu would offer ----------
+   Keys, not buttons: the ... button has to know whether pressing it leads
+   anywhere before it is drawn, and building the menu 288 times a repaint to find
+   out is not an option. One list of conditions, read by both, so the button and
+   the menu behind it cannot disagree - a ... that opened onto nothing was
+   exactly that disagreement.
+
+   An entry that starts work on a route is not offered while that route already
+   has work in flight. A download in progress used to sit behind a menu still
+   saying "Download only" and "Reset profile", and pressing either started a
+   second job against the same directory: the row's own button had stopped
+   offering it, and the menu behind the button had not. Per route, because the
+   two are independent - a container building says nothing about whether the
+   native build can be fetched. */
+function menuPlan(row) {
+  const plan = [];
+  const nativeFree = !row.nativeJob;
+  const dockerFree = !row.dockerJob;
+
+  if (logStreams.has(streamKeyOf(row))) plan.push('log');
+
+  // The row's button is Docker, so the native launcher has to be somewhere -
+  // including on a version that is not downloaded yet, which is most of them.
+  // Not while the container is up: "Launch natively as well" below is that
+  // entry. Not when the vendor has stopped serving it either: "anyway" is for a
+  // launch that might work, and this one cannot be fetched at all. An
+  // already-downloaded copy is a different matter - that one is on disk and
+  // still starts.
+  if (
+    nativeFree &&
+    row.dockerOnly &&
+    !row.dockerRunning &&
+    (row.installed || !row.nativeGone)
+  ) {
+    plan.push('launch-anyway');
+  }
+
+  // Both ways of running this version are available and only one of them has the
+  // row's button, so the other cannot be a dead end.
+  if (nativeFree && row.dockerAvailable && row.dockerRunning && row.installed)
+    plan.push('launch-as-well');
+
+  // Nothing to download when the catalog has no build of this version for this
+  // machine, or when the vendor has stopped serving the one it has.
+  if (nativeFree && !row.installed && row.supported && !row.nativeGone)
+    plan.push('download-only');
+
+  if (row.dockerAvailable) {
+    if (row.dockerRunning) {
+      // Only when the native window has taken the row's Open button: both routes
+      // are up, and the container's desktop cannot be the same button.
+      if (row.dockerUrl && row.running) plan.push('open-desktop');
+      // Not while a stop is already on its way, which is the one docker job that
+      // can be running with the container still up.
+      if (dockerFree) plan.push('stop-container');
+    } else {
+      // Not when the row's own button already is this: on a Docker-first row the
+      // two read word for word the same.
+      if (dockerFree && !row.dockerOnly) plan.push('docker-launch');
+      // The other half of "Download only": fill the shelf now, use it later.
+      if (dockerFree && !row.dockerImage) plan.push('docker-build');
+    }
+  }
+
+  // Everything below is destructive. A delete or a profile reset against a
+  // directory that is being written to is the one case where "it is over in a
+  // moment" stops being true.
+  if (nativeFree && row.installed) plan.push('reset', 'delete-build', 'delete-both');
+  if (dockerFree && row.dockerAvailable && row.dockerImage) plan.push('delete-image');
+  if (
+    nativeFree &&
+    dockerFree &&
+    row.installed &&
+    row.dockerAvailable &&
+    row.dockerImage
+  ) {
+    plan.push('delete-all');
+  }
+  return plan;
+}
+
 function toggleMenu(container, row) {
   if (openMenu) {
     const wasSame = openMenu.parentElement === container;
@@ -2117,6 +2314,8 @@ function toggleMenu(container, row) {
   const groups = { log: [], native: [], docker: [], danger: [] };
   let group = 'native';
 
+  const plan = new Set(menuPlan(row));
+
   const item = (glyph, label, handler, danger = false) => {
     const button = document.createElement('button');
     button.type = 'button';
@@ -2137,8 +2336,7 @@ function toggleMenu(container, row) {
   // no route to their own output at all: the only way in was to have been
   // watching when it happened, and the panel is closed the rest of the time.
   const logKey = streamKeyOf(row);
-  const held = logStreams.get(logKey);
-  if (held) {
+  if (plan.has('log')) {
     group = 'log';
     item('terminal', 'View log', async () => {
       watch(logKey, row.name);
@@ -2158,7 +2356,7 @@ function toggleMenu(container, row) {
   // Not when the vendor has stopped serving it: "anyway" is for a launch that
   // might work, and this one cannot be fetched at all. An already-downloaded copy
   // is a different matter - that one is on disk and still starts.
-  if (row.dockerOnly && !row.dockerRunning && (row.installed || !row.nativeGone)) {
+  if (plan.has('launch-anyway')) {
     const label = row.installed
       ? 'Launch natively anyway'
       : 'Download and launch natively';
@@ -2174,7 +2372,7 @@ function toggleMenu(container, row) {
 
   // Both ways of running this version are available and only one of them has the
   // row's button, so the other cannot be a dead end.
-  if (row.dockerAvailable && row.dockerRunning && row.installed) {
+  if (plan.has('launch-as-well')) {
     item('play', 'Launch natively as well', async () => {
       const { stream } = await post('/api/launch', {
         selector,
@@ -2188,7 +2386,7 @@ function toggleMenu(container, row) {
   // Nothing to download when the catalog has no build of this version for this
   // machine, or when the vendor has stopped serving the one it has: the entry
   // used to be there and the job it started died in the log.
-  if (!row.installed && row.supported && !row.nativeGone) {
+  if (plan.has('download-only')) {
     item('download', 'Download only', async () => {
       const { stream } = await post('/api/install', {
         selector,
@@ -2209,24 +2407,28 @@ function toggleMenu(container, row) {
       // Only when the native window has taken the row's Open button: both
       // routes are up, and the container's desktop cannot be the same button.
       // Otherwise this entry and that button read word for word the same.
-      if (row.dockerUrl && row.running) {
+      if (plan.has('open-desktop')) {
         item('link', 'Open the desktop', async () => {
           openDesktop(row);
         });
       }
       // Last in its group: it is the way out of the route, not a way into it.
-      item('stop', 'Stop the container', async () => {
-        const { stream } = await post('/api/docker', {
-          selector: docker,
-          action: 'stop',
-          ...streamBody(row),
+      // Not while a stop is already on its way, which is the one docker job that
+      // can be running with the container still up.
+      if (plan.has('stop-container')) {
+        item('stop', 'Stop the container', async () => {
+          const { stream } = await post('/api/docker', {
+            selector: docker,
+            action: 'stop',
+            ...streamBody(row),
+          });
+          watch(stream, row.name);
         });
-        watch(stream, row.name);
-      });
+      }
     } else {
       // Not when the row's own button already is this: on a Docker-first row the
       // two read word for word the same, which is one entry too many.
-      if (!row.dockerOnly) {
+      if (plan.has('docker-launch')) {
         item(
           'cube',
           row.dockerImage
@@ -2248,7 +2450,7 @@ function toggleMenu(container, row) {
       // The cube rather than a download arrow, which is the glyph the native
       // fetch above wears: the two entries sat one under the other reading
       // "Download only" and "Get the container only" behind the same icon.
-      if (!row.dockerImage) {
+      if (plan.has('docker-build')) {
         item('cube', 'Get the container only', async () => {
           const { stream } = await post('/api/docker', {
             selector: docker,
@@ -2264,7 +2466,7 @@ function toggleMenu(container, row) {
   // Everything below here is destructive and lands under the rule in the order
   // it is written: the profile, then the build, then the image. Native first
   // because a row that has both is a row whose button is native.
-  if (row.installed) {
+  if (plan.has('reset')) {
     item(
       'reset',
       'Reset profile',
@@ -2322,7 +2524,7 @@ function toggleMenu(container, row) {
     );
   }
 
-  if (row.dockerAvailable && row.dockerImage) {
+  if (plan.has('delete-image')) {
     const held = row.dockerImage + row.dockerProfileBytes;
     item(
       'trash',
@@ -2343,6 +2545,54 @@ function toggleMenu(container, row) {
           ...streamBody(row),
         });
         watch(stream, row.name);
+      },
+      true,
+    );
+  }
+
+  // Both routes are on disk, so there is a "get this version off my machine"
+  // that neither of the deletes above is: each of them leaves the other route's
+  // gigabyte behind, and reclaiming the lot meant two trips through this menu
+  // and two confirmations.
+  if (plan.has('delete-all')) {
+    const everything =
+      row.sizeBytes + row.profileBytes + row.dockerImage + row.dockerProfileBytes;
+    item(
+      'trash',
+      `Delete everything (${mb(everything)})`,
+      async () => {
+        const go = await askConfirm({
+          title: `Delete every copy of ${row.name}?`,
+          body:
+            `The downloaded build, its profile, the Docker image and the ` +
+            `container's profile volume - ${mb(everything)}, less whatever image ` +
+            'layers other EngineShelf images share. Cookies and logins for this ' +
+            'version are gone for good on both routes, and building the image ' +
+            'again takes several minutes.',
+          label: 'Delete everything',
+        });
+        if (!go) return;
+        // Both against the same log, which is what shows them running side by
+        // side with a control each.
+        const [native, image] = await Promise.allSettled([
+          post('/api/remove', {
+            selector,
+            withProfile: true,
+            ...streamBody(row),
+          }),
+          post('/api/docker', {
+            selector: docker,
+            action: 'purge',
+            withProfile: true,
+            ...streamBody(row),
+          }),
+        ]);
+        const failed = [native, image].find((one) => one.status === 'rejected');
+        if (failed) {
+          showJobFailure(row.name, failed.reason.message);
+          return;
+        }
+        watch(streamKeyOf(row), row.name);
       },
       true,
     );
@@ -2384,57 +2634,100 @@ function activeJob() {
   );
 }
 
-function renderStatusBar() {
-  const job = activeJob();
-  const bar = $('job-bar');
+// How many running jobs the bar shows before the rest go behind "+N more". Two
+// fits beside the path and the buttons on a 44px strip; three does not.
+const BAR_JOBS = 2;
 
-  // Everything else that is busy, reachable in one click.
-  const others = (state ? state.jobs.length : 0) - (job ? 1 : 0);
+function renderStatusBar() {
+  const line = $('job-line');
+  line.textContent = '';
+
+  const running = state ? state.jobs.filter((job) => job.kind !== 'doctor') : [];
+  const doctors = state ? state.jobs.filter((job) => job.kind === 'doctor') : [];
+  // Whatever the log panel is watching goes first, then everything else in the
+  // order the manager has it. A dependency install is work too, and lands after.
+  const ordered = [
+    ...running.filter((job) => job.stream === watchKey),
+    ...running.filter((job) => job.stream !== watchKey),
+    ...doctors,
+  ];
+
+  const shown = ordered.slice(0, BAR_JOBS);
+  line.classList.toggle('many', shown.length > 1);
+
+  const others = ordered.length - shown.length;
   const more = $('job-more');
   more.hidden = others < 1;
   more.textContent = others < 1 ? '' : `+${others} more`;
   more.title = others < 1 ? '' : 'Show the other running jobs';
 
-  if (!job) {
+  if (!shown.length) {
     // A container is not a job: the launcher exits the moment the desktop
     // answers, so with one running and nothing else happening this bar used to
     // read "Nothing running" underneath an open browser.
     const containers = state
       ? asArray(state.docker && state.docker.containers).length
       : 0;
-    $('job-dot').dataset.state = containers ? 'running' : 'idle';
-    $('job-title').textContent = !containers
-      ? 'Ready'
-      : containers === 1
-        ? '1 version running in Docker'
-        : `${containers} versions running in Docker`;
-    $('job-detail').textContent = containers
-      ? 'nothing else in progress'
-      : 'Nothing running';
-    bar.hidden = true;
+    line.append(
+      jobEntry({
+        state: containers ? 'running' : 'idle',
+        title: !containers
+          ? 'Ready'
+          : containers === 1
+            ? '1 version running in Docker'
+            : `${containers} versions running in Docker`,
+        detail: containers ? 'nothing else in progress' : 'Nothing running',
+      }),
+    );
     return;
   }
 
-  const info = jobInfo.get(job.id) || null;
-  const open = job.kind === 'launch' && info && info.phase === 'open';
-
-  $('job-dot').dataset.state = open ? 'running' : 'working';
-  $('job-title').textContent = jobTitle(job, info);
-
-  if (open) {
-    $('job-detail').textContent = 'running';
-    bar.hidden = true;
-    return;
+  for (const job of shown) {
+    const info = jobInfo.get(job.id) || null;
+    const open = job.kind === 'launch' && info && info.phase === 'open';
+    line.append(
+      jobEntry({
+        state: open ? 'running' : 'working',
+        title: jobTitle(job, info),
+        // The byte counts and time left when curl is reporting them, the step's
+        // own name when it has nothing to report.
+        detail: open ? 'running' : (info && info.detail) || `${workWord(job, info)}…`,
+        percent: open ? null : info ? info.percent : null,
+        bar: !open,
+      }),
+    );
   }
+}
 
-  const percent = info ? info.percent : null;
-  // The byte counts and time left when curl is reporting them, the step's own
-  // name when it has nothing to report.
-  $('job-detail').textContent =
-    (info && info.detail) || `${workWord(job, info)}…`;
-  bar.hidden = false;
-  bar.classList.toggle('indeterminate', percent == null);
-  $('job-bar-fill').style.width = percent == null ? '' : `${percent}%`;
+function jobEntry({ state: mark, title, detail, percent = null, bar = false }) {
+  const one = document.createElement('div');
+  one.className = 'job-one';
+
+  const dot = document.createElement('span');
+  dot.className = 'dot';
+  dot.dataset.state = mark;
+
+  const name = document.createElement('span');
+  name.className = 'job-title';
+  name.textContent = title;
+  name.title = title;
+
+  const said = document.createElement('span');
+  said.className = 'job-detail mono';
+  said.textContent = detail;
+
+  one.append(dot, name, said);
+
+  if (bar) {
+    const meter = document.createElement('span');
+    meter.className = 'job-bar';
+    meter.classList.toggle('indeterminate', percent == null);
+    const fill = document.createElement('i');
+    if (percent != null) fill.style.width = `${percent}%`;
+    meter.append(fill);
+    one.append(meter);
+  }
+  return one;
 }
 
 // /api/state lists the running jobs but not their output, and the output is
@@ -2445,10 +2738,9 @@ async function sampleJobs() {
     : [];
   await Promise.all(
     running.map(async (job) => {
-      // Only while the panel is open, because that is the only time the log
-      // pump is running - a closed panel over the watched stream left the row
-      // with no percentage at all.
-      if (job.stream === watchKey && !$('log-panel').hidden) return;
+      // Every running job, the watched log's included: /api/job/<id> returns
+      // the lines that job wrote and no others, which is the only honest source
+      // once two of them can be writing to one log at the same time.
       try {
         noteJob(job, (await api(`/api/job/${job.id}`)).output);
       } catch {
@@ -2457,12 +2749,11 @@ async function sampleJobs() {
     }),
   );
   for (const id of [...jobInfo.keys()]) {
-    const kept = watchKey && logStreams.get(watchKey);
-    if (
-      !(kept && kept.job && kept.job.id === id) &&
-      !running.some((job) => job.id === id)
-    )
-      jobInfo.delete(id);
+    const kept = watchKey ? logStreams.get(watchKey) : null;
+    const held =
+      kept &&
+      [kept.job, ...asArray(kept.jobs)].some((job) => job && job.id === id);
+    if (!held && !running.some((job) => job.id === id)) jobInfo.delete(id);
   }
   for (const id of [...stopping]) {
     if (!state.jobs.some((job) => job.id === id)) stopping.delete(id);
@@ -2517,9 +2808,10 @@ function noteJob(job, output) {
    page reads the list off the state document, and closing a tab hides it here
    rather than throwing anything away. */
 
-// key -> {key, label, lines: [], total, mark, job, updated, local, status}
+// key -> {key, label, lines: [], total, job, jobs, updated, local, status}
 //   lines  what this window holds of the stream, as text
 //   total  the absolute line number after the last one it holds
+//   jobs   everything still running on it, which can be more than one
 const logStreams = new Map();
 let watchKey = null; // stream shown in the panel
 let logTimer = null;
@@ -2536,10 +2828,13 @@ const LOG_HIDDEN_KEY = 'engineshelf.logHidden';
 // - and filing them apart gave one version two logs. The catalog id is the one
 // thing that is the same for both and does not change when a milestone resolves
 // to a revision.
-const streamKeyOf = (row) =>
-  `${row.engine}:${String((row.raw && row.raw.id) ?? row.selector ?? '?')
+const streamKeyFor = (engine, id) =>
+  `${engine}:${String(id ?? '?')
     .replace(/[^0-9A-Za-z.:_-]/g, '-')
     .slice(0, 60)}`;
+
+const streamKeyOf = (row) =>
+  streamKeyFor(row.engine, (row.raw && row.raw.id) ?? row.selector);
 
 // Spread into the body of anything that starts a job. The server files output
 // under this and hands the key back, so nothing here has to guess it.
@@ -2651,8 +2946,8 @@ function makeStream(key, label) {
     label: label || key,
     lines: [],
     total: 0,
-    mark: 0,
     job: null,
+    jobs: [],
     updated: 0,
     local: false,
     status: '',
@@ -2670,6 +2965,7 @@ function noteStreams(list) {
     seen.add(entry.key);
     const stream = makeStream(entry.key, entry.label);
     stream.job = entry.job || null;
+    stream.jobs = asArray(entry.jobs);
     stream.updated = entry.updated || stream.updated;
     // A page that has just loaded knows the size of every log and the contents
     // of none, so the one it opens asks from the start.
@@ -2716,9 +3012,13 @@ function noteStreams(list) {
 // The job the shelf's rows are looking at, mapped back to the log it writes to.
 const streamOfJob = (job) => (job && job.stream) || null;
 
-// A job in flight. Not the same as the version being up: see isLive below.
-const isRunning = (stream) =>
-  Boolean(stream) && Boolean(stream.job) && stream.job.status === 'running';
+// Everything in flight on a log. More than one is ordinary: a version can be
+// downloading natively while its container builds, and both write here.
+const runningJobs = (stream) =>
+  stream ? asArray(stream.jobs).filter((job) => job && job.status === 'running') : [];
+
+// Anything in flight. Not the same as the version being up: see isLive below.
+const isRunning = (stream) => runningJobs(stream).length > 0;
 
 // Anything going on at all - a job in flight, a native window open, or a
 // container up. This is what decides whether a tab can be closed, because a
@@ -2890,29 +3190,34 @@ function tabKeys() {
    be readable at a glance. So each tab carries the glyph for its own state, and
    the ones that mean "still going" move. */
 
+// What one job in flight looks like.
+function busyMark(job) {
+  const info = jobInfo.get(job.id) || null;
+  const phase = info ? info.phase : null;
+  if (phase === 'downloading') return { glyph: 'download', state: 'downloading' };
+  if (phase === 'open') return { glyph: 'play', state: 'running' };
+  // Nothing downloading and nothing up, so the glyph says which kind of work it
+  // is instead: an unpack, a delete, a profile reset, a container starting.
+  if (job.kind === 'remove') return { glyph: 'trash', state: 'working' };
+  if (job.kind === 'clean') return { glyph: 'reset', state: 'working' };
+  if (job.kind === 'docker') return { glyph: 'cube', state: 'working' };
+  return { glyph: 'spinner', state: 'working' };
+}
+
 function tabMark(stream) {
   const live = streamLive.get(stream.key) || null;
   const job = stream.job;
 
   // Work in progress speaks first: a download or an unpack is what the tab is
-  // there for, and it is happening whatever else is already up.
-  if (job && job.status === 'running') {
-    const info = jobInfo.get(job.id) || null;
-    const phase = info ? info.phase : null;
-    if (phase === 'downloading')
-      return { glyph: 'download', state: 'downloading' };
-    if (phase === 'open') return { glyph: 'play', state: 'running' };
-    // Nothing downloading and nothing up, so the glyph says which kind of work
-    // it is instead: an unpack, a delete, a profile reset, a container starting.
-    if (job.kind === 'remove') return { glyph: 'trash', state: 'working' };
-    if (job.kind === 'clean') return { glyph: 'reset', state: 'working' };
-    if (job.kind === 'docker') return { glyph: 'cube', state: 'working' };
-    return { glyph: 'spinner', state: 'working' };
-  }
+  // there for, and it is happening whatever else is already up. With two of them
+  // going the download wins - it is the one with a number on it.
+  const busy = runningJobs(stream).map(busyMark);
+  if (busy.length)
+    return busy.find((mark) => mark.state === 'downloading') || busy[0];
 
-  // No job, but the version may well be up. Both routes get the same colour and
-  // the same beat - up is up - and their own glyph, because which one is up is
-  // the thing you came to the strip to find out.
+  // Nothing in flight, but the version may well be up. Both routes get the same
+  // colour and the same beat - up is up - and their own glyph, because which one
+  // is up is the thing you came to the strip to find out.
   if (live && live.running) return { glyph: 'play', state: 'running' };
   if (live && live.dockerRunning) return { glyph: 'cube', state: 'running' };
 
@@ -2931,14 +3236,18 @@ function tabMark(stream) {
 // status beside the panel's title are the same answer in two places.
 function streamState(stream) {
   const live = streamLive.get(stream.key) || null;
-  const job = stream.job;
-  if (job && job.status === 'running') {
+  const busy = runningJobs(stream);
+  if (busy.length > 1)
+    return busy.map((job) => workWord(job, jobInfo.get(job.id) || null)).join(' + ');
+  if (busy.length === 1) {
+    const job = busy[0];
     const info = jobInfo.get(job.id) || null;
     if (info && info.phase === 'open') return 'running';
     return info && info.detail
       ? `${workWord(job, info)} · ${info.detail}`
       : `${workWord(job, info)}…`;
   }
+  const job = stream.job;
   if (live && live.running && live.dockerRunning)
     return 'running natively and in Docker';
   if (live && live.running) return 'running';
@@ -2949,14 +3258,15 @@ function streamState(stream) {
 
 const tabTitle = (stream) => `${stream.label} — ${streamState(stream)}`;
 
-function stateMark(stream) {
-  const mark = tabMark(stream);
+function markSpan(mark) {
   const glyph = document.createElement('span');
   glyph.className = 'mark';
   glyph.dataset.state = mark.state;
   glyph.innerHTML = icon(mark.glyph);
   return glyph;
 }
+
+const stateMark = (stream) => markSpan(tabMark(stream));
 
 function makeTab(stream) {
   const tab = document.createElement('div');
@@ -3010,8 +3320,17 @@ function renderLogTabs() {
 
   // Whatever is running is a stream whether or not the state document has been
   // read since it started - a job the other window began, most often.
+  // Grouped, because one version can have two jobs going at once.
+  const seeded = new Map();
   for (const job of state ? state.jobs : []) {
-    if (job.stream) makeStream(job.stream, null).job = job;
+    if (!job.stream) continue;
+    if (!seeded.has(job.stream)) seeded.set(job.stream, []);
+    seeded.get(job.stream).push(job);
+  }
+  for (const [key, jobs] of seeded) {
+    const stream = makeStream(key, null);
+    stream.jobs = jobs;
+    stream.job = jobs[jobs.length - 1];
   }
 
   const keys = tabKeys();
@@ -3240,18 +3559,15 @@ async function pumpLog() {
   if (answer.first > stream.total) stream.lines = [];
   stream.lines.push(...asArray(answer.lines));
   stream.total = answer.total;
-  stream.mark = answer.mark;
   stream.label = answer.label || stream.label;
   stream.updated = answer.updated || stream.updated;
 
-  const before = stream.job;
+  // Progress no longer comes from slicing this buffer: two jobs writing to one
+  // log interleave, and the manager knows which lines are whose. sampleJobs reads
+  // each running job's own output and fills jobInfo from that.
+  const before = runningJobs(stream);
   stream.job = answer.job || null;
-  if (stream.job) {
-    // The phase and the meter come off the current run, not off the whole
-    // stream: a cancelled download left "ready." in the buffer above the retry.
-    const held = stream.total - stream.lines.length;
-    noteJob(stream.job, stream.lines.slice(Math.max(0, stream.mark - held)).join('\n'));
-  }
+  stream.jobs = asArray(answer.jobs);
 
   renderLog();
 
@@ -3264,33 +3580,161 @@ async function pumpLog() {
   // The run being watched has ended. Nothing more arrives on this stream until
   // something starts it again, and the refresh loop is what notices that - so
   // the pump stops here rather than idling at 700ms.
-  if (before && before.status === 'running') {
+  if (before.length) {
     if (stream.job && stream.job.status === 'done')
       flash(`${stream.label} — finished`);
-    jobInfo.delete(before.id);
+    for (const job of before) jobInfo.delete(job.id);
     refresh();
   }
 }
 
-// The title, the status and the Cancel button. Its own function because the body
-// below is only worth repainting when there is new output, while these three
-// change with the shelf: a container coming down is not a line in a log, so the
-// panel went on reading "running in Docker" over a container that had stopped
+// The title, and one control per thing this version is doing. Its own function
+// because the body below is only worth repainting when there is new output, while
+// these change with the shelf: a container coming down is not a line in a log, so
+// the panel went on reading "running in Docker" over a container that had stopped
 // while the tab beside it had already gone grey.
 function renderLogHead() {
   const stream = watchKey ? logStreams.get(watchKey) : null;
+  const holder = $('log-jobs');
+  holder.textContent = '';
   if (logStreams.size < 2) $('log-title').textContent = watchedLabel();
+
   if (!stream) {
-    $('log-status').textContent = !managerLogs
-      ? 'this manager is older than the page'
-      : tabsShown.length
-        ? 'pick a log above'
-        : 'output from installs, launches and clean-ups shows up here';
-    setLogAction(null);
+    holder.append(
+      statusText(
+        !managerLogs
+          ? 'this manager is older than the page'
+          : tabsShown.length
+            ? 'pick a log above'
+            : 'output from installs, launches and clean-ups shows up here',
+      ),
+    );
     return;
   }
-  setLogAction(stream);
-  $('log-status').textContent = streamState(stream);
+
+  // One per job in flight. Two at once is ordinary - a native download beside a
+  // container build - and each gets its own word, its own progress and its own
+  // way out, rather than the newest of them taking the whole head.
+  const busy = runningJobs(stream);
+  for (const job of busy) holder.append(jobPill(job));
+
+  // A container that is up with nothing running against it: there is no job to
+  // signal, so the control is the request that stops it.
+  const live = streamLive.get(stream.key) || null;
+  if (
+    live &&
+    live.dockerRunning &&
+    live.dockerSelector &&
+    !busy.some((job) => job.kind === 'docker')
+  ) {
+    holder.append(containerPill(stream, live));
+  }
+
+  if (!holder.childElementCount) holder.append(statusText(streamState(stream)));
+}
+
+function statusText(words) {
+  const span = document.createElement('span');
+  span.className = 'log-status';
+  span.textContent = words;
+  return span;
+}
+
+// The panel is where a long download is actually watched, so it is also where it
+// has to be possible to call one off: the row's own button is as often as not
+// scrolled out of sight behind it.
+function jobPill(job) {
+  const info = jobInfo.get(job.id) || null;
+  const pill = document.createElement('div');
+  pill.className = 'log-job';
+  pill.append(markSpan(busyMark(job)));
+
+  const what = document.createElement('span');
+  what.className = 'what';
+  what.textContent =
+    info && info.detail
+      ? `${workWord(job, info)} · ${info.detail}`
+      : `${workWord(job, info)}…`;
+  pill.append(what);
+  pill.title = jobTitle(job, info);
+
+  // Interrupting `docker stop` is how a container ends up with a locked profile
+  // volume, so that one is reported rather than offered.
+  if (
+    !CANCELLABLE.has(job.kind) ||
+    (job.kind === 'docker' && job.action === 'stop')
+  ) {
+    return pill;
+  }
+
+  // A launch job is a download first and a browser afterwards, and the same
+  // request ends either - but a cross over a browser that is already up reads as
+  // though something were being thrown away. Same two glyphs the rows use: a
+  // cross calls off work that has not finished, the square shuts down something
+  // that is already up.
+  const up = Boolean(info) && info.phase === 'open';
+  const going = stopping.has(job.id);
+  pill.append(
+    stopButton(
+      up ? 'stop' : 'x',
+      going
+        ? 'Waiting for this to stop'
+        : up
+          ? `Close ${jobName(job)} and everything it started`
+          : `Cancel ${jobName(job)}`,
+      going,
+      () => cancelJob(job.id, `${up ? 'Stopping' : 'Cancelling'} ${jobName(job)}`),
+    ),
+  );
+  return pill;
+}
+
+// The container's own entry. Stopping it is a request rather than a signal, and
+// it opens a job of its own on this same log - so this control is replaced by
+// that job's pill on the next refresh.
+function containerPill(stream, live) {
+  const pill = document.createElement('div');
+  pill.className = 'log-job';
+  pill.append(markSpan({ glyph: 'cube', state: 'running' }));
+
+  const what = document.createElement('span');
+  what.className = 'what';
+  what.textContent = 'running in Docker';
+  pill.append(what);
+  pill.title = `${stream.label} is running in its Docker container`;
+
+  pill.append(
+    stopButton('stop', `Stop the container running ${stream.label}`, false, async () => {
+      const button = pill.querySelector('.stop');
+      button.disabled = true;
+      try {
+        await post('/api/docker', {
+          selector: live.dockerSelector,
+          action: 'stop',
+          stream: stream.key,
+          streamLabel: live.name || stream.label,
+        });
+      } catch (error) {
+        flash(error.message, 'warn');
+        button.disabled = false;
+        return;
+      }
+      refresh();
+    }),
+  );
+  return pill;
+}
+
+function stopButton(glyph, title, disabled, handler) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'stop';
+  button.innerHTML = icon(glyph);
+  button.title = title;
+  button.setAttribute('aria-label', title);
+  button.disabled = disabled;
+  if (!disabled) button.onclick = handler;
+  return button;
 }
 
 function renderLog() {
@@ -3313,79 +3757,6 @@ function renderLog() {
     if (atBottom) out.scrollTop = out.scrollHeight;
   }
   renderLogHead();
-}
-
-// The panel is where a long download is actually watched, so it is also where it
-// has to be possible to call one off: the row's own button is as often as not
-// scrolled out of sight behind it.
-//
-// And where a container has to be stoppable. A native browser keeps its launch
-// job for as long as its window is up, so there was always a job here to signal;
-// a container's job ends the moment the desktop answers, so the panel over a
-// running container had no button at all - while the panel over a running
-// browser, one row away, had Stop.
-function setLogAction(stream) {
-  const button = $('log-cancel');
-  const glyph = $('log-cancel-icon');
-  const label = $('log-cancel-label');
-  const job = stream && stream.job;
-  const live = stream ? streamLive.get(stream.key) || null : null;
-  const running = Boolean(job) && job.status === 'running';
-
-  const show = (name, text, enabled, handler) => {
-    button.hidden = false;
-    glyph.innerHTML = icon(name);
-    label.textContent = text;
-    button.disabled = !enabled;
-    button.onclick = enabled ? handler : null;
-  };
-
-  // A stop already under way is not something to offer to call off: interrupting
-  // `docker stop` is how a container ends up with a locked profile volume.
-  if (running && job.kind === 'docker' && job.action === 'stop')
-    return show('clock', 'Stopping…', false, null);
-
-  if (running && CANCELLABLE.has(job.kind)) {
-    // A launch job is a download first and a browser afterwards, and the same
-    // request ends either - but "Cancel" over a browser that is already up reads
-    // as though something were being thrown away.
-    const info = jobInfo.get(job.id) || null;
-    const up = Boolean(info) && info.phase === 'open';
-    const going = stopping.has(job.id);
-    // The same two glyphs the rows use, and for the same reason: a cross calls
-    // off work that has not finished, the square shuts down something that is
-    // already up. One button doing both had to say which it was.
-    return show(
-      up ? 'stop' : 'x',
-      going ? (up ? 'Stopping…' : 'Cancelling…') : up ? 'Stop' : 'Cancel',
-      !going,
-      () => cancelJob(job.id, `${up ? 'Stopping' : 'Cancelling'} ${jobName(job)}`),
-    );
-  }
-
-  // Nothing in flight, but the container is up. Stopping it is a request rather
-  // than a signal, and it opens a job of its own on this same log - so the button
-  // becomes "Stopping…" above by itself on the next refresh.
-  if (live && live.dockerRunning && live.dockerSelector) {
-    return show('stop', 'Stop', true, async () => {
-      show('clock', 'Stopping…', false, null);
-      try {
-        await post('/api/docker', {
-          selector: live.dockerSelector,
-          action: 'stop',
-          stream: stream.key,
-          streamLabel: live.name || stream.label,
-        });
-      } catch (error) {
-        flash(error.message, 'warn');
-        setLogAction(stream);
-        return;
-      }
-      refresh();
-    });
-  }
-
-  button.hidden = true;
 }
 
 // A request that failed before a job existed still has to be visible somewhere,
