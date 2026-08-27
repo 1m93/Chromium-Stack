@@ -813,6 +813,97 @@ svg.i {
 .row.unsupported {
   opacity: 0.5;
 }
+
+/* ---------- the first second ----------
+   The shape of the answer, drawn while the server is still working out what it
+   is: the same rows, the same sidebar, with a shimmer where each number will
+   be. What it must never do is show a plausible wrong number instead. */
+.sk {
+  display: inline-block;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--c-line) 0%,
+    color-mix(in srgb, var(--c-line) 45%, var(--c-text)) 45%,
+    var(--c-line) 90%
+  );
+  background-size: 300% 100%;
+  animation: sk-sweep 1.5s ease-in-out infinite;
+  opacity: 0.5;
+}
+@keyframes sk-sweep {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
+/* A page that shimmers is a page that is doing something; a page that shimmers
+   to someone who asked for less movement is just noise. */
+@media (prefers-reduced-motion: reduce) {
+  .sk {
+    animation: none;
+  }
+}
+
+.row.skeleton {
+  pointer-events: none;
+}
+.sk-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.sk-mark {
+  width: 19px;
+  height: 19px;
+  border-radius: 5px;
+  flex: none;
+}
+.sk-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+.sk-title {
+  width: 130px;
+  height: 13px;
+}
+.sk-note {
+  width: min(52%, 360px);
+  height: 10px;
+}
+.sk-btn {
+  width: 74px;
+  height: 32px;
+  border-radius: 8px;
+  flex: none;
+}
+.sk-count {
+  width: 26px;
+  height: 10px;
+}
+/* The engine names are real - they are known before any server answers - but
+   nothing here is clickable yet. */
+.side-btn.is-quiet {
+  cursor: default;
+}
+
+/* Counts and disk figures with no value yet. The elements keep their place, so
+   nothing moves when the numbers land. */
+body.booting .count,
+body.booting .gauge-bar i,
+body.booting .disk-bar i {
+  visibility: hidden;
+}
+body.booting .disk-card .mono,
+body.booting #disk-text {
+  color: var(--c-faint);
+}
 /* No build for this machine, but a container to run it in. Held back from the
    rows with a native build without being greyed out like the dead ones: it is
    still one click, it just opens a desktop rather than a window. */

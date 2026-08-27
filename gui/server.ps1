@@ -22,7 +22,8 @@ param(
     [int]$Port = 7411,
     [switch]$NoOpen,       # start the server without opening anything
     [switch]$Tab,          # a tab in the default browser instead of a window
-    [switch]$KeepAlive     # keep serving after the window closes
+    [switch]$KeepAlive,    # keep serving after the window closes
+    [switch]$New           # start another manager even if one is running
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,6 +41,7 @@ $Token = [Convert]::ToBase64String([Guid]::NewGuid().ToByteArray()) -replace '[^
 if ($env:ENGINESHELF_HOME)   { $Root = $env:ENGINESHELF_HOME }
 elseif ($env:BROWSERS_EMU_HOME) { $Root = $env:BROWSERS_EMU_HOME }
 else                          { $Root = Join-Path $env:USERPROFILE '.engineshelf' }
+$StateFile   = Join-Path $Root 'manager.json'
 $CacheFile   = Join-Path $Root 'catalog.cache.tsv'
 $BuildsDir   = Join-Path $Root 'builds'
 $ProfilesDir = Join-Path $Root 'profiles'
@@ -1043,6 +1045,19 @@ function Invoke-Route {
     $path = ($Request.path -split '\?')[0]
 
     if ($Request.method -eq 'GET') {
+        if ($path -eq '/api/alive') {
+            # Before the token check on purpose, and not a heartbeat: this is
+            # another launch asking whether it should be a manager at all.
+            # The root matters: two managers pointed at two different home
+            # directories are two different shelves, and neither should stand
+            # aside for the other.
+            Send-Json $Stream @{
+                engineshelf = $true; pid = $PID; port = $Port
+                url = "http://127.0.0.1:$Port/"; root = $Root
+            }
+            return
+        }
+
         if ($path -eq '/api/token') { Send-Json $Stream @{ token = $Token }; return }
 
         if ($path -eq '/api/ping') {
@@ -1161,6 +1176,95 @@ function Invoke-Route {
     }
 }
 
+# ---------- one manager at a time ----------
+#
+# Opening the app again while it is running used to start a second manager: a
+# second server on the next free port, and a second window - which the copy of
+# Chrome already running takes over, so the process this one was watching exits
+# immediately. That reads as "the window was closed", and the new manager quits
+# a second after starting, stopping the containers the first one was running on
+# its way out. The window it opened is left pointing at a server that is gone.
+#
+# So a launch asks first, and if a manager answers, this one opens that
+# manager's window again and gets out of the way.
+
+function Get-AliveManager {
+    <#
+      The manager answering on this port, or $null.
+
+      Unauthenticated on purpose: this is how a launch finds out that another
+      one is already here, before there is any way for it to have been handed a
+      token. It says nothing that connecting to the port would not already say.
+    #>
+    param([int]$Candidate)
+    try {
+        $answer = Invoke-RestMethod -Uri "http://127.0.0.1:$Candidate/api/alive" `
+                                    -TimeoutSec 2 -ErrorAction Stop
+    } catch {
+        # Refused, timed out, or something else entirely listening there.
+        return $null
+    }
+    if ($answer -and $answer.engineshelf) { return $answer }
+    return $null
+}
+
+function Get-RunningManager {
+    param([int]$Preferred)
+    $state = $null
+    if (Test-Path $StateFile) {
+        try { $state = Get-Content $StateFile -Raw | ConvertFrom-Json } catch { $state = $null }
+    }
+    $ports = @()
+    if ($state -and $state.port) { $ports += [int]$state.port }
+    # The file can be missing - deleted, or never written by a manager that had
+    # nowhere to write it - and the default port is where one would be anyway.
+    foreach ($candidate in @($Preferred, 7411)) {
+        if ($ports -notcontains $candidate) { $ports += $candidate }
+    }
+    foreach ($candidate in $ports) {
+        $found = Get-AliveManager $candidate
+        if ($found -and (-not $found.root -or $found.root -eq $Root)) { return $found }
+    }
+    # A manager a second old has claimed its port and written its file but is
+    # not answering yet: it runs the CLI once before it starts serving. Two
+    # quick presses on the app icon land exactly there, so a live process
+    # holding the port it claimed counts as one.
+    if ($state -and $state.pid -and $state.port -and $state.pid -ne $PID) {
+        $live = Get-Process -Id ([int]$state.pid) -ErrorAction SilentlyContinue
+        if ($live) {
+            try {
+                $probe = New-Object Net.Sockets.TcpClient
+                $probe.Connect('127.0.0.1', [int]$state.port)
+                $probe.Close()
+                return $state
+            } catch { }
+        }
+    }
+    return $null
+}
+
+if (-not $New) {
+    # Opening the app again is how someone asks for the window back, not for a
+    # second manager - and a second one cannot work anyway: the window it opens
+    # belongs to the browser process the first one is already watching.
+    $already = Get-RunningManager $Port
+    if ($already) {
+        $there = if ($already.url) { [string]$already.url } else { "http://127.0.0.1:$($already.port)/" }
+        Write-Host ""
+        Write-Host "  EngineShelf is already running  ->  $there"
+        if ($NoOpen) {
+            Write-Host "  Left as it is; that manager is still serving."
+        } elseif (-not $Tab -and (Open-AppWindow $there)) {
+            Write-Host "  Opened its window again."
+        } else {
+            Start-Process $there | Out-Null
+            Write-Host "  Opened it in a tab."
+        }
+        Write-Host ""
+        exit 0
+    }
+}
+
 # ---------- serve ----------
 $listener = $null
 for ($candidate = $Port; $candidate -lt $Port + 40; $candidate++) {
@@ -1176,6 +1280,14 @@ for ($candidate = $Port; $candidate -lt $Port + 40; $candidate++) {
 if (-not $listener) { throw "No free port between $Port and $($Port + 40)" }
 
 $url = "http://127.0.0.1:$Port/"
+
+# Written before the window opens, so a second launch a moment later finds this
+# one rather than racing it onto the next port. Best effort: a manager that
+# cannot write it still runs, the next one just has to find it by port.
+try {
+    @{ pid = $PID; port = $Port; url = $url } | ConvertTo-Json |
+        Set-Content -Path $StateFile -Encoding UTF8
+} catch { }
 
 # Nothing was opened, so there is no window whose closing could mean anything;
 # this is the shape a script or a remote session asks for, and it waits.
@@ -1222,8 +1334,16 @@ try {
             # lid for a minute took the manager and everything it was running.
             if ($slept -gt 5) { $script:LastSeen = $now; continue }
             if (-not $script:AutoQuit) { continue }
-            if ($script:Shell -and $script:Shell.HasExited) {
-                $script:QuitReason = 'the manager window was closed'
+            if ($script:Shell) {
+                # We own the window, so its process ending is the signal - and
+                # the only one. A window that is covered by another app is
+                # occluded, and Chrome throttles a page it cannot see until the
+                # heartbeat below stops arriving. The manager read that as a
+                # window that had closed and quit while its own window was
+                # sitting there, taking the browsers and containers with it.
+                if ($script:Shell.HasExited) {
+                    $script:QuitReason = 'the manager window was closed'
+                }
             } elseif ($script:LastSeen -and
                       ((Get-Date) - $script:LastSeen).TotalSeconds -gt $GraceSeconds) {
                 # Nothing has connected yet ($LastSeen still null) means the
@@ -1251,5 +1371,11 @@ try {
     Write-Host ""
     Write-Host "  Closing ($script:QuitReason)."
     Stop-Everything
+    # Only if it is still ours: a manager that started over a stale file has
+    # already been replaced there by the one that took the port.
+    try {
+        $mine = Get-Content $StateFile -Raw | ConvertFrom-Json
+        if ($mine.pid -eq $PID) { Remove-Item $StateFile -Force -ErrorAction SilentlyContinue }
+    } catch { }
     Write-Host "  Manager stopped."
 }

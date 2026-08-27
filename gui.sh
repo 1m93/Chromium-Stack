@@ -14,6 +14,10 @@
 #   ./gui.sh --tab          # a tab in your default browser instead of a window
 #   ./gui.sh --no-open      # start it but open nothing
 #   ./gui.sh --keep-alive   # keep serving after the window closes
+#   ./gui.sh --new          # a second manager, even if one is already running
+#
+# Opening it while a manager is already running does not start a second one: it
+# opens that manager's window again.
 #
 set -euo pipefail
 

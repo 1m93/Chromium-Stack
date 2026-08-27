@@ -161,6 +161,7 @@ One page, served locally, with everything on it.
 | **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job when several are in flight. |
 | **Honest disk accounting** | A running total split between browsers, profiles and Docker images, so it is obvious when to clear something out. |
 | **Light or dark** | Follows the system theme, or pin it either way from the header. |
+| **One manager at a time** | Opening the app while it is already running brings its window back rather than starting a second manager on the next port — which used to leave the new window pointing at a server that had just shut itself down. |
 | **Closes like an app** | Closing the window stops the manager, the browsers it launched and the containers it started — with a confirmation first if any of them are running. Nothing is left holding a port or a gigabyte. |
 
 <p align="center">

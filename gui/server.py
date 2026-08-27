@@ -16,6 +16,7 @@ this server, the browsers it launched and the containers it brought up. See
     python3 gui/server.py [--port N] [--no-open] [--tab] [--keep-alive]
 """
 import argparse
+import errno
 import json
 import mimetypes
 import os
@@ -24,10 +25,12 @@ import re
 import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -49,6 +52,31 @@ ENGINE_NAMES = {"chromium": "Chromium", "firefox": "Firefox",
 # an option, or a second word.
 SELECTOR_RE = re.compile(
     r"^(?:(?:%s):)?[0-9A-Za-z][0-9A-Za-z.]{0,31}$" % "|".join(ENGINES))
+
+
+try:
+    # A pipe makes stdout block-buffered, and the app that owns the window reads
+    # this pipe line by line to find out where the manager is serving. Buffered,
+    # that line arrives 8 KB later - which is to say never - and the window sits
+    # on "Starting the manager" with a perfectly good server behind it.
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except (AttributeError, ValueError, OSError):
+    pass
+
+
+def say(*parts):
+    """print, but never at the cost of the manager.
+
+    The app that owns the window is also the far end of this process's stdout.
+    Kill the app and that pipe goes with it, and the next print raises - which,
+    on the shutdown path, took the watchdog thread down with it and left a
+    server running with nothing watching it and no window to reach it by.
+    """
+    try:
+        print(*parts, flush=True)
+    except OSError:
+        pass
 
 
 def engine_of_key(key):
@@ -841,7 +869,123 @@ _life = {
     "auto": True,       # quit when the window is gone
     "quitting": False,
     "server": None,
+    "port": 0,
+    "url": "",
+    "owner": 0,         # the app hosting the window, when it is not a browser
 }
+
+
+# --------------------------------------------------------------------------- #
+# one manager at a time
+#
+# Opening the app again while it is running used to start a second manager: a
+# second server on the next free port, and a second window - which the copy of
+# Chrome already running takes over, so the process this one was watching exits
+# immediately. That reads as "the window was closed", and the new manager quits
+# a second after starting, stopping the containers the first one was running on
+# its way out. The window it opened is left pointing at a server that is gone.
+#
+# So a launch asks first, and if a manager answers, this one opens that
+# manager's window again and gets out of the way.
+# --------------------------------------------------------------------------- #
+
+def state_path():
+    return os.path.join(root_dir(), "manager.json")
+
+
+def write_state(port, url):
+    """Where the next launch will look. Best effort: a manager that cannot
+    write this still runs, the next one just has to find it by port."""
+    try:
+        with open(state_path(), "w") as handle:
+            json.dump({"pid": os.getpid(), "port": port, "url": url,
+                       "started": time.time()}, handle)
+    except OSError:
+        pass
+
+
+def read_state():
+    try:
+        with open(state_path()) as handle:
+            state = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return state if isinstance(state, dict) else None
+
+
+def clear_state():
+    """Only if it is still ours. A manager that started over a stale file has
+    already been replaced there by the one that took the port."""
+    try:
+        with open(state_path()) as handle:
+            if json.load(handle).get("pid") != os.getpid():
+                return
+        os.remove(state_path())
+    except (OSError, ValueError):
+        pass
+
+
+def alive_at(port):
+    """The manager answering on this port, or None.
+
+    Unauthenticated on purpose: this is how a launch finds out that another one
+    is already here, before there is any way for it to have been handed a token.
+    It says nothing that connecting to the port would not already say.
+    """
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/alive", timeout=2
+        ) as response:
+            answer = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        # Refused, timed out, or something else entirely listening there.
+        return None
+    return answer if isinstance(answer, dict) and answer.get("engineshelf") else None
+
+
+def pid_alive(pid):
+    if not isinstance(pid, int) or pid <= 0 or pid == os.getpid():
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError as error:
+        # Not ours to signal is still a process that exists.
+        return getattr(error, "errno", None) == errno.EPERM
+    return True
+
+
+def port_open(port):
+    if not isinstance(port, int):
+        return False
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def running_manager(preferred_port):
+    """Whichever manager is already up on this machine, if any."""
+    state = read_state()
+    ports = []
+    if state and isinstance(state.get("port"), int):
+        ports.append(state["port"])
+    # The file can be missing - deleted, or never written by a manager that had
+    # nowhere to write it - and the default port is where one would be anyway.
+    for port in (preferred_port, 7411):
+        if port not in ports:
+            ports.append(port)
+    for port in ports:
+        found = alive_at(port)
+        if found and found.get("root", root_dir()) == root_dir():
+            return found
+    # A manager a second old has claimed its port and written its file but is
+    # not answering yet: it runs the CLI once before it starts serving. Two
+    # quick presses on the app icon land exactly there, so a live process
+    # holding the port it claimed counts as one.
+    if state and pid_alive(state.get("pid")) and port_open(state.get("port")):
+        return state
+    return None
 
 
 def find_app_browser():
@@ -917,8 +1061,7 @@ def stop_containers():
     names = [name for name in listed.split() if name.startswith(CONTAINER_PREFIX)]
     if not names:
         return
-    print(f"  Stopping {len(names)} Docker container{'s' if len(names) > 1 else ''}...",
-          flush=True)
+    say(f"  Stopping {len(names)} Docker container{'s' if len(names) > 1 else ''}...")
     docker_out(["stop", "-t", "10", *names], timeout=90)
     docker_out(["rm", "-f", *names], timeout=30)
 
@@ -962,8 +1105,7 @@ def stop_everything():
     """
     running = jobs.summary()
     if running:
-        print(f"  Stopping {len(running)} running job{'s' if len(running) > 1 else ''}...",
-              flush=True)
+        say(f"  Stopping {len(running)} running job{'s' if len(running) > 1 else ''}...")
         for job in running:
             jobs.stop(job["id"])
         # Let SIGTERM land before clearing up after what it interrupted.
@@ -985,8 +1127,9 @@ def quit_now(reason):
     if _life["quitting"]:
         return
     _life["quitting"] = True
-    print(f"\n  Closing ({reason}).", flush=True)
+    say(f"\n  Closing ({reason}).")
     stop_everything()
+    clear_state()
     server = _life["server"]
     if server is not None:
         # From another thread: shutdown() cannot be called from the one serving.
@@ -994,30 +1137,59 @@ def quit_now(reason):
 
 
 def watch_window():
-    """Quit once the window is gone, by either of the two signals above."""
+    """Quit once the window is gone, by either of the two signals above.
+
+    Every second is its own attempt. The manager used to lose this thread to one
+    exception and go on serving with nothing watching it: the app that owns the
+    window is the far end of stdout, so killing the app broke the pipe, and the
+    print on the way out took the watchdog with it.
+    """
     last_tick = time.time()
     while not _life["quitting"]:
-        time.sleep(1)
-        now = time.time()
-        slept, last_tick = now - last_tick, now
-        # A second that took much longer than a second means the machine was
-        # suspended, not that the window closed - and on wake the page has had no
-        # chance to say anything yet. Without this, shutting a laptop lid for a
-        # minute took the manager and everything it was running down with it.
-        if slept > 5:
-            _life["seen"] = now
-            continue
-        if not _life["auto"]:
-            continue
-        shell = _life["shell"]
-        if shell is not None and shell.poll() is not None:
-            return quit_now("the manager window was closed")
-        # Nothing has connected yet: the browser may still be starting, and a
-        # manager that quit before its own window opened would be a fine joke.
-        if not _life["seen"]:
-            continue
-        if time.time() - _life["seen"] > GRACE_SECONDS:
-            return quit_now("the manager page stopped answering")
+        try:
+            time.sleep(1)
+            now = time.time()
+            slept, last_tick = now - last_tick, now
+            # A second that took much longer than a second means the machine was
+            # suspended, not that the window closed - and on wake the page has
+            # had no chance to say anything yet. Without this, shutting a laptop
+            # lid for a minute took the manager and everything it was running
+            # down with it.
+            if slept > 5:
+                _life["seen"] = now
+                continue
+            if not _life["auto"]:
+                continue
+            # The macOS app hosts the window itself rather than handing it to a
+            # browser, so there is no browser process to watch - what stands in
+            # for it is the app, and a manager whose app is gone has no window.
+            owner = _life["owner"]
+            if owner:
+                if not pid_alive(owner):
+                    return quit_now("the manager window was closed")
+                continue
+            shell = _life["shell"]
+            if shell is not None:
+                # We own the window, so its process ending is the signal - and
+                # the only one. A window parked in another Stage Manager set, or
+                # simply covered by another app, is occluded, and Chrome
+                # throttles a page it cannot see until the heartbeat below stops
+                # arriving. The manager read that as a window that had closed
+                # and quit while its own window was sitting there - taking the
+                # browsers and containers with it.
+                if shell.poll() is not None:
+                    return quit_now("the manager window was closed")
+                continue
+            # Nothing has connected yet: the browser may still be starting, and
+            # a manager that quit before its own window opened would be a fine
+            # joke.
+            if not _life["seen"]:
+                continue
+            if time.time() - _life["seen"] > GRACE_SECONDS:
+                return quit_now("the manager page stopped answering")
+        except Exception as error:
+            say(f"  (watchdog: {error})")
+            last_tick = time.time()
 
 
 # --------------------------------------------------------------------------- #
@@ -1067,6 +1239,16 @@ class Handler(BaseHTTPRequestHandler):
     # -- routes ------------------------------------------------------------ #
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+
+        if path == "/api/alive":
+            # Before the token check on purpose, and not a heartbeat: this is
+            # another launch asking whether it should be a manager at all.
+            # The root matters: two managers pointed at two different home
+            # directories are two different shelves, and neither should stand
+            # aside for the other.
+            return self._json({"engineshelf": True, "pid": os.getpid(),
+                               "port": _life["port"], "url": _life["url"],
+                               "root": root_dir()})
 
         if path == "/api/state":
             if not self._authorised():
@@ -1209,7 +1391,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def pick_port(preferred):
-    import socket
     for port in range(preferred, preferred + 40):
         with socket.socket() as probe:
             try:
@@ -1229,10 +1410,43 @@ def main():
                         help="open a tab in the default browser instead of a window")
     parser.add_argument("--keep-alive", action="store_true",
                         help="keep serving after the window closes")
+    parser.add_argument("--new", action="store_true",
+                        help="start another manager even if one is running")
+    parser.add_argument("--owner-pid", type=int, default=0,
+                        help="quit when this process does; the app hosting the window")
     args = parser.parse_args()
 
     if not os.path.exists(CLI):
         raise SystemExit(f"Missing {CLI}")
+
+    # Opening the app again is how someone asks for the window back, not for a
+    # second manager - and a second one cannot work anyway: the window it opens
+    # belongs to the browser process the first one is already watching.
+    if not args.new:
+        found = running_manager(args.port)
+        if found:
+            url = found.get("url") or f"http://127.0.0.1:{found.get('port')}/"
+            say()
+            say(f"  EngineShelf is already running  ->  {url}")
+            if args.no_open:
+                say("  Left as it is; that manager is still serving.")
+            elif not args.tab and open_app_window(url) is not None:
+                say("  Opened its window again.")
+            else:
+                webbrowser.open(url)
+                say("  Opened it in a tab.")
+            say()
+            return
+
+    # Claimed before the slow parts below, so a second launch a moment later
+    # finds this one rather than racing it onto the next port.
+    port = pick_port(args.port)
+    url = f"http://127.0.0.1:{port}/"
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    _life["server"] = server
+    _life["port"] = port
+    _life["url"] = url
+    write_state(port, url)
 
     # Adopting a pre-multi-version ~/.chrome74 install happens inside the CLI, so
     # touch it once before serving. Without this the first page load reports an
@@ -1248,14 +1462,23 @@ def main():
     # whatever it found.
     threading.Thread(target=refresh_catalog_cache, daemon=True).start()
 
-    port = pick_port(args.port)
-    url = f"http://127.0.0.1:{port}/"
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    _life["server"] = server
+    # Nothing was opened, so there is no window whose closing could mean
+    # anything; this is the shape a script or a remote session asks for, and it
+    # waits. An owner is the exception: --no-open there means the window is
+    # somewhere else, not that there is none.
+    _life["owner"] = args.owner_pid if pid_alive(args.owner_pid) else 0
+    _life["auto"] = not (args.keep_alive or (args.no_open and not _life["owner"]))
 
-    # Nothing was opened, so there is no window whose closing could mean anything;
-    # this is the shape a script or a remote session asks for, and it waits.
-    _life["auto"] = not (args.keep_alive or args.no_open)
+    # Asked to stop rather than interrupted - which is how the app that owns the
+    # window says the window has closed. Without this the browsers and the
+    # containers it started would be left behind.
+    def on_signal(*_args):
+        quit_now("asked to stop")
+
+    try:
+        signal.signal(signal.SIGTERM, on_signal)
+    except (ValueError, OSError):
+        pass
 
     shell = None
     if not args.no_open and not args.tab:
@@ -1264,21 +1487,25 @@ def main():
     elif not args.no_open:
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()
 
-    print()
-    print(f"  EngineShelf manager  ->  {url}")
-    print(f"  Files: {root_dir()}")
-    if shell is not None:
-        print("  Closing the window quits the manager, the browsers it opened")
-        print("  and any Docker containers it started.")
+    say()
+    say(f"  EngineShelf manager  ->  {url}")
+    say(f"  Files: {root_dir()}")
+    if _life["owner"]:
+        # The window is the app's own, and the app is what this reads as gone.
+        say("  Closing the window quits the manager, the browsers it opened")
+        say("  and any Docker containers it started.")
+    elif shell is not None:
+        say("  Closing the window quits the manager, the browsers it opened")
+        say("  and any Docker containers it started.")
     elif not _life["auto"]:
-        print("  Press Ctrl-C to stop the manager.")
+        say("  Press Ctrl-C to stop the manager.")
     else:
         # No window of our own: the page's heartbeat is the only thing that can
         # say it is still there, so say what silence will be taken to mean.
-        print("  Opened as a browser tab. Closing it quits the manager, the")
-        print(f"  browsers it opened and any containers it started, {GRACE_SECONDS}s later.")
-    print("  Ctrl-C does the same.", flush=True)
-    print(flush=True)
+        say("  Opened as a browser tab. Closing it quits the manager, the")
+        say(f"  browsers it opened and any containers it started, {GRACE_SECONDS}s later.")
+    say("  Ctrl-C does the same.")
+    say()
 
     threading.Thread(target=watch_window, daemon=True).start()
 
@@ -1286,7 +1513,7 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         quit_now("Ctrl-C")
-    print("  Manager stopped.", flush=True)
+    say("  Manager stopped.")
 
 
 if __name__ == "__main__":

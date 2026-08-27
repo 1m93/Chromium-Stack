@@ -11,6 +11,13 @@
   <key>CFBundleExecutable</key>        <string>EngineShelf</string>
   <key>CFBundleIconFile</key>          <string>AppIcon</string>
   <key>NSHighResolutionCapable</key>   <true/>
+  <!-- The window is a WKWebView pointed at the manager, which serves plain HTTP
+       on 127.0.0.1 and nothing else. Loopback is the only exception this asks
+       for; no other host is reachable from the page. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key> <true/>
+  </dict>
   <key>LSMinimumSystemVersion</key>    <string>10.13</string>
   <!-- Shown in the macOS permission prompt when the app lives under ~/Documents,
        ~/Desktop or ~/Downloads, which are TCC-protected. -->

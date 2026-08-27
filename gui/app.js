@@ -982,6 +982,64 @@ function showState({
   list.setAttribute('aria-busy', 'false');
   list.textContent = '';
   list.append(block);
+  // An error is an answer too: the shimmer would go on promising a shelf that
+  // is not coming.
+  bootingDone();
+}
+
+/* ---------- the first second ----------
+   Reading the shelf means reading the catalog, the builds directory, the
+   profile sizes and whatever Docker has to say, and none of that is instant on
+   a cold start. The page used to spend that second as an empty shell: no rows,
+   no engines, and a disk card reading 0 MB - which is not "not known yet", it
+   is a claim, and a wrong one. So the shape of the answer is drawn first, with
+   the parts that are known already (the four engines have names before any
+   server says so) and a shimmer where a number will be. */
+
+function skeletonBlock(className) {
+  const block = document.createElement('span');
+  block.className = `sk ${className}`;
+  return block;
+}
+
+function drawSkeleton() {
+  const list = $('list');
+  list.textContent = '';
+  // Eight rows is about a screenful; fewer reads as a short shelf, more as a
+  // page that has finished loading something wrong.
+  for (let index = 0; index < 8; index++) {
+    const row = document.createElement('article');
+    row.className = 'row skeleton';
+    row.append(skeletonBlock('sk-dot'), skeletonBlock('sk-mark'));
+    const body = document.createElement('div');
+    body.className = 'sk-body';
+    body.append(skeletonBlock('sk-title'), skeletonBlock('sk-note'));
+    row.append(body, skeletonBlock('sk-btn'));
+    list.append(row);
+  }
+
+  // The engines are known from the page itself, so these are real names with a
+  // shimmer where the count goes - not a row of grey bars.
+  const engines = $('engine-list');
+  engines.textContent = '';
+  const line = (glyph, name) => {
+    const item = document.createElement('div');
+    item.className = 'side-btn is-quiet';
+    item.append(glyph ? engineMark(glyph) : iconSpan('grid'));
+    item.append(spanWith('side-label', name));
+    item.append(skeletonBlock('sk-count'));
+    engines.append(item);
+  };
+  line(null, 'All engines');
+  for (const engine of ENGINE_ORDER) line(engine, engineName(engine));
+
+  $('summary').textContent = 'Reading the shelf…';
+}
+
+/* Off once there is something real on the page. Everything the booting class
+   softens - the counts, the disk figures - has its own value by then. */
+function bootingDone() {
+  document.body.classList.remove('booting');
 }
 
 /* ---------- rendering ---------- */
@@ -2562,6 +2620,11 @@ function runningNow() {
   };
 }
 
+// The macOS app hosts this page in a window of its own, where beforeunload does
+// not exist - so the same question it answers has to be answerable from outside
+// the page, and this is the one thing the window asks before it closes.
+window.engineShelfRunning = runningNow;
+
 let guarded = false;
 
 function guardClose(event) {
@@ -2615,6 +2678,7 @@ async function refresh() {
 
   try {
     render();
+    bootingDone();
   } catch (error) {
     // Drawing the page failing is not the server being down. Saying it was sent
     // the last one of these looking for a stopped server that was running fine.
@@ -2633,6 +2697,7 @@ async function refresh() {
 
 (async function boot() {
   paintIcons();
+  drawSkeleton();
   buildDropdown(
     'gpu-drop',
     'gpu-btn',

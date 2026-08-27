@@ -7,7 +7,7 @@
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body class="booting">
     <div class="app">
       <header class="bar">
         <div class="brand">
@@ -23,7 +23,7 @@
           title="Disk used by downloaded browsers, their profiles and Docker images"
         >
           <span data-icon="disk"></span>
-          <span id="disk-text">0 MB</span>
+          <span id="disk-text">—</span>
           <span class="gauge-bar">
             <i id="disk-seg-browsers"></i><i id="disk-seg-profiles"></i
             ><i id="disk-seg-docker"></i>
@@ -148,21 +148,21 @@
               <span class="swatch browsers"></span>Browsers<span
                 class="mono"
                 id="disk-browsers"
-                >0 MB</span
+                >—</span
               >
             </div>
             <div class="disk-line">
               <span class="swatch profiles"></span>Profiles<span
                 class="mono"
                 id="disk-profiles"
-                >0 MB</span
+                >—</span
               >
             </div>
             <div class="disk-line" id="disk-docker-line" hidden>
               <span class="swatch docker"></span>Docker<span
                 class="mono"
                 id="disk-docker"
-                >0 MB</span
+                >—</span
               >
             </div>
           </div>
