@@ -158,7 +158,7 @@ One page, served locally, with everything on it.
 | **Search and filters** | Narrow to one engine, or search by version, revision, release date, or by **any feature a version was first to support** — type `aspect-ratio` and get Chromium 88 and Firefox 89 — or by what is installed or running. |
 | **Any revision at all** | Every build in the Chromium snapshot archive is runnable, not just the catalogued milestones — from the CLI, which takes a bare position as a selector. |
 | **System check** | Tells you what is missing before it matters, with buttons that install it. |
-| **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job when several are in flight. |
+| **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job, and the tabs keep finished jobs so a log is still reachable after the next one starts. Drag the panel's top edge to make it taller. |
 | **Honest disk accounting** | A running total split between browsers, profiles and Docker images, so it is obvious when to clear something out. |
 | **Light or dark** | Follows the system theme, or pin it either way from the header. |
 | **One manager at a time** | Opening the app while it is already running brings its window back rather than starting a second manager on the next port. `⌘N` on macOS opens another window onto the same shelf. |

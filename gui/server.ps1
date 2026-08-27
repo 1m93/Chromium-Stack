@@ -1021,16 +1021,33 @@ function Open-AppWindow {
     }
 }
 
+function Get-RunningContainers {
+    return @(docker ps --filter "name=$ContainerPrefix" --format '{{.Names}}' 2>$null |
+             Where-Object { $_ -like "$ContainerPrefix*" })
+}
+
+# Which containers were already up when this manager opened. Anything in here
+# belongs to somebody else - another manager, or a start from a terminal - and
+# quitting must not take it down with us.
+$script:Inherited = @{}
+
+function Set-InheritedContainers {
+    foreach ($name in (Get-RunningContainers)) { $script:Inherited[$name] = $true }
+}
+
 function Stop-Containers {
     <#
-      Stop and remove the containers this project runs, if any are up.
+      Stop and remove the containers this manager started, if any are up.
 
       Named the way engineshelf-docker.ps1 names them, and stopped the way it
       stops them: SIGTERM first, because killed outright the browser inside
       leaves a lock in its profile volume that breaks the next start.
+
+      Only the ones that came up on our watch. This used to stop every container
+      with the prefix, so a second manager quitting - or this one restarting while
+      a container was up - silently took down containers it never started.
     #>
-    $names = @(docker ps --filter "name=$ContainerPrefix" --format '{{.Names}}' 2>$null |
-               Where-Object { $_ -like "$ContainerPrefix*" })
+    $names = @(Get-RunningContainers | Where-Object { -not $script:Inherited.ContainsKey($_) })
     if (-not $names.Count) { return }
     $plural = if ($names.Count -gt 1) { 's' } else { '' }
     Write-Host "  Stopping $($names.Count) Docker container$plural..."
@@ -1346,6 +1363,10 @@ for ($candidate = $Port; $candidate -lt $Port + 40; $candidate++) {
     }
 }
 if (-not $listener) { throw "No free port between $Port and $($Port + 40)" }
+
+# Before anything of ours can be up, so the snapshot is honest about what was
+# already running.
+Set-InheritedContainers
 
 $url = "http://127.0.0.1:$Port/"
 

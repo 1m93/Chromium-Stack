@@ -184,6 +184,16 @@
       </div>
 
       <section class="logpanel" id="log-panel" hidden>
+        <!-- Drag the top edge to make the log taller. A download and a container
+             build are both minutes of output, and 150px of it was a keyhole. -->
+        <div
+          class="log-grip"
+          id="log-grip"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize the job log"
+          tabindex="0"
+        ></div>
         <div class="logpanel-head">
           <span class="side-title">Job log</span>
           <div class="log-tabs" id="log-tabs"></div>

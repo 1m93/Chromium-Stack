@@ -1381,16 +1381,34 @@ def open_app_window(url):
         return None
 
 
-def stop_containers():
-    """Stop and remove the containers this project runs, if any are up.
-
-    Named the way engineshelf-docker.sh names them, and stopped the way it
-    stops them: SIGTERM first, because killed outright the browser inside leaves
-    a lock in its profile volume that breaks the next start.
-    """
+def running_containers():
     listed = docker_out(["ps", "--filter", f"name={CONTAINER_PREFIX}",
                          "--format", "{{.Names}}"], timeout=8)
-    names = [name for name in listed.split() if name.startswith(CONTAINER_PREFIX)]
+    return [name for name in listed.split() if name.startswith(CONTAINER_PREFIX)]
+
+
+# Which containers were already up when this manager opened. Anything in here
+# belongs to somebody else - another manager, or a `./engineshelf-docker.sh start`
+# in a terminal - and quitting must not take it down with us.
+_inherited = set()
+
+
+def note_inherited():
+    _inherited.update(running_containers())
+
+
+def stop_containers():
+    """Stop and remove the containers this manager started, if any are up.
+
+    Named the way engineshelf-docker.sh names them, and stopped the way it stops
+    them: SIGTERM first, because killed outright the browser inside leaves a lock
+    in its profile volume that breaks the next start.
+
+    Only the ones that came up on our watch. This used to stop every container
+    with the prefix, so a second manager quitting - or this one restarting while a
+    container was up - silently took down containers it had never started.
+    """
+    names = [name for name in running_containers() if name not in _inherited]
     if not names:
         return
     say(f"  Stopping {len(names)} Docker container{'s' if len(names) > 1 else ''}...")
@@ -1786,6 +1804,10 @@ def main():
     # finds this one rather than racing it onto the next port.
     port = pick_port(args.port)
     url = f"http://127.0.0.1:{port}/"
+    # Before anything of ours can be up, so the snapshot is honest about what was
+    # already running.
+    threading.Thread(target=note_inherited, daemon=True).start()
+
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     _life["server"] = server
     _life["port"] = port

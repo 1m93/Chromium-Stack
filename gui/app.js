@@ -155,6 +155,14 @@ let watching = null; // job id currently shown in the log panel
 let watchedTitle = ''; // its name, kept so a finished job keeps its tab
 let pollFailures = 0; // consecutive failed polls of the watched job
 const jobInfo = new Map(); // job id -> {phase, percent, detail} read out of its output
+// Every job this window has seen, newest first, running or not. The tab strip
+// used to be built from the running list alone, plus the one job being watched -
+// so a Docker container's log vanished the moment the next one was started,
+// because starting a container is a job that ends as soon as the desktop
+// answers. The server keeps the output of a finished job for as long as it lives;
+// this is what keeps it reachable.
+const jobSeen = new Map(); // job id -> {id, kind, revision, label, done}
+const JOB_TABS = 6; // how many fit across the strip before the oldest drops off
 const dropdowns = [];
 
 
@@ -1693,30 +1701,9 @@ function renderRow(row) {
   );
   tags.append(routes);
 
-  // Only while the container is up, and only because this is the way back to the
-  // tab showing its desktop - that tab is easy to close by accident and there was
-  // no route back. A built-but-idle image needs no tag of its own: its size is on
-  // the line beside the native one and the green cube above says it is there.
-  if (row.dockerRunning) {
-    const mark = document.createElement(row.dockerUrl ? 'a' : 'span');
-    mark.className = 'badge docker is-live';
-    mark.textContent = 'Docker · running';
-    const held =
-      `${mb(row.dockerImage)} image` +
-      (row.dockerProfileBytes ? ` · ${mb(row.dockerProfileBytes)} profile` : '');
-    tipped(
-      mark,
-      row.dockerUrl
-        ? `${row.dockerStatus} · ${held} — open the desktop`
-        : `${row.dockerStatus || 'Container up'} · ${held}`,
-    );
-    if (row.dockerUrl) {
-      mark.href = row.dockerUrl;
-      mark.target = '_blank';
-      mark.rel = 'noopener';
-    }
-    tags.append(mark);
-  }
+  // No "Docker · running" tag. The row already says a container is up - its own
+  // button is Stop - and the way back to the noVNC desktop is the first entry in
+  // the menu beside it, which is where a control belongs.
 
   // Two copies of one version, one line each, right-aligned and stacked: the
   // native build on top and the container image under it. What used to be on the
@@ -1818,7 +1805,7 @@ function renderActions(container, row) {
   } else if (row.dockerRunning) {
     // The container is up, so the version is running even though no native
     // window is - and something is burning CPU that the row has to be able to
-    // turn off. The badge next to the version is the way back to the desktop.
+    // turn off. "Open the desktop" in the menu beside this is the way back to it.
     action.classList.add('warn');
     action.append(iconSpan('stop'), 'Stop');
     action.title = 'Stop the Docker container running this version';
@@ -2335,21 +2322,115 @@ function setLogOpen(open) {
   $('log-btn-label').textContent = open ? 'Hide log' : 'Show log';
 }
 
+/* ---------- the log panel's height ----------
+   A download and a container build are both minutes of output and the panel was
+   a fixed 150px of it. Dragging its top edge sets the height, because the panel
+   is docked to the bottom and the top edge is the one that moves.
+
+   Clamped both ways: too short and the panel is a slot with no text in it, too
+   tall and the shelf it is covering has nowhere left to be. */
+const LOG_H_KEY = 'engineshelf.logHeight';
+const LOG_H_MIN = 90;
+const logHeightMax = () => Math.max(LOG_H_MIN, Math.round(window.innerHeight * 0.62));
+
+function setLogHeight(px, remember = true) {
+  const height = Math.min(Math.max(Math.round(px), LOG_H_MIN), logHeightMax());
+  $('log-panel').style.setProperty('--log-h', `${height}px`);
+  if (!remember) return;
+  try {
+    localStorage.setItem(LOG_H_KEY, String(height));
+  } catch {
+    /* a private window forbids it; the height just does not outlive the tab */
+  }
+}
+
+(function makeLogResizable() {
+  const grip = $('log-grip');
+  const panel = $('log-panel');
+  const out = $('log-out');
+  let stored = null;
+  try {
+    stored = Number(localStorage.getItem(LOG_H_KEY));
+  } catch {
+    stored = null;
+  }
+  if (stored) setLogHeight(stored, false);
+
+  let startY = 0;
+  let startH = 0;
+
+  const move = (event) => {
+    // Up is taller: the panel grows towards the pointer, not away from it.
+    setLogHeight(startH + (startY - event.clientY));
+  };
+  const up = () => {
+    panel.classList.remove('is-resizing');
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+
+  grip.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    startY = event.clientY;
+    startH = out.getBoundingClientRect().height;
+    panel.classList.add('is-resizing');
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+
+  // Reachable without a pointer, which a separator with a tabindex has to be.
+  grip.addEventListener('keydown', (event) => {
+    const step = event.shiftKey ? 60 : 20;
+    const now = out.getBoundingClientRect().height;
+    if (event.key === 'ArrowUp') setLogHeight(now + step);
+    else if (event.key === 'ArrowDown') setLogHeight(now - step);
+    else return;
+    event.preventDefault();
+  });
+
+  // A window that shrinks below what the stored height allows.
+  window.addEventListener('resize', () => {
+    const now = out.getBoundingClientRect().height;
+    if (now > logHeightMax()) setLogHeight(logHeightMax(), false);
+  });
+})();
+
+// Kept in one place because three callers add to it: watch(), the state poll for
+// jobs this window did not start, and the log panel when a job it is showing ends.
+function remember(job) {
+  const had = jobSeen.get(job.id);
+  jobSeen.set(job.id, {
+    id: job.id,
+    kind: job.kind,
+    revision: job.revision,
+    // A label from the state is better than the one watch() guessed, and a
+    // guessed one is better than nothing.
+    label: job.label || (had && had.label) || '',
+    done: Boolean(job.done),
+  });
+  // Newest first, oldest dropped: the strip is one line and 40 downloads into a
+  // session the first one is not what anybody is looking for.
+  while (jobSeen.size > JOB_TABS) {
+    const oldest = jobSeen.keys().next().value;
+    if (oldest === watching) break;
+    jobSeen.delete(oldest);
+  }
+}
+
 function renderLogTabs() {
   const tabs = $('log-tabs');
   tabs.textContent = '';
 
-  const list = state ? [...state.jobs] : [];
-  // A job that has just finished keeps its tab: its output is usually the reason
-  // the panel is open in the first place.
-  if (watching && !list.some((job) => job.id === watching)) {
-    list.push({
-      id: watching,
-      kind: 'done',
-      revision: null,
-      label: watchedTitle,
-    });
-  }
+  const live = state ? state.jobs : [];
+  for (const job of live) remember(job);
+  // Running first, then finished, each newest first - so the thing that is
+  // actually happening is never behind something that already happened.
+  const seen = [...jobSeen.values()].reverse();
+  const running = new Set(live.map((job) => job.id));
+  const list = [
+    ...seen.filter((job) => running.has(job.id)),
+    ...seen.filter((job) => !running.has(job.id)),
+  ].map((job) => ({ ...job, kind: running.has(job.id) ? job.kind : 'done' }));
 
   // With one job there is nothing to switch between, so it reads as a title.
   $('log-title').hidden = list.length > 1;
@@ -2387,6 +2468,7 @@ function renderLogTabs() {
 }
 
 function watch(jobId, title) {
+  remember({ id: jobId, kind: 'job', revision: null, label: title });
   watching = jobId;
   watchedTitle = title;
   pollFailures = 0;
