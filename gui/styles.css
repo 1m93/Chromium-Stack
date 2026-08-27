@@ -813,6 +813,16 @@ svg.i {
 .row.unsupported {
   opacity: 0.5;
 }
+/* No build for this machine, but a container to run it in. Held back from the
+   rows with a native build without being greyed out like the dead ones: it is
+   still one click, it just opens a desktop rather than a window. */
+.row.docker-only {
+  opacity: 0.82;
+}
+.row.docker-only:hover,
+.row.docker-only.is-running {
+  opacity: 1;
+}
 
 .dot {
   width: 8px;
@@ -1037,6 +1047,14 @@ a.badge.docker:hover {
 .logpanel-head strong {
   font-size: 13px;
   font-weight: 500;
+}
+/* Shown only while the job in view can still be called off, so it sits beside
+   Close rather than taking a fixed slot the rest of the time. */
+.log-cancel {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  flex: none;
 }
 
 /* One tab per running job. With a single job there is nothing to switch

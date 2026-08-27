@@ -487,8 +487,12 @@ function Get-ShelfRow {
 
 # The matrix draws a label, a size and a click target, and nothing else. Sending
 # whole rows would put all 288 of them in the state document twice.
+# 'docker' rides along because a cell with no build for this host is not a dead
+# end when there is a container to run it in - the matrix draws the same Docker
+# button the list does, and it cannot know that without this.
 $CellFields = @('engine', 'label', 'id', 'date', 'selector', 'key',
-                'supported', 'installed', 'sizeBytes', 'profileBytes')
+                'supported', 'installed', 'sizeBytes', 'profileBytes', 'docker',
+                'native')
 
 function Get-MatrixCell {
     param($row)
@@ -990,9 +994,13 @@ function Clear-CutOff {
     #>
     param([string[]]$Revisions)
     foreach ($revision in $Revisions) {
-        $partial = Join-Path $Root ".download-$revision.zip"
+        # A job is keyed by selector and a build directory by key, and for the
+        # three non-Chromium engines those differ by one character: the launcher
+        # downloads webkit:2336 into builds\webkit-2336.
+        $key = ([string]$revision).Replace(':', '-')
+        $partial = Join-Path $Root ".download-$key.zip"
         if (Test-Path $partial) { Remove-Item $partial -Force -ErrorAction SilentlyContinue }
-        $build = Join-Path $BuildsDir $revision
+        $build = Join-Path $BuildsDir $key
         # Absent .complete, this is a half-unpacked build that nothing will use.
         if ((Test-Path $build) -and -not (Test-Path (Join-Path $build '.complete'))) {
             Remove-Item $build -Recurse -Force -ErrorAction SilentlyContinue
@@ -1080,7 +1088,21 @@ function Invoke-Route {
 
     if ($path -eq '/api/stop') {
         $jobId = [string](Get-Field $body 'job')
-        Send-Json $Stream @{ stopped = (Stop-Job2 $jobId) }; return
+        # Read before the kill: only a job that was running is worth clearing
+        # up after, and afterwards there is nothing left to ask.
+        $job = $null
+        if ($script:Jobs.ContainsKey($jobId)) { $job = $script:Jobs[$jobId] }
+        $stopped = Stop-Job2 $jobId
+        # Cancelling a download is now a button rather than only a side effect of
+        # quitting, so it gets the same clear-up: the archive is fetched whole and
+        # cannot be resumed, and a part-unpacked build directory is dead weight.
+        # A launch that had already opened the browser keeps everything -
+        # .complete is what says so.
+        if ($stopped -and $job -and ($job.kind -eq 'install' -or $job.kind -eq 'launch')) {
+            Start-Sleep -Milliseconds 250
+            Clear-CutOff @([string]$job.revision)
+        }
+        Send-Json $Stream @{ stopped = $stopped }; return
     }
 
     $selector = [string](Get-Field $body 'selector')

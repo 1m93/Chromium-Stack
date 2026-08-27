@@ -612,9 +612,14 @@ install_build() {
   info "${DIM}-> $dir${RST}"
   info ""
 
+  archive="$ROOT/.download-$key"
+  # The graphical manager can now call a download off part-way, and so can Ctrl-C
+  # here; either way what is left behind is a half-written archive and an empty
+  # build directory, which the next attempt would silently pay for in disk.
+  trap 'rm -rf "$dir" "$archive"; exit 130' INT TERM
+
   rm -rf "$dir"
   mkdir -p "$dir"
-  archive="$ROOT/.download-$key"
 
   # A bar reads better for a person watching a terminal, but curl's plain meter
   # carries the byte counts and the time left, which is what the graphical
@@ -673,6 +678,9 @@ META_ROOT='$SEL_ROOT'
 META_INSTALLED='$(date -u +%Y-%m-%dT%H:%M:%SZ)'
 META
   touch "$dir/.complete"
+  # Past this point the build is complete, and a stop is the browser being closed
+  # rather than a download being abandoned.
+  trap - INT TERM
   info "${GRN}v${RST} $(engine_display "$engine") $SEL_VERSION ready."
 }
 

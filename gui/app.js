@@ -177,7 +177,7 @@ const view = {
   mode: storedView(),
 };
 
-const stopping = new Set(); // launch jobs the user has asked to stop
+const stopping = new Set(); // jobs the user has asked to stop or cancel
 
 // Four engines name platforms four different ways and not one of the names is
 // meant to be read: "mac-26-arm64" is a Playwright SDK target, "Mac_Universal" a
@@ -222,6 +222,11 @@ const WORK_WORD = {
   docker: 'docker',
 };
 
+// Which jobs the manager offers to interrupt. A download or an image build is
+// minutes of work with nothing lost by calling it off; a delete or a profile
+// reset is over in a moment and cutting one short leaves half a directory.
+const CANCELLABLE = new Set(['install', 'launch', 'docker']);
+
 const workWord = (job, info) =>
   (info && WORK_WORD[info.phase]) || WORK_WORD[job.kind] || 'working';
 const capitalise = (word) => word.charAt(0).toUpperCase() + word.slice(1);
@@ -233,9 +238,25 @@ const capitalise = (word) => word.charAt(0).toUpperCase() + word.slice(1);
 const rowSelector = (row) =>
   row.selector || (row.revision == null ? null : String(row.revision));
 
+// A container's job is filed under the revision its image runs, which is never
+// the revision the row installs natively - so a Docker job used to fall through
+// to the server's label and read "Docker start 1250586" over a row the shelf
+// calls Chromium 120.
+const dockerSelectorOf = (row) =>
+  row.docker
+    ? String(
+        row.docker.selector != null ? row.docker.selector : row.docker.revision,
+      )
+    : null;
+
 function jobName(job) {
   const rows = state ? [...state.versions, ...state.extra] : [];
-  const row = rows.find((entry) => rowSelector(entry) === String(job.revision));
+  const wanted = String(job.revision);
+  const row =
+    rows.find((entry) => rowSelector(entry) === wanted) ||
+    (job.kind === 'docker'
+      ? rows.find((entry) => dockerSelectorOf(entry) === wanted)
+      : null);
   if (!row) return job.label;
   const label = row.label || row.version;
   return label ? `${engineName(row.engine)} ${label}` : `r${row.revision}`;
@@ -569,14 +590,6 @@ function decorate(row) {
       : '';
 
   const rosetta = row.platformDir === 'Mac' && state.arch === 'arm64';
-  const launchJob = selector ? runningJobFor(selector) : null;
-  const job = launchJob || (selector ? busyJobFor(selector) : null);
-  const info = (job && jobInfo.get(job.id)) || null;
-
-  // Only the banner the CLI prints at exec time means the browser is up. Until
-  // then a launch job is a download, and the row has to say so.
-  const open = Boolean(launchJob) && Boolean(info) && info.phase === 'open';
-  const busy = open ? null : job;
 
   // Docker is the second way to run the same version, with its own image on
   // disk, its own container and its own profile volume - and the row used to
@@ -587,6 +600,31 @@ function decorate(row) {
   const dk = row.docker || null;
   const dockerRunning = Boolean(dk && dk.state === 'running');
   const dockerImage = dk ? dk.imageBytes || 0 : 0;
+  const dockerAvailable =
+    Boolean(dk) && Boolean(state.docker && state.docker.cli);
+  // What to post to run or stop the container. Not the same as the revision
+  // above: Chromium's container runs a Linux build this host never installs,
+  // and WebKit's is addressed by selector.
+  const dockerSelector = dk
+    ? String(dk.selector != null ? dk.selector : dk.revision)
+    : null;
+
+  const launchJob = selector ? runningJobFor(selector) : null;
+  // A container's job is filed under the revision its image runs, which is not
+  // the row's own - so an image building for a version with no native build here
+  // used to leave the row saying nothing at all, still offering to start it.
+  const job =
+    launchJob ||
+    (selector ? busyJobFor(selector) : null) ||
+    (dockerSelector && dockerSelector !== selector
+      ? busyJobFor(dockerSelector)
+      : null);
+  const info = (job && jobInfo.get(job.id)) || null;
+
+  // Only the banner the CLI prints at exec time means the browser is up. Until
+  // then a launch job is a download, and the row has to say so.
+  const open = Boolean(launchJob) && Boolean(info) && info.phase === 'open';
+  const busy = open ? null : job;
   const running = open || dockerRunning;
 
   return {
@@ -607,12 +645,7 @@ function decorate(row) {
     running: open, // a native window, which is what Stop acts on
     dockerRunning,
     dockerImage,
-    // What to post to run or stop the container. Not the same as the revision
-    // above: Chromium's container runs a Linux build this host never installs,
-    // and WebKit's is addressed by selector.
-    dockerSelector: dk
-      ? String(dk.selector != null ? dk.selector : dk.revision)
-      : null,
+    dockerSelector,
     dockerProfileBytes: dk ? dk.profileBytes || 0 : 0,
     dockerStatus: dk ? dk.status || '' : '',
     dockerUrl:
@@ -622,7 +655,14 @@ function decorate(row) {
     // Offered when this milestone has a Linux build to put in a container. The
     // daemon does not have to be up: the launcher offers to start it, the same
     // way the command line does.
-    dockerAvailable: Boolean(dk) && Boolean(state.docker && state.docker.cli),
+    dockerAvailable,
+    // Nothing here starts natively - either the catalog has no build of this
+    // version for this machine, or it has one that this machine cannot execute
+    // - and the container runs the Linux build regardless. That makes Docker
+    // the row's own button rather than an entry in the menu behind it.
+    dockerOnly:
+      dockerAvailable &&
+      (row.supported === false || (rosetta && rosettaMissing())),
     name: label ? `${engineName(engine)} ${label}` : version,
     installed: Boolean(row.installed),
     // "Is this version taking up disk", which an image answers as much as a
@@ -742,6 +782,17 @@ const doctorProblems = () => {
   return report.components.filter(
     (c) => c.status === 'missing' || c.status === 'inactive',
   );
+};
+
+// Rosetta 2 is what translates the x86_64 builds on Apple Silicon, and without
+// it those milestones do not start at all - "bad CPU type in executable" rather
+// than a slow browser. The shelf reads it because for those rows the container
+// stops being a preference and becomes the only way to run the version.
+const rosettaMissing = () => {
+  const report = state && state.doctor;
+  if (!report || !report.components) return false;
+  const found = report.components.find((c) => c.id === 'rosetta');
+  return Boolean(found) && found.status === 'missing';
 };
 
 // Only what EngineShelf cannot work without. The recommended and optional ones
@@ -1237,6 +1288,19 @@ function note(text) {
   return el;
 }
 
+// What a cell would run in a container, and only when nothing else here would
+// run it: no build for this machine, or an x86_64 one with no Rosetta to
+// translate it. The list keeps this on the row; a cell carries only the few
+// fields the matrix draws, so it is worked out again from those.
+function cellDocker(entry) {
+  const dk = entry && entry.docker;
+  if (!dk || !(state.docker && state.docker.cli)) return null;
+  const noNative =
+    entry.supported === false || (entry.native === false && rosettaMissing());
+  if (!noNative) return null;
+  return String(dk.selector != null ? dk.selector : dk.revision);
+}
+
 function matrixCell(entry, year, engine) {
   const cell = document.createElement('td');
   if (!entry) {
@@ -1249,8 +1313,12 @@ function matrixCell(entry, year, engine) {
     return cell;
   }
 
+  const docker = cellDocker(entry);
+
   cell.className = 'mcell' + (entry.installed ? ' on' : '');
-  if (!entry.supported) cell.classList.add('unsupported');
+  // Only greyed out when the cell has nothing behind it. With a container to
+  // run, it is an ordinary cell that happens to open a desktop instead.
+  if (!entry.supported && !docker) cell.classList.add('unsupported');
 
   const button = document.createElement('button');
   button.className = 'mbtn';
@@ -1261,13 +1329,23 @@ function matrixCell(entry, year, engine) {
     foot.append(spanWith('mdot', ''));
     foot.append(document.createTextNode(mb(entry.sizeBytes)));
   } else if (!entry.supported) {
-    foot.textContent = 'not for this machine';
+    foot.textContent = docker ? 'docker' : 'not for this machine';
   } else {
-    foot.textContent = 'download';
+    foot.textContent = docker ? 'docker' : 'download';
   }
   button.append(foot);
 
-  if (entry.supported) {
+  if (docker) {
+    // Same rule as the list: where nothing starts natively, the cell opens the
+    // container rather than being a dead end or a download that will not run.
+    button.title = entry.supported
+      ? `${engine.name} ${entry.label} cannot start on this machine — opens ` +
+        'in its Docker container'
+      : `No ${engine.name} ${entry.label} build exists for this machine — ` +
+        'opens it in its Docker container instead';
+    button.onclick = () =>
+      startDockerBy(button, docker, `${engine.name} ${entry.label}`);
+  } else if (entry.supported) {
     button.title = `${engine.name} ${entry.label} · ${entry.date}`;
     button.onclick = () =>
       start(button, {
@@ -1318,7 +1396,14 @@ function toggleOthers(cell, entry, engine) {
     item.className = 'mother' + (other.installed ? ' on' : '');
     item.textContent = other.label;
     if (other.installed) item.append(spanWith('mdot', ''));
-    if (other.supported) {
+    const docker = cellDocker(other);
+    if (docker) {
+      item.title = other.supported
+        ? 'Cannot start on this machine — runs in Docker'
+        : 'No build for this machine — runs in Docker';
+      item.onclick = () =>
+        startDockerBy(item, docker, `${engine.name} ${other.label}`);
+    } else if (other.supported) {
       item.title = `${engine.name} ${other.label} · ${other.date}`;
       item.onclick = () =>
         start(item, {
@@ -1532,14 +1617,31 @@ function renderRow(row) {
   const badge = document.createElement('span');
   badge.className = 'badge';
   if (!row.supported) {
-    badge.textContent = 'no build for this host';
+    // Docker changes what this means. Without it the row is a dead end; with
+    // it there is no native build but there is still a way to run the version,
+    // and the badge has to say which of the two this is.
+    badge.textContent = row.dockerOnly
+      ? 'no native build · Docker'
+      : 'no build for this host';
+    if (row.dockerOnly)
+      badge.title =
+        'The catalog has no build of this version for this machine, so it runs ' +
+        'in its Docker container instead.';
   } else if (row.rosetta) {
     // Worth calling out: these are the builds that go through Rosetta, and the
     // ones where the stack-profiler crash shows up.
-    badge.textContent = 'x86_64 · Rosetta';
     badge.classList.add('rosetta');
-    badge.title =
-      'No arm64 build exists this far back, so it runs under Rosetta.';
+    if (row.dockerOnly) {
+      badge.textContent = 'x86_64 · needs Rosetta';
+      badge.title =
+        'No arm64 build exists this far back and Rosetta 2 is not installed, ' +
+        'so this version cannot start on this machine. It runs in its Docker ' +
+        'container instead.';
+    } else {
+      badge.textContent = 'x86_64 · Rosetta';
+      badge.title =
+        'No arm64 build exists this far back, so it runs under Rosetta.';
+    }
   } else {
     // Only Chromium's platform is known from the catalog. For the others it is
     // settled against the vendor's index at launch, so before a download there
@@ -1611,9 +1713,14 @@ function renderRow(row) {
     else node.querySelector('[data-progress-bar]').style.width = `${percent}%`;
   }
 
-  if (!row.supported) {
+  // Dimmed only when there is nothing to be done with the row at all. A version
+  // with no build for this machine still runs in a container, so it keeps its
+  // buttons - it was the greyed-out rows with no way to open them that made the
+  // whole shelf look shorter than it is.
+  if (!row.supported && !row.dockerOnly) {
     node.classList.add('unsupported');
   } else {
+    if (!row.supported) node.classList.add('docker-only');
     if (row.running || row.dockerRunning) node.classList.add('is-running');
     renderActions(node.querySelector('[data-actions]'), row);
   }
@@ -1630,16 +1737,24 @@ function renderActions(container, row) {
     // invited a second one while the first was still running.
     const percent = row.info ? row.info.percent : null;
     const word = workWord(row.busy, row.info);
-    if (row.status === 'downloading' && percent != null) {
+    if (stopping.has(row.busy.id)) {
+      // SIGTERM reaches curl a moment before the job ends, and a button still
+      // offering to cancel invited a second press at exactly the wrong time.
+      action.append(iconSpan('clock'), 'Cancelling…');
+      action.disabled = true;
+      action.title = 'Waiting for this to stop';
+    } else if (row.status === 'downloading' && percent != null) {
       action.append(iconSpan('down-circle'), `${percent}%`);
+      action.title = 'Show what this is doing';
+      action.onclick = () => watch(row.busy.id, jobName(row.busy));
     } else {
       action.append(
         iconSpan(row.status === 'downloading' ? 'down-circle' : 'clock'),
         `${capitalise(word)}…`,
       );
+      action.title = 'Show what this is doing';
+      action.onclick = () => watch(row.busy.id, jobName(row.busy));
     }
-    action.title = 'Show what this is doing';
-    action.onclick = () => watch(row.busy.id, jobName(row.busy));
   } else if (row.running) {
     // A disabled "Running" button is a dead end; closing the window is the other
     // way out, but the button is right here.
@@ -1654,18 +1769,7 @@ function renderActions(container, row) {
       action.classList.add('warn');
       action.append(iconSpan('stop'), 'Stop');
       action.title = 'Close this browser and everything it started';
-      action.onclick = async () => {
-        stopping.add(jobId);
-        render();
-        try {
-          await post('/api/stop', { job: jobId });
-        } catch (error) {
-          stopping.delete(jobId);
-          showJobFailure(`Stopping ${row.name}`, error.message);
-          return;
-        }
-        setTimeout(refresh, 400);
-      };
+      action.onclick = () => cancelJob(jobId, `Stopping ${row.name}`);
     }
   } else if (row.dockerRunning) {
     // The container is up, so the version is running even though no native
@@ -1689,6 +1793,22 @@ function renderActions(container, row) {
       }
       refresh();
     };
+  } else if (row.dockerOnly) {
+    // Here the container is not a fallback, it is the only way this version
+    // runs on this machine - so it is the button, not something to be found in
+    // the menu behind it. Ahead of "installed" deliberately: a build that is on
+    // disk but cannot execute here is still not something to launch.
+    action.classList.add('accent');
+    action.append(
+      iconSpan('cube'),
+      row.dockerImage ? 'Launch' : 'Run in Docker',
+    );
+    action.title = row.supported
+      ? 'This build cannot start on this machine as it is. Docker runs it in ' +
+        'its container and opens the desktop.'
+      : 'No build of this version exists for this machine. Docker builds its ' +
+        'image once, then runs it and opens the desktop.';
+    action.onclick = () => startDocker(action, row);
   } else if (row.installed) {
     action.classList.add('accent');
     action.append(iconSpan('play'), 'Launch');
@@ -1708,6 +1828,32 @@ function renderActions(container, row) {
     action.onclick = () => start(action, row);
   }
   container.append(action);
+
+  // A download is minutes of network and an image build is longer, and until
+  // now the only way out of either was to quit the manager. Deletes and profile
+  // resets are deliberately not offered: they are over in a moment, and half a
+  // deleted directory is worse than waiting for it.
+  if (
+    row.busy &&
+    CANCELLABLE.has(row.busy.kind) &&
+    !stopping.has(row.busy.id)
+  ) {
+    const jobId = row.busy.id;
+    const cancel = document.createElement('button');
+    cancel.className = 'btn icon-btn warn';
+    cancel.append(iconSpan('x'));
+    cancel.title =
+      row.busy.kind === 'docker'
+        ? 'Cancel this Docker build'
+        : row.status === 'downloading'
+          ? 'Cancel this download'
+          : 'Cancel this install';
+    cancel.onclick = (event) => {
+      event.stopPropagation();
+      cancelJob(jobId, `Cancelling ${row.name}`);
+    };
+    container.append(cancel);
+  }
 
   const more = document.createElement('button');
   more.className = 'btn icon-btn';
@@ -1740,19 +1886,40 @@ async function start(button, row) {
 // whole desktop and takes none of them - so this is deliberately its own path
 // rather than a flag on start().
 async function startDocker(button, row) {
+  return startDockerBy(button, row.dockerSelector, row.name);
+}
+
+// The matrix has cells, not rows, and a cell that has no build for this machine
+// needs the same container the list offers - so the request is keyed by selector
+// rather than by the row object the list happens to hold.
+async function startDockerBy(button, selector, name) {
   button.disabled = true;
   try {
-    const { job } = await post('/api/docker', {
-      selector: row.dockerSelector,
-      action: 'start',
-    });
-    watch(job, `Docker · ${row.name}`);
+    const { job } = await post('/api/docker', { selector, action: 'start' });
+    watch(job, `Docker · ${name}`);
   } catch (error) {
-    showJobFailure(`Docker · ${row.name}`, error.message);
+    showJobFailure(`Docker · ${name}`, error.message);
     button.disabled = false;
     return;
   }
   refresh();
+}
+
+// Cancelling a download and stopping a running browser are the same request -
+// SIGTERM to the job's process group - so what differs is only what the row says
+// while it happens. `title` carries that word into the log panel if it fails.
+async function cancelJob(jobId, title) {
+  stopping.add(jobId);
+  render();
+  renderLogTabs();
+  try {
+    await post('/api/stop', { job: jobId });
+  } catch (error) {
+    stopping.delete(jobId);
+    showJobFailure(title, error.message);
+    return;
+  }
+  setTimeout(refresh, 400);
 }
 
 function toggleMenu(container, row) {
@@ -1781,7 +1948,9 @@ function toggleMenu(container, row) {
     menu.append(button);
   };
 
-  if (!row.installed) {
+  // Nothing to download when the catalog has no build of this version for this
+  // machine: the entry used to be there and the job it started died in the log.
+  if (!row.installed && row.supported) {
     item('download', 'Download only', async () => {
       const { job } = await post('/api/install', { selector });
       watch(job, `Installing ${row.name}`);
@@ -1857,6 +2026,20 @@ function toggleMenu(container, row) {
         true,
       );
     }
+  }
+
+  // The row's button is Docker because nothing here starts natively, so the
+  // native launcher - worth a try again the moment Rosetta is installed - has to
+  // be somewhere. Not offered while the container is up: that entry is already
+  // in the block above.
+  if (row.dockerOnly && row.installed && !row.dockerRunning) {
+    item('play', 'Launch natively anyway', async () => {
+      const { job } = await post('/api/launch', {
+        selector,
+        ...launchOptions(),
+      });
+      watch(job, row.name);
+    });
   }
 
   if (row.installed) {
@@ -2113,10 +2296,41 @@ function watch(jobId, title) {
   watchedTitle = title;
   pollFailures = 0;
   setLogOpen(true);
+  setLogCancel(null);
   $('log-status').textContent = 'running…';
   $('log-out').textContent = '';
   renderLogTabs();
   pollJob();
+}
+
+// The panel is where a long download is actually watched, so it is also where
+// it has to be possible to call one off: the row's own button is as often as not
+// scrolled out of sight behind it.
+function setLogCancel(job, info) {
+  const button = $('log-cancel');
+  const offer =
+    Boolean(job) && job.status === 'running' && CANCELLABLE.has(job.kind);
+  button.hidden = !offer;
+  if (!offer) return;
+  // A launch job is a download first and a browser afterwards, and the same
+  // request ends either - but "Cancel" over a browser that is already up reads
+  // as though something were being thrown away.
+  const up = Boolean(info) && info.phase === 'open';
+  const going = stopping.has(job.id);
+  // The same two glyphs the rows use, and for the same reason: a cross calls
+  // off work that has not finished, the square shuts down something that is
+  // already up. One button doing both had to say which it was.
+  $('log-cancel-icon').innerHTML = icon(up ? 'stop' : 'x');
+  $('log-cancel-label').textContent = going
+    ? up
+      ? 'Stopping…'
+      : 'Cancelling…'
+    : up
+      ? 'Stop'
+      : 'Cancel';
+  button.disabled = going;
+  button.onclick = () =>
+    cancelJob(job.id, `${up ? 'Stopping' : 'Cancelling'} ${jobName(job)}`);
 }
 
 async function pollJob() {
@@ -2156,6 +2370,7 @@ async function pollJob() {
   const info = noteJob(job, job.output);
 
   const status = $('log-status');
+  setLogCancel(job, info);
   if (job.status === 'running') {
     status.textContent =
       info.phase === 'open'
@@ -2186,6 +2401,7 @@ function showJobFailure(title, message) {
   watching = null;
   watchedTitle = title;
   setLogOpen(true);
+  setLogCancel(null);
   renderLogTabs();
   $('log-title').textContent = title;
   $('log-status').textContent = 'failed';

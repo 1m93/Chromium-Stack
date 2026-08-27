@@ -514,8 +514,12 @@ def milestone_of(revision, builds):
 
 # The matrix draws a label, a size and a click target, and nothing else. Sending
 # whole rows would put all 288 of them in the state document twice.
+# "docker" rides along because a cell with no build for this host is not a dead
+# end when there is a container to run it in - the matrix draws the same Docker
+# button the list does, and it cannot know that without this.
 _CELL_FIELDS = ("engine", "label", "id", "date", "selector", "key",
-                "supported", "installed", "sizeBytes", "profileBytes")
+                "supported", "installed", "sizeBytes", "profileBytes", "docker",
+                "native")
 
 
 def build_matrix(rows):
@@ -932,11 +936,19 @@ def tidy_cut_off(revisions):
     """
     root = root_dir()
     for revision in revisions:
-        try:
-            os.remove(os.path.join(root, f".download-{revision}.zip"))
-        except OSError:
-            pass
-        build = os.path.join(root, "builds", str(revision))
+        # A job is keyed by selector and a build directory by key, and for the
+        # three non-Chromium engines those differ by one character: the launcher
+        # downloads webkit:2336 into builds/webkit-2336.
+        key = str(revision).replace(":", "-")
+        # The archive has no suffix on this side and a .zip on Windows; the
+        # shutdown path only ever removed the Windows one, so every interrupted
+        # download here left its archive behind.
+        for partial in (f".download-{key}", f".download-{key}.zip"):
+            try:
+                os.remove(os.path.join(root, partial))
+            except OSError:
+                pass
+        build = os.path.join(root, "builds", key)
         # Absent .complete, this is a half-unpacked build that nothing will use.
         if os.path.isdir(build) and not os.path.exists(os.path.join(build, ".complete")):
             shutil.rmtree(build, ignore_errors=True)
@@ -1088,7 +1100,18 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/stop":
             job_id = str(body.get("job", "")).strip()
-            return self._json({"stopped": jobs.stop(job_id)})
+            # Read before the kill: a stopped job still reports its kind, but
+            # only the running one is worth clearing up after.
+            job = jobs.get(job_id)
+            stopped = jobs.stop(job_id)
+            # Cancelling a download is now a button rather than only a side
+            # effect of quitting, so it gets the same clear-up: the archive is
+            # fetched whole and cannot be resumed, and a part-unpacked build
+            # directory is dead weight. A launch that had already opened the
+            # browser keeps everything - .complete is what says so.
+            if stopped and job and job.get("kind") in ("install", "launch"):
+                threading.Timer(1.0, tidy_cut_off, [[job["revision"]]]).start()
+            return self._json({"stopped": stopped})
 
         if path == "/api/doctor":
             return self._json(doctor_report())

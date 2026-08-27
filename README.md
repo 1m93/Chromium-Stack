@@ -148,6 +148,8 @@ One page, served locally, with everything on it.
 | | |
 |---|---|
 | **One-click install & launch** | Missing builds download on demand, then open. No separate install step to remember. |
+| **Cancel while it downloads** | A download or a Docker image build can be called off from the row or from the log panel. The half-fetched archive and the part-unpacked directory go with it, rather than sitting on disk until something retries. |
+| **Docker where nothing runs natively** | Versions with no build for this machine — and on Apple Silicon the x86_64 ones when Rosetta 2 is not installed — lead with **Run in Docker** instead of a download that would not start. |
 | **A shared URL for every launch** | Set it once at the top; every version opens there. |
 | **Window size and graphics** | Fix the viewport for a layout check, or force hardware acceleration on or off. |
 | **Per-row menu** | Download without launching, run that version in Docker, reset its profile, or delete it. |
