@@ -1177,6 +1177,85 @@ jobs = Jobs()
 
 
 # --------------------------------------------------------------------------- #
+# raising a window
+#
+# A running container's desktop is a tab this page opened, so the page can focus
+# it on its own. A native window belongs to the machine: nothing in the browser
+# has a handle on it, and the row's only offer used to be Stop or a second launch
+# of something already running. So the server raises it, with whatever the
+# platform gives it and an honest answer when it has nothing.
+# --------------------------------------------------------------------------- #
+
+def _text_of(argv, timeout=4):
+    """stdout of a short command, or '' if it is not there or does not answer."""
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return done.stdout
+
+
+def _worked(argv, timeout=4):
+    try:
+        return subprocess.run(argv, capture_output=True, timeout=timeout).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def raise_window(pid):
+    """Bring a launched browser's own window to the front.
+
+    A job's pid is the launcher, not the browser - the thing with a window is
+    whatever the launcher started in the same process group, which is why the
+    group is what gets searched rather than the pid. Returns None once something
+    has been raised, or the reason it could not be.
+    """
+    if not pid:
+        return "That browser is no longer running."
+    try:
+        pgid = os.getpgid(pid)
+    except (ProcessLookupError, PermissionError, OSError):
+        return "That browser is no longer running."
+    pids = [word for word in _text_of(["pgrep", "-g", str(pgid)]).split() if word.isdigit()]
+    if not pids:
+        return "That browser is no longer running."
+
+    if sys.platform == "darwin":
+        # Every mac build runs out of a bundle, and `open -a` on a bundle whose
+        # app is already up activates that copy rather than starting a second
+        # one. The two obvious alternatives - System Events, or an activate
+        # Apple event - both need a permission this app has never asked for, and
+        # a machine that has not granted it refuses them without a word.
+        for one in pids:
+            command = _text_of(["ps", "-o", "comm=", "-p", one]).strip()
+            cut = command.find(".app/Contents/MacOS/")
+            if cut < 0:
+                continue
+            if _worked(["open", "-a", command[:cut + len(".app")]]):
+                return None
+        return "Could not find a window belonging to that browser."
+
+    # X11. wmctrl first because it lists the owning pid of every window, so the
+    # right one is picked before anything is activated; xdotool searches by pid
+    # instead, which is the same answer by a different route.
+    wanted = set(pids)
+    for line in _text_of(["wmctrl", "-l", "-p"]).splitlines():
+        parts = line.split(None, 4)
+        if len(parts) >= 3 and parts[2] in wanted:
+            if _worked(["wmctrl", "-i", "-a", parts[0]]):
+                return None
+    for one in pids:
+        for window in _text_of(["xdotool", "search", "--pid", one]).split():
+            if _worked(["xdotool", "windowactivate", window]):
+                return None
+    return (
+        "Raising a window from here needs wmctrl or xdotool and neither "
+        "answered. Under Wayland neither can do it at all - the browser is "
+        "open, so switch to it the way the desktop does."
+    )
+
+
+# --------------------------------------------------------------------------- #
 # lifetime
 #
 # The manager used to be a tab you closed and a server you forgot about, still
@@ -1656,6 +1735,17 @@ class Handler(BaseHTTPRequestHandler):
             if stopped and job and job.get("kind") in ("install", "launch"):
                 threading.Timer(1.0, tidy_cut_off, [[job["revision"]]]).start()
             return self._json({"stopped": stopped})
+
+        # Before the selector guard below, like /api/stop: a raise names the job
+        # whose window it wants, and the job knows its own revision.
+        if path == "/api/raise":
+            job = jobs.get(str(body.get("job", "")).strip())
+            if not job or job.get("kind") != "launch" or job.get("status") != "running":
+                return self._json({"error": "That browser is no longer running."}, 409)
+            problem = raise_window(job.get("pid"))
+            if problem:
+                return self._json({"error": problem}, 409)
+            return self._json({"raised": True})
 
         if path == "/api/doctor":
             return self._json(doctor_report())

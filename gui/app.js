@@ -1716,11 +1716,17 @@ function renderRow(row) {
     if (!text) return;
     element.append(iconSpan(glyph), text);
   };
+  // And the work in progress reads on the line of the copy it is building. An
+  // image build put "docker…" on the top line, against the screen glyph in the
+  // native colour - a row fetching a container looked like a row fetching a
+  // build.
+  const busyLine = row.busy ? `${workWord(row.busy, row.info)}…` : '';
+  const dockerBusy = row.busy != null && row.busy.kind === 'docker';
   sizeLine(
     node.querySelector('[data-size]'),
     'desktop',
-    row.busy
-      ? `${workWord(row.busy, row.info)}…`
+    row.busy && !dockerBusy
+      ? busyLine
       : row.installed
         ? `${mb(row.sizeBytes)} · ${mb(row.profileBytes)} profile`
         : '',
@@ -1728,10 +1734,12 @@ function renderRow(row) {
   sizeLine(
     node.querySelector('[data-size-docker]'),
     'cube',
-    row.dockerImage
-      ? `${mb(row.dockerImage)}` +
-        (row.dockerProfileBytes ? ` · ${mb(row.dockerProfileBytes)} profile` : '')
-      : '',
+    dockerBusy
+      ? busyLine
+      : row.dockerImage
+        ? `${mb(row.dockerImage)}` +
+          (row.dockerProfileBytes ? ` · ${mb(row.dockerProfileBytes)} profile` : '')
+        : '',
   );
 
   if (row.busy) {
@@ -1797,6 +1805,17 @@ function renderActions(container, row) {
       action.disabled = true;
       action.title = 'Waiting for the browser to close';
     } else {
+      // Two buttons while it is up. The window is open behind this one and the
+      // row had no way back to it: every route to a running version was either
+      // Stop or a fresh launch, and a fresh launch of a browser that is already
+      // running is not one.
+      const front = document.createElement('button');
+      front.className = 'btn accent';
+      front.append(iconSpan('desktop'), 'Open');
+      front.title = 'Bring this browser window to the front';
+      front.onclick = () => raiseNative(front, row);
+      container.append(front);
+
       action.classList.add('warn');
       action.append(iconSpan('stop'), 'Stop');
       action.title = 'Close this browser and everything it started';
@@ -1805,7 +1824,19 @@ function renderActions(container, row) {
   } else if (row.dockerRunning) {
     // The container is up, so the version is running even though no native
     // window is - and something is burning CPU that the row has to be able to
-    // turn off. "Open the desktop" in the menu beside this is the way back to it.
+    // turn off. The way back to the desktop is the button beside it: it used to
+    // be the first entry in the menu, one click behind the thing a running
+    // container is for.
+    if (row.dockerUrl) {
+      const open = document.createElement('button');
+      open.className = 'btn accent';
+      open.append(iconSpan('link'), 'Open');
+      open.title =
+        'Open the desktop this container is running. The tab it opened is ' +
+        'reused, so this focuses that one rather than making another.';
+      open.onclick = () => openDesktop(row);
+      container.append(open);
+    }
     action.classList.add('warn');
     action.append(iconSpan('stop'), 'Stop');
     action.title = 'Stop the Docker container running this version';
@@ -1941,6 +1972,51 @@ async function start(button, row) {
   refresh();
 }
 
+// One tab per container, and the same one every press. window.open with a name
+// rather than '_blank' is what makes the second press land on the tab the first
+// one opened, and the handle is kept as well because renavigating a named target
+// reloads it - a reload of noVNC drops the session and redraws the whole desktop
+// from scratch. Deliberately no 'noopener': it forces a fresh browsing context,
+// which ignores the name, which is what cloned a tab on every press.
+const desktopTabs = new Map();
+
+function openDesktop(row) {
+  const key = row.dockerSelector || row.selector || row.name;
+  const name = `engineshelf-${String(key).replace(/[^a-zA-Z0-9]+/g, '-')}`;
+  const seen = desktopTabs.get(key);
+  // Still open and still pointed at this container: focus it and leave its URL
+  // alone.
+  if (seen && !seen.tab.closed && seen.url === row.dockerUrl) {
+    seen.tab.focus();
+    return;
+  }
+  // A container that was stopped and started again is on a new port, so the tab
+  // that is open is showing a dead desktop - naming the target sends that same
+  // tab to the new port rather than leaving it behind.
+  const tab = window.open(row.dockerUrl, name);
+  if (!tab) {
+    flash('The browser blocked that tab - allow pop-ups for this page.', 'warn');
+    return;
+  }
+  desktopTabs.set(key, { tab, url: row.dockerUrl });
+  tab.focus();
+}
+
+// The native side of the same button. A container's desktop is a tab this page
+// opened and can focus itself; a native window belongs to the machine, and the
+// manager has no handle on it - so the server raises it. What that takes differs
+// per platform and can be unavailable, which is why a failure is said out loud
+// rather than leaving a button that looks like it did nothing.
+async function raiseNative(button, row) {
+  button.disabled = true;
+  try {
+    await post('/api/raise', { job: row.job.id });
+  } catch (error) {
+    flash(error.message, 'warn');
+  }
+  button.disabled = false;
+}
+
 // The launch options above are for the native launcher - a container brings up a
 // whole desktop and takes none of them - so this is deliberately its own path
 // rather than a flag on start().
@@ -1994,6 +2070,16 @@ function toggleMenu(container, row) {
   const menu = document.createElement('div');
   menu.className = 'menu';
 
+  // Entries are collected into three groups and appended at the end rather than
+  // written out as each one is decided: the native route first, the Docker route
+  // under it, and everything destructive behind a rule at the bottom. Deciding
+  // them in place is what left a Docker-only row reading "Download only /
+  // Delete Docker image / Download and launch natively" - a delete in the middle
+  // of the menu, between two entries that belong next to each other, while the
+  // other three deletes sat under a rule at the end.
+  const groups = { native: [], docker: [], danger: [] };
+  let group = 'native';
+
   const item = (glyph, label, handler, danger = false) => {
     const button = document.createElement('button');
     button.type = 'button';
@@ -2004,8 +2090,47 @@ function toggleMenu(container, row) {
       await handler();
       refresh();
     };
-    menu.append(button);
+    // Destructive goes to the bottom whichever route raised it - a delete is a
+    // delete, and grouping it with its route would put one above the rule.
+    groups[danger ? 'danger' : group].push(button);
   };
+
+  // Within a group: the entry that runs the version first, the fetch-only one
+  // under it. The heavier action is the one being looked for - fetch-only is the
+  // "fill the shelf now, use it later" variant of it.
+  group = 'native';
+
+  // The row's button is Docker, so the native launcher has to be somewhere -
+  // including on a version that is not downloaded yet, which is most of them.
+  // Not offered while the container is up: "Launch natively as well" below is
+  // that entry.
+  // Not when the vendor has stopped serving it: "anyway" is for a launch that
+  // might work, and this one cannot be fetched at all. An already-downloaded copy
+  // is a different matter - that one is on disk and still starts.
+  if (row.dockerOnly && !row.dockerRunning && (row.installed || !row.nativeGone)) {
+    const label = row.installed
+      ? 'Launch natively anyway'
+      : 'Download and launch natively';
+    item('play', label, async () => {
+      const { job } = await post('/api/launch', {
+        selector,
+        ...launchOptions(),
+      });
+      watch(job, row.name);
+    });
+  }
+
+  // Both ways of running this version are available and only one of them has the
+  // row's button, so the other cannot be a dead end.
+  if (row.dockerAvailable && row.dockerRunning && row.installed) {
+    item('play', 'Launch natively as well', async () => {
+      const { job } = await post('/api/launch', {
+        selector,
+        ...launchOptions(),
+      });
+      watch(job, row.name);
+    });
+  }
 
   // Nothing to download when the catalog has no build of this version for this
   // machine, or when the vendor has stopped serving the one it has: the entry
@@ -2021,14 +2146,19 @@ function toggleMenu(container, row) {
   // action is keyed by that Linux revision, which is the mismatch that used to
   // leave a running container looking stopped: the shelf compared it against the
   // revision this host installs natively, and the two are never the same.
+  group = 'docker';
   const docker = row.dockerSelector;
   if (row.dockerAvailable) {
     if (row.dockerRunning) {
-      if (row.dockerUrl) {
+      // Only when the native window has taken the row's Open button: both
+      // routes are up, and the container's desktop cannot be the same button.
+      // Otherwise this entry and that button read word for word the same.
+      if (row.dockerUrl && row.running) {
         item('link', 'Open the desktop', async () => {
-          window.open(row.dockerUrl, '_blank', 'noopener');
+          openDesktop(row);
         });
       }
+      // Last in its group: it is the way out of the route, not a way into it.
       item('stop', 'Stop the container', async () => {
         const { job } = await post('/api/docker', {
           selector: docker,
@@ -2036,17 +2166,6 @@ function toggleMenu(container, row) {
         });
         watch(job, `Stopping Docker · ${row.name}`);
       });
-      if (row.installed) {
-        // Both ways of running this version are available and only one of them
-        // has the row's button, so the other cannot be a dead end.
-        item('play', 'Launch natively as well', async () => {
-          const { job } = await post('/api/launch', {
-            selector,
-            ...launchOptions(),
-          });
-          watch(job, row.name);
-        });
-      }
     } else {
       // Not when the row's own button already is this: on a Docker-first row the
       // two read word for word the same, which is one entry too many.
@@ -2068,8 +2187,11 @@ function toggleMenu(container, row) {
       // The other half of "Download only": fill the shelf now, use it later. An
       // image build is minutes, and having to sit through them at the moment
       // you wanted a browser is the thing this avoids.
+      // The cube rather than a download arrow, which is the glyph the native
+      // fetch above wears: the two entries sat one under the other reading
+      // "Download only" and "Get the container only" behind the same icon.
       if (!row.dockerImage) {
-        item('download', 'Get the container only', async () => {
+        item('cube', 'Get the container only', async () => {
           const { job } = await post('/api/docker', {
             selector: docker,
             action: 'build',
@@ -2078,54 +2200,12 @@ function toggleMenu(container, row) {
         });
       }
     }
-    if (row.dockerImage) {
-      const held = row.dockerImage + row.dockerProfileBytes;
-      item(
-        'trash',
-        `Delete Docker image (${mb(row.dockerImage)})`,
-        async () => {
-          const go = await askConfirm({
-            title: `Delete the Docker image for ${row.name}?`,
-            body:
-              `Frees up to ${mb(held)}, less whatever layers other EngineShelf images ` +
-              "share. The container's profile is kept, so building it again restores " +
-              'your session. Building takes several minutes.',
-            label: 'Delete image',
-          });
-          if (!go) return;
-          const { job } = await post('/api/docker', {
-            selector: docker,
-            action: 'purge',
-          });
-          watch(job, `Removing Docker image · ${row.name}`);
-        },
-        true,
-      );
-    }
   }
 
-  // The row's button is Docker, so the native launcher has to be somewhere -
-  // including on a version that is not downloaded yet, which is most of them.
-  // Not offered while the container is up: that entry is already in the block
-  // above.
-  // Not when the vendor has stopped serving it: "anyway" is for a launch that
-  // might work, and this one cannot be fetched at all. An already-downloaded copy
-  // is a different matter - that one is on disk and still starts.
-  if (row.dockerOnly && !row.dockerRunning && (row.installed || !row.nativeGone)) {
-    const label = row.installed
-      ? 'Launch natively anyway'
-      : 'Download and launch natively';
-    item('play', label, async () => {
-      const { job } = await post('/api/launch', {
-        selector,
-        ...launchOptions(),
-      });
-      watch(job, row.name);
-    });
-  }
-
+  // Everything below here is destructive and lands under the rule in the order
+  // it is written: the profile, then the build, then the image. Native first
+  // because a row that has both is a row whose button is native.
   if (row.installed) {
-    menu.append(document.createElement('hr'));
     item(
       'reset',
       'Reset profile',
@@ -2174,6 +2254,41 @@ function toggleMenu(container, row) {
       },
       true,
     );
+  }
+
+  if (row.dockerAvailable && row.dockerImage) {
+    const held = row.dockerImage + row.dockerProfileBytes;
+    item(
+      'trash',
+      `Delete Docker image (${mb(row.dockerImage)})`,
+      async () => {
+        const go = await askConfirm({
+          title: `Delete the Docker image for ${row.name}?`,
+          body:
+            `Frees up to ${mb(held)}, less whatever layers other EngineShelf images ` +
+            "share. The container's profile is kept, so building it again restores " +
+            'your session. Building takes several minutes.',
+          label: 'Delete image',
+        });
+        if (!go) return;
+        const { job } = await post('/api/docker', {
+          selector: docker,
+          action: 'purge',
+        });
+        watch(job, `Removing Docker image · ${row.name}`);
+      },
+      true,
+    );
+  }
+
+  // One rule, and only when there is something on each side of it. A menu of
+  // nothing but deletes - an installed version with no container route - would
+  // otherwise open with a line across the top.
+  const safe = [...groups.native, ...groups.docker];
+  for (const button of safe) menu.append(button);
+  if (groups.danger.length) {
+    if (safe.length) menu.append(document.createElement('hr'));
+    for (const button of groups.danger) menu.append(button);
   }
 
   container.append(menu);

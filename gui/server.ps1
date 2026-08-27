@@ -721,6 +721,66 @@ function Start-Job2 {
     return $id
 }
 
+# --------------------------------------------------------------------------- #
+# raising a window
+#
+# A running container's desktop is a tab the page opened, so the page focuses it
+# itself. A native window belongs to the machine: nothing in the browser has a
+# handle on it, and the row's only offer used to be Stop or a second launch of
+# something already running.
+#
+# The job's own process is a hidden powershell wrapper, so what is looked for is
+# the first thing it started that has a window - which is the browser, whichever
+# engine it is.
+# --------------------------------------------------------------------------- #
+
+function Get-ProcessTree {
+    param([int]$Root)
+    $children = @{}
+    foreach ($row in (Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId -ErrorAction SilentlyContinue)) {
+        $parent = [int]$row.ParentProcessId
+        if (-not $children.ContainsKey($parent)) { $children[$parent] = @() }
+        $children[$parent] += [int]$row.ProcessId
+    }
+    $seen = @($Root)
+    $queue = @($Root)
+    while ($queue.Count -gt 0) {
+        $current = $queue[0]
+        $queue = @($queue | Select-Object -Skip 1)
+        foreach ($child in @($children[$current])) {
+            if ($child -and $seen -notcontains $child) {
+                $seen += $child
+                $queue += $child
+            }
+        }
+    }
+    return $seen
+}
+
+function Raise-Window {
+    <#
+      Returns $null once something has been raised, or the reason it could not
+      be. AppActivate rather than SetForegroundWindow: a background process is
+      denied the foreground outright, and the shell's own activate does the
+      dance for it - including restoring a minimised window.
+    #>
+    param($Job)
+    if (-not $Job -or -not $Job.proc -or $Job.proc.HasExited) {
+        return 'That browser is no longer running.'
+    }
+    $shell = $null
+    try { $shell = New-Object -ComObject WScript.Shell } catch { $shell = $null }
+    if (-not $shell) { return 'Could not reach the shell to raise that window.' }
+    foreach ($one in (Get-ProcessTree ([int]$Job.proc.Id))) {
+        $proc = Get-Process -Id $one -ErrorAction SilentlyContinue
+        if (-not $proc -or $proc.MainWindowHandle -eq [IntPtr]::Zero) { continue }
+        try {
+            if ($shell.AppActivate($one)) { return $null }
+        } catch { }
+    }
+    return 'Could not find a window belonging to that browser.'
+}
+
 function Stop-Job2 {
     # taskkill /T is what reaches the browser: Stop-Process would only end the
     # wrapper powershell, and killing the browser alone would trip the launcher's
@@ -1174,6 +1234,20 @@ function Invoke-Route {
     if (-not (Test-Authorised $Request)) { Send-Json $Stream @{ error = 'unauthorised' } 403; return }
 
     $body = Get-Body $Request
+
+    # Before the selector guard below, like /api/stop: a raise names the job whose
+    # window it wants, and the job knows its own revision.
+    if ($path -eq '/api/raise') {
+        $jobId = [string](Get-Field $body 'job')
+        $job = $null
+        if ($script:Jobs.ContainsKey($jobId)) { $job = $script:Jobs[$jobId] }
+        if (-not $job -or $job.kind -ne 'launch') {
+            Send-Json $Stream @{ error = 'That browser is no longer running.' } 409; return
+        }
+        $problem = Raise-Window $job
+        if ($problem) { Send-Json $Stream @{ error = $problem } 409; return }
+        Send-Json $Stream @{ raised = $true }; return
+    }
 
     if ($path -eq '/api/doctor') {
         Send-Json $Stream (Get-DoctorReport); return
