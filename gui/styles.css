@@ -30,6 +30,10 @@
   --e-firefox: #e8590c;
   --e-edge: #0d9488;
   --e-webkit: #7c5cf0;
+  /* How much of its own tint a splash mark throws behind itself. Weaker on the
+     light page, where the strength that lifts a dark one reads as a backing
+     plate rather than a glow. */
+  --splash-halo: 17%;
   --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   /* The sticky toolbar's height, which is where the group headings stick. */
   --toolbar-h: 55px;
@@ -56,6 +60,7 @@
     --e-firefox: #ff8a4c;
     --e-edge: #2ec5b6;
     --e-webkit: #a78bfa;
+    --splash-halo: 40%;
   }
 }
 :root[data-theme='dark'] {
@@ -77,6 +82,7 @@
   --e-firefox: #ff8a4c;
   --e-edge: #2ec5b6;
   --e-webkit: #a78bfa;
+  --splash-halo: 40%;
 }
 
 * {
@@ -1893,6 +1899,199 @@ dialog::backdrop {
 }
 
 /* ---------- narrow windows ---------- */
+
+/* ---------- splash ----------
+   Over the app, not instead of it: the skeleton is drawn underneath while this
+   is up, so when it lifts there is a shelf there rather than a blank page.
+
+   The four marks draw themselves in turn and then breathe until the shelf is
+   ready - a loading state made of the thing being loaded. The stagger is a
+   custom property per mark so the draw, the breathe and the closing dim all
+   read from one number. */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  background: var(--c-bg);
+  /* Visibility with it, not opacity alone: an invisible sheet still swallows
+     every click on the shelf underneath. */
+  transition:
+    opacity 300ms ease,
+    visibility 0s linear 300ms;
+}
+.splash.is-gone {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.splash-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Optically centred. A stack this short, centred by maths, sits low. */
+  margin-top: -5vh;
+  transition: transform 300ms ease;
+}
+/* Lifting away rather than fading in place: the shelf arriving should read as
+   this getting out of its way. */
+.splash.is-gone .splash-inner {
+  transform: translateY(-10px) scale(1.03);
+}
+
+.splash-marks {
+  position: relative;
+  display: flex;
+  gap: 22px;
+  padding-bottom: 21px;
+}
+.splash-marks .eicon:nth-child(1) {
+  --d: 0ms;
+}
+.splash-marks .eicon:nth-child(2) {
+  --d: 130ms;
+}
+.splash-marks .eicon:nth-child(3) {
+  --d: 260ms;
+}
+.splash-marks .eicon:nth-child(4) {
+  --d: 390ms;
+}
+/* Lighter than the 1.6 the rest of the page uses: at this size that weight
+   reads as a logo rather than an icon.
+
+   The glow is what makes them look lit rather than merely drawn, and because
+   the filter follows the stroke it travels with the line as each mark draws.
+   One value for both themes: enough to carry the dark background, too little to
+   go muddy on the light one. */
+.splash-marks .eicon svg.i {
+  width: 42px;
+  height: 42px;
+  stroke-width: 1.25;
+  filter: drop-shadow(
+    0 0 9px
+    color-mix(in srgb, currentColor var(--splash-halo), transparent)
+  );
+}
+/* Every shape made 100 units long by app.js, so a circle and a nine-segment
+   flame take the same time to draw. */
+.splash-marks .eicon svg.i > * {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: splash-draw 620ms cubic-bezier(0.33, 0, 0.2, 1) var(--d) forwards;
+}
+/* Starts once its own mark has finished drawing, so the row settles into the
+   breathing rather than arriving mid-cycle. */
+.splash-marks .eicon {
+  animation: splash-breathe 2.4s ease-in-out calc(var(--d) + 620ms) infinite;
+}
+
+/* The shelf the marks stand on, and the only moving part that is not an engine:
+   one pass of light along it, which is what the page is doing to the catalog. */
+.splash-marks::after {
+  content: '';
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  bottom: 0;
+  height: 1px;
+  background: var(--c-line);
+}
+.splash-marks::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  bottom: 0;
+  height: 1px;
+  /* Clipped by the gradient's own size rather than by overflow, so it needs no
+     wrapper to hide in. */
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--c-accent) 50%,
+    transparent 100%
+  );
+  background-size: 55% 100%;
+  background-repeat: no-repeat;
+  animation: splash-sweep 2.1s ease-in-out 420ms infinite;
+}
+
+/* Just behind the first mark, so the whole thing assembles rather than sitting
+   there waiting for the engines to catch up. */
+.splash-name {
+  margin-top: 20px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  color: var(--c-text);
+  animation: splash-arrive 420ms ease 90ms both;
+}
+/* Keeps its line whatever it says, so nothing below it moves when the words
+   change. */
+.splash-say {
+  margin-top: 7px;
+  min-height: 17px;
+  font-size: 12.5px;
+  color: var(--c-faint);
+  animation: splash-arrive 420ms ease 200ms both;
+}
+
+@keyframes splash-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes splash-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes splash-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}
+@keyframes splash-sweep {
+  from {
+    background-position: -70% 0;
+  }
+  to {
+    background-position: 170% 0;
+  }
+}
+
+/* A page that shimmers is a page that is doing something; to someone who asked
+   for less movement it is only noise. The marks still arrive, drawn whole. */
+@media (prefers-reduced-motion: reduce) {
+  .splash-marks .eicon,
+  .splash-marks .eicon svg.i > *,
+  .splash-name,
+  .splash-say {
+    animation: none;
+  }
+  .splash-marks .eicon svg.i > * {
+    stroke-dashoffset: 0;
+  }
+  .splash-marks::before {
+    display: none;
+  }
+  .splash,
+  .splash-inner {
+    transition-duration: 1ms;
+  }
+}
 
 @media (max-width: 1280px) {
   .row-size {

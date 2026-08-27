@@ -8,6 +8,33 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body class="booting">
+    <!-- The first second, seen. Reading the catalog, the builds directory, the
+         profile sizes and whatever Docker has to say is not instant, and on the
+         macOS app there is a second before that where the window exists and the
+         manager does not.
+
+         The loading is the four engine marks drawing themselves in turn - the
+         shelf being stocked, which is what that second is actually spent doing.
+         A spinner says "wait"; this says what is being waited for.
+
+         It sits OVER the skeleton rather than instead of it, so lifting it
+         reveals a shelf rather than an empty page. app.js paints the marks and
+         takes it away; both are in the "splash" section there. -->
+    <div class="splash" id="splash">
+      <div class="splash-inner">
+        <div class="splash-marks">
+          <span class="eicon" data-engine="chromium" data-icon="chromium"></span>
+          <span class="eicon" data-engine="firefox" data-icon="firefox"></span>
+          <span class="eicon" data-engine="edge" data-icon="edge"></span>
+          <span class="eicon" data-engine="webkit" data-icon="webkit"></span>
+        </div>
+        <div class="splash-name">EngineShelf</div>
+        <!-- Replaced as the boot moves on, so a slow start says which part is
+             slow rather than sitting on one word. -->
+        <div class="splash-say" id="splash-say">Starting the manager…</div>
+      </div>
+    </div>
+
     <div class="app">
       <header class="bar">
         <div class="brand">

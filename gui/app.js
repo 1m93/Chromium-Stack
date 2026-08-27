@@ -1402,6 +1402,60 @@ function drawSkeleton() {
    softens - the counts, the disk figures - has its own value by then. */
 function bootingDone() {
   document.body.classList.remove('booting');
+  dropSplash();
+}
+
+/* ---------- splash ----------
+   index.html draws it; this fills in the two things markup cannot.
+
+   A splash that flashes is worse than none: a warm start answers in under a
+   tenth of a second, and a curtain that opens and shuts in that time reads as a
+   glitch. So it stays for as long as the marks take to draw and no longer - a
+   cold start is covered, a warm one is a flourish. */
+
+const SPLASH_MIN_MS = 1010; // the fourth mark's delay plus its own draw
+const SPLASH_FADE_MS = 320; // and the CSS transition that takes it away
+/* And the point at which a boot that has not finished is a boot that is not
+   going to. Generous: a cold start that has to ask Docker is seconds, not
+   milliseconds. */
+const SPLASH_LIMIT_MS = 20000;
+const splashOpened = performance.now();
+
+function armSplash() {
+  const splash = $('splash');
+  if (!splash) return;
+  /* A stroke can only be drawn on if its length is known, and these shapes are
+     nothing alike: Chromium's outer circle measures 57 units, Firefox's flame
+     over 90. pathLength calls every one of them 100, so four marks of very
+     different sizes draw in the same time and land together. */
+  for (const shape of splash.querySelectorAll('svg.i > *'))
+    shape.setAttribute('pathLength', '100');
+
+  /* A boot that never finishes must not leave a sheet over the whole window.
+     What is underneath is the skeleton - what the first second looked like
+     before there was a splash - and whatever went wrong can then draw its own
+     answer over that. The same reasoning as failIfSilent in
+     tools/launcher/launcher.m: a window saying something is worth more than a
+     window that is still pretending. */
+  setTimeout(dropSplash, SPLASH_LIMIT_MS);
+}
+
+// What the boot is on, in the same words the shelf itself would use.
+function splashSays(words) {
+  const say = $('splash-say');
+  if (say) say.textContent = words;
+}
+
+function dropSplash() {
+  const splash = $('splash');
+  if (!splash || splash.classList.contains('is-gone')) return;
+  const left = Math.max(0, SPLASH_MIN_MS - (performance.now() - splashOpened));
+  setTimeout(() => {
+    splash.classList.add('is-gone');
+    // Gone from the page, not merely invisible: nothing ever brings it back,
+    // and a fixed sheet over the shelf is not a thing to leave lying about.
+    setTimeout(() => splash.remove(), SPLASH_FADE_MS);
+  }, left);
 }
 
 /* ---------- rendering ---------- */
@@ -4198,6 +4252,7 @@ async function refresh() {
 
 (async function boot() {
   paintIcons();
+  armSplash();
   drawSkeleton();
   buildDropdown(
     'gpu-drop',
@@ -4243,6 +4298,7 @@ async function refresh() {
     featureIndex = {};
   }
 
+  splashSays('Reading the shelf…');
   await refresh();
 
   // Which log the panel was on survives a reload; the panel being open does not.
