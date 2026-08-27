@@ -36,7 +36,7 @@ find_browser() {
   do
     [ -n "$candidate" ] && [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
   done
-  local home="${CHROMIUM_STACK_HOME:-$HOME/.chromium-stack}"
+  local home="${ENGINESHELF_HOME:-$HOME/.engineshelf}"
   for candidate in "$home"/builds/*/chrome-mac/Chromium.app/Contents/MacOS/Chromium \
                    "$home"/builds/*/chrome-linux/chrome; do
     [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
@@ -46,7 +46,7 @@ find_browser() {
 
 BROWSER="$(find_browser)" || die "No Chromium-family browser found to render the SVG.
    Install one, point CHROMIUM_STACK_RENDERER at it, or run:
-     ./chromium-stack.sh install 130"
+     ./engineshelf.sh install 130"
 
 SRC="$ROOT/assets/og-image.svg"
 OUT="$ROOT/docs/assets/og-image.png"

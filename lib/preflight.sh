@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# ChromiumStack - dependency checks, shared by the CLI, the Docker launcher and
+# EngineShelf - dependency checks, shared by the CLI, the Docker launcher and
 # the manager.
 #
 # Sourced, never run directly:
@@ -239,7 +239,7 @@ pf_report() {
   done
   printf '\n'
   if [ -z "$PF_PROBLEMS" ]; then
-    printf '  %s\n\n' "${PF_GRN}Everything ChromiumStack needs is present.${PF_RST}"
+    printf '  %s\n\n' "${PF_GRN}Everything EngineShelf needs is present.${PF_RST}"
     return 0
   fi
   for component in $PF_PROBLEMS; do
@@ -275,7 +275,7 @@ pf_offer() {
         else
           printf '     Install Docker Engine: curl -fsSL https://get.docker.com | sudo sh\n' >&2
         fi
-        printf '     The native launcher needs none of this: ./chromium-stack.sh run 74\n' >&2
+        printf '     The native launcher needs none of this: ./engineshelf.sh run 74\n' >&2
         ;;
     esac
     return 1
@@ -290,7 +290,7 @@ pf_offer() {
   if [ "$assume_yes" != "--yes" ]; then
     if ! pf_interactive; then
       printf '  %s Cannot ask for confirmation without a terminal.\n' "${PF_YLW}!${PF_RST}" >&2
-      printf '     Run this yourself, or: ./chromium-stack.sh doctor --fix\n' >&2
+      printf '     Run this yourself, or: ./engineshelf.sh doctor --fix\n' >&2
       return 1
     fi
     pf_confirm "Run it now?" || { printf '  Nothing was installed.\n'; return 1; }
@@ -364,7 +364,7 @@ pf_run_fix() {
     fi
     printf '  %s This needs administrator rights, which cannot be requested from here.\n' \
       "${PF_YLW}!${PF_RST}" >&2
-    printf '     Run it in a terminal:  ./chromium-stack.sh doctor --fix\n' >&2
+    printf '     Run it in a terminal:  ./engineshelf.sh doctor --fix\n' >&2
     return 1
   fi
 

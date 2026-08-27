@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="ChromiumStack — every Chromium, one click away">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="EngineShelf — four browser engines, one click away">
 <!-- Source for docs/assets/og-image.png, the social card. Same art and the same
      colour tokens as banner.svg and the manager itself.
 
-     Nothing here names a milestone count or a version range - the catalogue
+     Nothing here names a version count or a range - the shelf
      updates itself and this file cannot follow it. The rows are one machine's
-     shelf, a snapshot by nature, not a claim about how far the catalogue goes.
+     shelf, a snapshot by nature, not a claim about how far any engine goes.
 
      Render with: tools/make-og.sh -->
   <defs>
@@ -58,14 +58,14 @@
       <rect x="628" y="689" width="164" height="48" rx="16" fill="#5c8dff" opacity="0.16"/>
     </g>
   </g>
-  <text x="148" y="126" class="f" font-size="26" font-weight="700" fill="#ffffff" letter-spacing="-0.4">ChromiumStack</text>
+  <text x="148" y="126" class="f" font-size="26" font-weight="700" fill="#ffffff" letter-spacing="-0.4">EngineShelf</text>
 
   <!-- headline -->
-  <text x="72" y="248" class="f" font-size="56" font-weight="700" fill="#ffffff" letter-spacing="-1.4">Every Chromium,</text>
+  <text x="72" y="248" class="f" font-size="56" font-weight="700" fill="#ffffff" letter-spacing="-1.4">Four engines,</text>
   <text x="72" y="316" class="f" font-size="56" font-weight="700" fill="#5c8dff" letter-spacing="-1.4">one click away.</text>
 
-  <text x="72" y="368" class="f" font-size="20" fill="#a3adbd">Launch any catalogued Chromium milestone</text>
-  <text x="72" y="398" class="f" font-size="20" fill="#a3adbd">as an ordinary desktop browser.</text>
+  <text x="72" y="368" class="f" font-size="20" fill="#a3adbd">Launch any version of Chromium, Firefox, Edge</text>
+  <text x="72" y="398" class="f" font-size="20" fill="#a3adbd">or WebKit as an ordinary desktop browser.</text>
 
   <!-- where it runs -->
   <g>
@@ -73,7 +73,7 @@
     <rect x="164" y="436" width="98" height="38" rx="10" fill="#ffffff" opacity="0.07"/><text x="213" y="461" text-anchor="middle" class="f" font-size="16" fill="#9aa6bb">Windows</text>
     <rect x="272" y="436" width="74" height="38" rx="10" fill="#ffffff" opacity="0.07"/><text x="309" y="461" text-anchor="middle" class="f" font-size="16" fill="#9aa6bb">Linux</text>
   </g>
-  <text x="72" y="512" class="m" font-size="15" fill="#6e7889">x86_64 and Apple Silicon · + any snapshot revision</text>
+  <text x="72" y="512" class="m" font-size="15" fill="#6e7889">x86_64 and Apple Silicon · versions back to 2017</text>
   </g>
 
   <!-- the manager, in miniature -->
@@ -83,22 +83,22 @@
     <rect x="696" y="128" width="24" height="24" rx="7" fill="#5c8dff"/>
     <rect x="701" y="134" width="14" height="5" rx="1.6" fill="#ffffff" opacity="0.85"/>
     <rect x="701" y="142" width="14" height="5" rx="1.6" fill="#ffffff" opacity="0.5"/>
-    <text x="732" y="146" class="f" font-size="14" font-weight="600" fill="#e8ebf0">ChromiumStack</text>
+    <text x="732" y="146" class="f" font-size="14" font-weight="600" fill="#e8ebf0">EngineShelf</text>
     <text x="1108" y="146" text-anchor="end" class="m" font-size="11.5" fill="#6e7889">darwin/arm64 · Mac_Arm</text>
     <line x1="676" y1="170" x2="1128" y2="170" stroke="#272c36" stroke-width="1"/>
 
     <!-- installed, idle -->
     <rect x="694" y="182" width="416" height="56" rx="12" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
     <circle cx="720" cy="210" r="5" fill="#3fbd7d"/>
-    <text x="748" y="207" class="f name">Chromium 130</text>
-    <text x="748" y="225" class="m sub">130.0.6723.0 · native arm64</text>
+    <text x="748" y="207" class="f name">Chromium 152</text>
+    <text x="748" y="225" class="m sub">152.0.7623.0 · native arm64</text>
     <rect x="986" y="194" width="104" height="32" rx="9" fill="#5c8dff"/>
     <text x="1038" y="215" text-anchor="middle" class="f pill" fill="#ffffff">Launch</text>
 
     <!-- downloading, with its progress -->
     <rect x="694" y="246" width="416" height="56" rx="12" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
     <circle cx="720" cy="274" r="5" fill="#5c8dff"/>
-    <text x="748" y="271" class="f name">Chromium 120</text>
+    <text x="748" y="271" class="f name">Firefox 140 ESR</text>
     <text x="748" y="289" class="m sub">downloading · 100 MB of 232 MB</text>
     <text x="1090" y="269" text-anchor="end" class="m" font-size="11.5" fill="#a3adbd">43%</text>
     <rect x="966" y="279" width="124" height="7" rx="3.5" fill="#272c36"/>
@@ -107,16 +107,16 @@
     <!-- running -->
     <rect x="694" y="310" width="416" height="56" rx="12" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
     <circle cx="720" cy="338" r="5" fill="#5c8dff"/>
-    <text x="748" y="335" class="f name">Chromium 105</text>
-    <text x="748" y="353" class="m sub">r1027019 · running · 214 MB</text>
+    <text x="748" y="335" class="f name">WebKit 26.5</text>
+    <text x="748" y="353" class="m sub">r2336 · running · 294 MB</text>
     <rect x="986" y="322" width="104" height="32" rx="9" fill="none" stroke="#e0a03c" stroke-width="1.3"/>
     <text x="1038" y="343" text-anchor="middle" class="f pill" fill="#e0a03c">Stop</text>
 
     <!-- installed, idle -->
     <rect x="694" y="374" width="416" height="56" rx="12" fill="#1b1f27" stroke="#262b35" stroke-width="1"/>
     <circle cx="720" cy="402" r="5" fill="#3fbd7d"/>
-    <text x="748" y="399" class="f name">Chromium 74</text>
-    <text x="748" y="417" class="m sub">r638880 · no flexbox gap · 192 MB</text>
+    <text x="748" y="399" class="f name">Edge 151</text>
+    <text x="748" y="417" class="m sub">151.0.4129.107 · 919 MB</text>
     <rect x="986" y="386" width="104" height="32" rx="9" fill="#5c8dff"/>
     <text x="1038" y="407" text-anchor="middle" class="f pill" fill="#ffffff">Launch</text>
 
@@ -128,8 +128,8 @@
     <rect x="986" y="450" width="104" height="32" rx="9" fill="#ffffff" opacity="0.06"/>
     <text x="1038" y="471" text-anchor="middle" class="f pill" fill="#a3adbd">Get</text>
 
-    <text x="694" y="524" class="m" font-size="11.5" fill="#6e7889">Files in ~/.chromium-stack</text>
-    <text x="1110" y="524" text-anchor="end" class="m" font-size="11.5" fill="#6e7889">1.18 GB on disk</text>
+    <text x="694" y="524" class="m" font-size="11.5" fill="#6e7889">Files in ~/.engineshelf</text>
+    <text x="1110" y="524" text-anchor="end" class="m" font-size="11.5" fill="#6e7889">1.6 GB on disk</text>
   </g>
   </g>
 </svg>

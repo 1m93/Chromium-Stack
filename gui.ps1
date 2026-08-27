@@ -1,5 +1,5 @@
 #
-# ChromiumStack - open the graphical manager (Windows)
+# EngineShelf - open the graphical manager (Windows)
 #
 # Starts a small local web server and opens it in a window of its own. Nothing is
 # installed and nothing listens outside this machine: the server binds to
@@ -12,16 +12,19 @@
 #   .\gui.ps1 -Port 8080   # use a specific port
 #   .\gui.ps1 -Tab         # a tab in your default browser instead of a window
 #   .\gui.ps1 -NoOpen      # start it but open nothing
-#   .\gui.ps1 -KeepAlive   # keep serving after the window closes
+#   .\gui.ps1 -New         # a second manager, even if one is already running
+#
+# Opening it while a manager is already running does not start a second one: it
+# opens that manager's window again.
 #
 [CmdletBinding()]
 param(
     [int]$Port = 7411,
     [switch]$NoOpen,
     [switch]$Tab,
-    [switch]$KeepAlive
+    [switch]$New
 )
 
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-& (Join-Path $ScriptDir 'gui\server.ps1') -Port $Port -NoOpen:$NoOpen -Tab:$Tab -KeepAlive:$KeepAlive
+& (Join-Path $ScriptDir 'gui\server.ps1') -Port $Port -NoOpen:$NoOpen -Tab:$Tab -New:$New

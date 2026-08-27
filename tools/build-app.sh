@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #
-# Compile and sign ChromiumStack.app's launcher.
+# Compile and sign EngineShelf.app's launcher.
 #
 #   tools/build-app.sh
 #
 # The compiled binary is committed because a .app cannot work without one.
-# Rerun this after editing tools/launcher/launcher.c. Icons come from a separate
+# Rerun this after editing tools/launcher/launcher.m. Icons come from a separate
 # step: tools/make-icons.sh.
 #
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/ChromiumStack.app"
-SOURCE="$ROOT/tools/launcher/launcher.c"
-TARGET="$APP/Contents/MacOS/ChromiumStack"
+APP="$ROOT/EngineShelf.app"
+SOURCE="$ROOT/tools/launcher/launcher.m"
+TARGET="$APP/Contents/MacOS/EngineShelf"
 
 [ "$(uname -s)" = "Darwin" ] || { echo "x  macOS only." >&2; exit 1; }
 command -v cc >/dev/null 2>&1 || { echo "x  Need the Xcode command line tools: xcode-select --install" >&2; exit 1; }
@@ -28,8 +28,11 @@ mkdir -p "$APP/Contents/MacOS"
 # Info.plist floor; arm64 macOS only exists from 11.0, so that slice cannot go lower.
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-cc -arch x86_64 -mmacosx-version-min=10.13 -O2 -Wall -Wextra -o "$WORK/x86_64" "$SOURCE"
-cc -arch arm64  -mmacosx-version-min=11.0  -O2 -Wall -Wextra -o "$WORK/arm64"  "$SOURCE"
+# The app draws its own window with a WKWebView, so it links Cocoa and WebKit;
+# ARC keeps the Objective-C side to what it is about rather than retain counts.
+FRAMEWORKS=(-fobjc-arc -framework Cocoa -framework WebKit)
+cc -arch x86_64 -mmacosx-version-min=10.13 -O2 -Wall -Wextra "${FRAMEWORKS[@]}" -o "$WORK/x86_64" "$SOURCE"
+cc -arch arm64  -mmacosx-version-min=11.0  -O2 -Wall -Wextra "${FRAMEWORKS[@]}" -o "$WORK/arm64"  "$SOURCE"
 lipo -create -output "$TARGET" "$WORK/x86_64" "$WORK/arm64"
 chmod +x "$TARGET"
 

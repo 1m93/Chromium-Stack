@@ -3,16 +3,43 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ChromiumStack</title>
+    <title>EngineShelf</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body class="booting">
+    <!-- The first second, seen. Reading the catalog, the builds directory, the
+         profile sizes and whatever Docker has to say is not instant, and on the
+         macOS app there is a second before that where the window exists and the
+         manager does not.
+
+         The loading is the four engine marks drawing themselves in turn - the
+         shelf being stocked, which is what that second is actually spent doing.
+         A spinner says "wait"; this says what is being waited for.
+
+         It sits OVER the skeleton rather than instead of it, so lifting it
+         reveals a shelf rather than an empty page. app.js paints the marks and
+         takes it away; both are in the "splash" section there. -->
+    <div class="splash" id="splash">
+      <div class="splash-inner">
+        <div class="splash-marks">
+          <span class="eicon" data-engine="chromium" data-icon="chromium"></span>
+          <span class="eicon" data-engine="firefox" data-icon="firefox"></span>
+          <span class="eicon" data-engine="edge" data-icon="edge"></span>
+          <span class="eicon" data-engine="webkit" data-icon="webkit"></span>
+        </div>
+        <div class="splash-name">EngineShelf</div>
+        <!-- Replaced as the boot moves on, so a slow start says which part is
+             slow rather than sitting on one word. -->
+        <div class="splash-say" id="splash-say">Starting the manager…</div>
+      </div>
+    </div>
+
     <div class="app">
       <header class="bar">
         <div class="brand">
           <img src="icon.svg" width="22" height="22" alt="" />
-          <span>ChromiumStack</span>
+          <span>EngineShelf</span>
         </div>
         <span class="host mono" id="host"></span>
         <div class="spacer"></div>
@@ -23,7 +50,7 @@
           title="Disk used by downloaded browsers, their profiles and Docker images"
         >
           <span data-icon="disk"></span>
-          <span id="disk-text">0 MB</span>
+          <span id="disk-text">—</span>
           <span class="gauge-bar">
             <i id="disk-seg-browsers"></i><i id="disk-seg-profiles"></i
             ><i id="disk-seg-docker"></i>
@@ -33,7 +60,7 @@
         <button
           class="btn check-btn"
           id="check-btn"
-          title="What ChromiumStack found on this machine"
+          title="What EngineShelf found on this machine"
         >
           <span data-icon="warn"></span
           ><span id="check-label">System check</span>
@@ -41,10 +68,6 @@
 
         <button class="btn icon-btn" id="theme-btn" title="Light / dark">
           <span data-icon="theme"></span>
-        </button>
-
-        <button class="btn accent" id="add-btn">
-          <span data-icon="plus"></span>Add by revision
         </button>
       </header>
 
@@ -91,7 +114,7 @@
 
       <div class="split">
         <nav class="side">
-          <div class="side-group">
+          <div class="side-group" id="filters-group">
             <div class="side-title">Shelf</div>
             <button class="side-btn is-on" data-filter="all">
               <span data-icon="grid"></span
@@ -108,21 +131,18 @@
               ><span class="side-label">Running</span
               ><span class="count mono" data-count="running"></span>
             </button>
-            <button
-              class="side-btn"
-              data-filter="rosetta"
-              id="filter-rosetta"
-              hidden
-            >
-              <span data-icon="gpu"></span
-              ><span class="side-label">Rosetta only</span
-              ><span class="count mono" data-count="rosetta"></span>
-            </button>
           </div>
 
           <div class="side-group" id="eras-group">
             <div class="side-title">Jump to era</div>
             <div id="eras"></div>
+          </div>
+
+          <!-- Four engines share one shelf, so this is a filter: most of the
+               time you are after one of them. -->
+          <div class="side-group" id="engines-group">
+            <div class="side-title">Engines</div>
+            <div id="engine-list"></div>
           </div>
 
           <div class="spacer"></div>
@@ -137,21 +157,21 @@
               <span class="swatch browsers"></span>Browsers<span
                 class="mono"
                 id="disk-browsers"
-                >0 MB</span
+                >—</span
               >
             </div>
             <div class="disk-line">
               <span class="swatch profiles"></span>Profiles<span
                 class="mono"
                 id="disk-profiles"
-                >0 MB</span
+                >—</span
               >
             </div>
             <div class="disk-line" id="disk-docker-line" hidden>
               <span class="swatch docker"></span>Docker<span
                 class="mono"
                 id="disk-docker"
-                >0 MB</span
+                >—</span
               >
             </div>
           </div>
@@ -164,7 +184,7 @@
               <input
                 type="text"
                 id="query"
-                placeholder="Filter by version, revision or feature"
+                placeholder="Filter by engine, version or feature"
                 autocomplete="off"
                 spellcheck="false"
               />
@@ -191,13 +211,39 @@
       </div>
 
       <section class="logpanel" id="log-panel" hidden>
+        <!-- Drag the top edge to make the log taller. A download and a container
+             build are both minutes of output, and 150px of it was a keyhole. -->
+        <div
+          class="log-grip"
+          id="log-grip"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize the job log"
+          tabindex="0"
+        ></div>
         <div class="logpanel-head">
           <span class="side-title">Job log</span>
           <div class="log-tabs" id="log-tabs"></div>
           <strong id="log-title"></strong>
-          <span class="log-status" id="log-status"></span>
           <div class="spacer"></div>
-          <button class="iconish" id="log-close" title="Close">
+          <!-- One control per thing this version is doing. A native download and
+               a container build can be in flight at once, and both write to this
+               one log - so a single status and a single Stop left one of them
+               invisible and impossible to call off from here. -->
+          <div class="log-jobs" id="log-jobs"></div>
+          <!-- Tabs no longer push each other off the end, so a session with
+               twenty finished downloads in it needs one press to tidy up.
+               Hides them: nothing is thrown away, and anything written to one of
+               these logs again brings its tab straight back. -->
+          <button
+            class="iconish log-clear"
+            id="log-clear"
+            title="Close every log that has finished. Nothing is deleted - a log comes back if something runs against that version again."
+            hidden
+          >
+            Close finished
+          </button>
+          <button class="iconish" id="log-close" title="Hide the log panel">
             <span data-icon="x"></span>
           </button>
         </div>
@@ -205,18 +251,27 @@
       </section>
 
       <footer class="status">
-        <span class="dot" id="job-dot" data-state="idle"></span>
-        <span class="job-title" id="job-title">Ready</span>
-        <span class="job-detail mono" id="job-detail"></span>
-        <span class="job-bar" id="job-bar" hidden
-          ><i id="job-bar-fill"></i
-        ></span>
+        <!-- One entry per thing running, because a version can be doing two at
+             once and this used to show whichever activeJob() picked and count
+             the other under "+1 more". -->
+        <div class="job-line" id="job-line"></div>
         <button class="job-more" id="job-more" hidden></button>
         <div class="spacer"></div>
-        <button class="btn" id="log-btn">
+        <button
+          class="btn"
+          id="log-btn"
+          title="Open the job log. Anything still running is there; a log you closed stays closed until something runs against it again."
+        >
           <span data-icon="terminal"></span
           ><span id="log-btn-label">Show log</span>
         </button>
+        <!-- Only when this manager will outlive its window, which now means only
+             one thing: it is older than the page. The server has answered
+             "autoQuit" on every heartbeat since the shutdown work landed and
+             nothing read it, so a manager in that mode looked exactly like one
+             that closes with the window - right up to the point where closing
+             the window left two containers running. -->
+        <span class="foot-keep" id="foot-keep" hidden></span>
         <span class="foot-path" id="foot-path"></span>
         <span class="rule"></span>
         <a
@@ -229,38 +284,14 @@
       </footer>
     </div>
 
-    <dialog id="add-dialog">
+    <dialog id="note-dialog">
       <form method="dialog" class="dialog-body">
         <div>
-          <h2>Add by revision</h2>
-          <p class="muted">
-            Any position in the Chromium snapshot archive that has a build for
-            this platform. Not every position is archived — if it is missing,
-            try one a few commits later.
-          </p>
+          <h2 id="note-title">Changelog</h2>
+          <p class="muted" id="note-text"></p>
         </div>
-        <label class="field">
-          <span class="side-title">Revision</span>
-          <input
-            type="text"
-            id="add-revision"
-            class="mono"
-            inputmode="numeric"
-            placeholder="638880"
-            autocomplete="off"
-          />
-        </label>
-        <p class="muted small">
-          Look one up at
-          <span class="mono"
-            >chromiumdash.appspot.com/fetch_milestones?mstone=NN</span
-          >
-        </p>
         <menu class="dialog-actions">
-          <button class="btn" value="cancel">Cancel</button>
-          <button class="btn accent" id="add-confirm" value="ok">
-            Add to shelf
-          </button>
+          <button class="btn" value="cancel">Close</button>
         </menu>
       </form>
     </dialog>
@@ -285,6 +316,7 @@
     <template id="row-template">
       <article class="row">
         <span class="dot" data-dot></span>
+        <span data-engine></span>
         <div class="row-id">
           <div class="row-title" data-title></div>
           <div class="row-rev mono" data-rev></div>
@@ -293,16 +325,32 @@
           <p class="row-note" data-note></p>
           <div class="row-tags" data-tags></div>
         </div>
+        <!-- Two lines, one per copy of this version on disk: the native build
+             and the container image. The top line used to be the version, which
+             only Chromium ever had a different one of - it reads under the name
+             now, where every other engine has always put it. -->
+        <!-- Two lines, one per copy of this version on disk, each marked with
+             the same glyph its route uses: a screen for the native build, a cube
+             for the container image. The words "Docker" and "Native" were there
+             first and the column is 170px wide - the second line came out as
+             "er 898 MB". -->
         <div class="row-meta mono">
-          <span class="row-version" data-version></span>
-          <span class="row-size" data-size></span>
+          <span class="row-size" data-size hidden></span>
+          <span class="row-size" data-size-docker hidden></span>
         </div>
-        <div class="row-progress" data-progress hidden>
-          <i data-progress-bar></i>
-        </div>
+        <!-- One meter per route in flight, filled in by app.js: a single bar
+             could only belong to one of them, and with a download and a
+             container build both going it said nothing about which. -->
+        <div class="row-progress" data-progress hidden></div>
         <div class="row-actions" data-actions></div>
       </article>
     </template>
+
+    <!-- One tooltip for the whole page, moved to whatever is hovered. The row
+         marks say what they mean in here rather than in a title attribute: a
+         title waits a second, cannot be styled, and on a shelf where the marks
+         are the only words left that second is the whole answer. -->
+    <div class="tip" id="tip" role="tooltip" hidden></div>
 
     <script src="app.js"></script>
   </body>

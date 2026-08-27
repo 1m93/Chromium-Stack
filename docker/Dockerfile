@@ -4,7 +4,7 @@
 # builds run through Rosetta, whose stack unwinder makes them crash at random
 # (see ../README.md -> Stability). This image runs the Linux x86_64 build instead.
 #
-# REVISION is supplied by chromium-stack-docker.sh from catalog.tsv, so one
+# REVISION is supplied by engineshelf-docker.sh from catalog.tsv, so one
 # Dockerfile covers every catalogued version.
 FROM --platform=linux/amd64 debian:bookworm-slim
 
@@ -49,7 +49,7 @@ RUN set -e; \
     if wget -q -O /tmp/gconf.deb "$url"; then \
     mkdir -p /opt/legacy-libs && dpkg -x /tmp/gconf.deb /opt/legacy-libs; \
     rm -f /tmp/gconf.deb; \
-    echo /opt/legacy-libs/usr/lib/x86_64-linux-gnu > /etc/ld.so.conf.d/chromium-stack-legacy.conf; \
+    echo /opt/legacy-libs/usr/lib/x86_64-linux-gnu > /etc/ld.so.conf.d/engineshelf-legacy.conf; \
     ldconfig; \
     else \
     echo "WARNING: could not fetch libgconf-2-4; the oldest milestones will not start." >&2; \
@@ -71,19 +71,15 @@ ENV GOOGLE_API_KEY=no \
     GOOGLE_DEFAULT_CLIENT_ID=no \
     GOOGLE_DEFAULT_CLIENT_SECRET=no
 
-# The clipboard bridge. noVNC ships a clipboard side panel and nothing else: the
-# host's Cmd-V or Ctrl-V is swallowed by the canvas, so text copied outside the
-# tab could only get in by being pasted into that panel by hand. clipboard.js
-# wires the two clipboards together; it needs the page's RFB object, which ui.js
-# keeps inside an ES module, hence the one-line export onto window.
 COPY clipboard.js /usr/share/novnc/app/clipboard.js
-RUN set -e; \
-    ui=/usr/share/novnc/app/ui.js; page=/usr/share/novnc/vnc.html; \
-    grep -q '^export default UI;' "$ui" || { echo "noVNC layout changed: no export in ui.js" >&2; exit 1; }; \
-    grep -q 'src="app/ui.js"' "$page" || { echo "noVNC layout changed: no ui.js tag in vnc.html" >&2; exit 1; }; \
-    sed -i 's|^export default UI;|window.UI = UI;   /* ChromiumStack: app/clipboard.js needs the live RFB object */\nexport default UI;|' "$ui"; \
-    sed -i 's|<script type="module" crossorigin="anonymous" src="app/ui.js"></script>|&\n    <script src="app/clipboard.js" defer></script>|' "$page"; \
-    grep -q 'app/clipboard.js' "$page"
+COPY novnc-clipboard.sh /tmp/novnc-clipboard.sh
+RUN sh /tmp/novnc-clipboard.sh && rm /tmp/novnc-clipboard.sh
+
+# websockify plus one response header. Without it the desktop's own files are
+# cached by the browser for years against a shared http://localhost:6080, and a
+# rebuilt image links its new ui.js against somebody else's cached core/.
+COPY novnc-serve.py /usr/local/bin/novnc-serve
+RUN chmod +x /usr/local/bin/novnc-serve
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

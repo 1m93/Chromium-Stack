@@ -3,17 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ChromiumStack — run old Chromium versions, 60 and up</title>
+    <title>
+      EngineShelf — run old versions of Chromium, Firefox, Edge and WebKit
+    </title>
     <meta
       name="description"
-      content="Launch any Chromium milestone from 60 onwards as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux."
+      content="Launch any version of Chromium, Firefox, Edge or WebKit as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux."
     />
     <meta
       name="robots"
       content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
     />
     <meta name="author" content="1m93" />
-    <meta name="application-name" content="ChromiumStack" />
+    <meta name="application-name" content="EngineShelf" />
     <meta name="generator" content="hand-written static HTML" />
     <meta name="color-scheme" content="dark light" />
     <meta
@@ -26,51 +28,51 @@
       content="#f6f7f9"
       media="(prefers-color-scheme: light)"
     />
-    <link rel="canonical" href="https://1m93.github.io/Chromium-Stack/" />
+    <link rel="canonical" href="https://1m93.github.io/EngineShelf/" />
     <link rel="icon" href="assets/icon.svg?v=2" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="assets/icon-512.png?v=2" />
     <link rel="sitemap" type="application/xml" href="sitemap.xml" />
 
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="ChromiumStack" />
+    <meta property="og:site_name" content="EngineShelf" />
     <meta property="og:locale" content="en_US" />
     <meta
       property="og:title"
-      content="ChromiumStack — run old Chromium versions, 60 and up"
+      content="EngineShelf — run old versions of Chromium, Firefox, Edge and WebKit"
     />
     <meta
       property="og:description"
-      content="Launch any Chromium milestone from 60 onwards as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux."
+      content="Launch any version of Chromium, Firefox, Edge or WebKit as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux."
     />
-    <meta property="og:url" content="https://1m93.github.io/Chromium-Stack/" />
+    <meta property="og:url" content="https://1m93.github.io/EngineShelf/" />
     <meta
       property="og:image"
-      content="https://1m93.github.io/Chromium-Stack/assets/og-image.png?v=2"
+      content="https://1m93.github.io/EngineShelf/assets/og-image.png?v=2"
     />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta
       property="og:image:alt"
-      content="ChromiumStack — a shelf of real browsers, every Chromium, one click away. Chromium 60 and up, on macOS, Windows and Linux."
+      content="EngineShelf — a shelf of real browsers: four engines, every version, one click away. On macOS, Windows and Linux."
     />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
-      content="ChromiumStack — run old Chromium versions, 60 and up"
+      content="EngineShelf — run old versions of Chromium, Firefox, Edge and WebKit"
     />
     <meta
       name="twitter:description"
-      content="Launch any Chromium milestone from 60 onwards as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux."
+      content="Launch any version of Chromium, Firefox, Edge or WebKit as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux."
     />
     <meta
       name="twitter:image"
-      content="https://1m93.github.io/Chromium-Stack/assets/og-image.png?v=2"
+      content="https://1m93.github.io/EngineShelf/assets/og-image.png?v=2"
     />
     <meta
       name="twitter:image:alt"
-      content="ChromiumStack — Chromium 60 and up on macOS, Windows and Linux."
+      content="EngineShelf — Chromium, Firefox, Edge and WebKit on macOS, Windows and Linux."
     />
 
     <meta
@@ -91,6 +93,14 @@
         --ok: #3fbd7d;
         --warn: #e0a03c;
         --danger: #f0665f;
+        /* One tint per engine, the same four the manager uses. WebKit is violet
+           rather than Safari's blue on purpose: Chromium already owns blue here,
+           and at icon size a blue globe beside the blue pinwheel reads as the
+           same mark twice. */
+        --e-chromium: #4f97f5;
+        --e-firefox: #ff8a4c;
+        --e-edge: #2ec5b6;
+        --e-webkit: #a78bfa;
         --shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.75);
         --mono:
           ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
@@ -111,6 +121,10 @@
         --ok: #1d9a5a;
         --warn: #c2790a;
         --danger: #cf3b3b;
+        --e-chromium: #1a73e8;
+        --e-firefox: #e8590c;
+        --e-edge: #0d9488;
+        --e-webkit: #7c5cf0;
         --shadow: 0 24px 60px -28px rgba(18, 20, 26, 0.22);
       }
       * {
@@ -282,6 +296,61 @@
         border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
         transform: translateY(-3px);
       }
+      /* Engine tabs above the scrubber. Each button carries its own --e, so
+         one rule tints all four and the tint is the same one the manager and
+         the cards above use. */
+      .eng-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 15px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel);
+        color: var(--ink-2);
+        font-family: inherit;
+        font-size: 13.5px;
+        font-weight: 550;
+        letter-spacing: -0.005em;
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          background 0.2s,
+          color 0.2s;
+      }
+      .eng-tab .ic {
+        font-size: 17px;
+        color: var(--e);
+      }
+      .eng-tab .eng-count {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--ink-3);
+        font-weight: 400;
+      }
+      .eng-tab:hover {
+        border-color: color-mix(in srgb, var(--e) 45%, var(--line));
+        color: var(--ink);
+      }
+      .eng-tab[aria-selected='true'] {
+        border-color: color-mix(in srgb, var(--e) 55%, var(--line));
+        background: color-mix(in srgb, var(--e) 13%, transparent);
+        color: var(--ink);
+      }
+      /* The version numbers on the era cards jump the scrubber, so they have to
+         look like something you can press. */
+      .era-jump {
+        border: 0;
+        padding: 0;
+        background: none;
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+        border-bottom: 1px solid transparent;
+      }
+      .era-jump:hover {
+        border-bottom-color: currentColor;
+      }
       .hv-card:hover {
         transform: translateY(-4px);
         border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
@@ -295,31 +364,53 @@
         color: var(--ink);
       }
 
-      @keyframes floatA {
-        0%,
-        100% {
-          transform: translate3d(0, 0, 0) rotate(-3.5deg);
-        }
-        50% {
-          transform: translate3d(0, -14px, 0) rotate(-3deg);
-        }
+      /* The hero deck: four windows nested one behind the other, newest build of
+         each engine. Every window carries its own --e, so one rule tints all
+         four with the same colours the manager uses. */
+      .deck-win {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 58px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+        box-shadow:
+          inset 0 1px 0 color-mix(in srgb, var(--e) 45%, transparent),
+          0 -14px 30px -22px color-mix(in srgb, var(--e) 70%, transparent);
+        animation: deckFloat 7s ease-in-out infinite;
       }
-      @keyframes floatB {
-        0%,
-        100% {
-          transform: translate3d(0, 0, 0) rotate(1.5deg);
-        }
-        50% {
-          transform: translate3d(0, -9px, 0) rotate(2deg);
-        }
+      .deck-bar {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 39px;
+        padding: 0 14px;
       }
-      @keyframes floatC {
+      .deck-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--ink-3);
+        opacity: 0.45;
+      }
+      .deck-mark {
+        margin-left: auto;
+        font-size: 15px;
+        color: var(--e);
+      }
+      .deck-name {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--ink-2);
+      }
+      @keyframes deckFloat {
         0%,
         100% {
           transform: translate3d(0, 0, 0);
         }
         50% {
-          transform: translate3d(0, -5px, 0);
+          transform: translate3d(0, -7px, 0);
         }
       }
       @keyframes caret {
@@ -995,7 +1086,6 @@
           gap: 40px !important;
         }
         [data-r='stack'] {
-          height: 340px !important;
           order: -1;
         }
         [data-r='nav'] {
@@ -1017,9 +1107,6 @@
         [data-lp] .sec-wrap {
           padding-left: 18px !important;
           padding-right: 18px !important;
-        }
-        [data-lp] [data-r='stack'] {
-          height: 270px !important;
         }
         [data-lp] [data-r='ticks'] span {
           font-size: 9px;
@@ -1059,18 +1146,18 @@
         "@graph": [
           {
             "@type": "SoftwareApplication",
-            "@id": "https://1m93.github.io/Chromium-Stack/#app",
-            "name": "ChromiumStack",
-            "url": "https://1m93.github.io/Chromium-Stack/",
-            "description": "A version manager for Chromium. Downloads and launches any catalogued Chromium milestone from 60 (2017) onwards as an ordinary desktop browser, with tabs, bookmarks, DevTools and a persistent profile per version — for testing sites against old engines, legacy System WebViews and browserslist floors.",
+            "@id": "https://1m93.github.io/EngineShelf/#app",
+            "name": "EngineShelf",
+            "url": "https://1m93.github.io/EngineShelf/",
+            "description": "A version manager for browser engines. Downloads and launches old versions of Chromium, Firefox, Edge and WebKit as ordinary desktop browsers, with tabs, bookmarks, DevTools and a persistent profile per version — for testing sites against old engines, legacy System WebViews and browserslist floors.",
             "applicationCategory": "DeveloperApplication",
             "applicationSubCategory": "Cross-browser testing",
             "operatingSystem": "macOS 10.13+, Windows 10, Windows 11, Linux x86_64",
-            "downloadUrl": "https://github.com/1m93/Chromium-Stack/releases/latest",
-            "installUrl": "https://github.com/1m93/Chromium-Stack/releases/latest",
-            "softwareHelp": "https://1m93.github.io/Chromium-Stack/#start",
-            "screenshot": "https://1m93.github.io/Chromium-Stack/assets/screenshot-jobs.png?v=3",
-            "image": "https://1m93.github.io/Chromium-Stack/assets/og-image.png?v=2",
+            "downloadUrl": "https://github.com/1m93/EngineShelf/releases/latest",
+            "installUrl": "https://github.com/1m93/EngineShelf/releases/latest",
+            "softwareHelp": "https://1m93.github.io/EngineShelf/#start",
+            "screenshot": "https://1m93.github.io/EngineShelf/assets/screenshot-jobs.png?v=4",
+            "image": "https://1m93.github.io/EngineShelf/assets/og-image.png?v=2",
             "isAccessibleForFree": true,
             "offers": {
               "@type": "Offer",
@@ -1088,7 +1175,7 @@
               "name": "1m93",
               "url": "https://github.com/1m93"
             },
-            "sameAs": ["https://github.com/1m93/Chromium-Stack"],
+            "sameAs": ["https://github.com/1m93/EngineShelf"],
             "featureList": [
               "Every catalogued Chromium milestone from 60 onwards, plus any other snapshot revision",
               "Launches a real desktop browser window with DevTools and a per-version profile",
@@ -1100,10 +1187,10 @@
           },
           {
             "@type": "WebSite",
-            "@id": "https://1m93.github.io/Chromium-Stack/#website",
-            "url": "https://1m93.github.io/Chromium-Stack/",
-            "name": "ChromiumStack",
-            "description": "Launch any Chromium milestone from 60 onwards as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux.",
+            "@id": "https://1m93.github.io/EngineShelf/#website",
+            "url": "https://1m93.github.io/EngineShelf/",
+            "name": "EngineShelf",
+            "description": "Launch any version of Chromium, Firefox, Edge or WebKit as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux.",
             "inLanguage": "en",
             "publisher": {
               "@type": "Person",
@@ -1111,26 +1198,26 @@
               "url": "https://github.com/1m93"
             },
             "about": {
-              "@id": "https://1m93.github.io/Chromium-Stack/#app"
+              "@id": "https://1m93.github.io/EngineShelf/#app"
             }
           },
           {
             "@type": "WebPage",
-            "@id": "https://1m93.github.io/Chromium-Stack/#webpage",
-            "url": "https://1m93.github.io/Chromium-Stack/",
-            "name": "ChromiumStack — run old Chromium versions, 60 and up",
-            "description": "Launch any Chromium milestone from 60 onwards as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux.",
+            "@id": "https://1m93.github.io/EngineShelf/#webpage",
+            "url": "https://1m93.github.io/EngineShelf/",
+            "name": "EngineShelf — run old versions of Chromium, Firefox, Edge and WebKit",
+            "description": "Launch any version of Chromium, Firefox, Edge or WebKit as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux.",
             "isPartOf": {
-              "@id": "https://1m93.github.io/Chromium-Stack/#website"
+              "@id": "https://1m93.github.io/EngineShelf/#website"
             },
-            "primaryImageOfPage": "https://1m93.github.io/Chromium-Stack/assets/og-image.png?v=2",
+            "primaryImageOfPage": "https://1m93.github.io/EngineShelf/assets/og-image.png?v=2",
             "inLanguage": "en"
           },
           {
             "@type": "FAQPage",
-            "@id": "https://1m93.github.io/Chromium-Stack/#faq",
+            "@id": "https://1m93.github.io/EngineShelf/#faq",
             "isPartOf": {
-              "@id": "https://1m93.github.io/Chromium-Stack/#webpage"
+              "@id": "https://1m93.github.io/EngineShelf/#webpage"
             },
             "mainEntity": [
               {
@@ -1154,7 +1241,7 @@
                 "name": "Stability on Apple Silicon",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Chromium publishes native arm64 macOS builds from roughly M92 on, so 95 and later run natively. 60 through 90 have no arm64 build, so they run through Rosetta. Those builds run with --disable-gpu by default, which removes the GPU-process crash completely. Chromium's stack sampling profiler occasionally segfaults under Rosetta and there is no switch to turn it off, so the launcher relaunches the browser and lets Chromium restore your tabs, up to 5 times. Use --no-restart if you would rather it stop and show the log."
+                  "text": "Chromium publishes native arm64 macOS builds from roughly M92 on, so 95 and later run natively. 60 through 90 have no arm64 build, so they run through Rosetta. Those builds run with --disable-gpu by default, which removes the GPU-process crash completely. Chromium's stack sampling profiler occasionally segfaults under Rosetta and there is no switch to turn it off, so the launcher relaunches the browser and lets Chromium restore your tabs, up to 5 times. A build that dies before its window ever appears is the other case and is not retried: the oldest milestones abort in their first second against this year's system allocator, so the shelf records that and offers the container instead. Use --no-restart if you would rather it stop and show the log."
                 }
               },
               {
@@ -1291,6 +1378,35 @@
             <path d="M3.3 12.4 12 16.9l8.7-4.5" />
             <path d="M3.3 16.6 12 21.1l8.7-4.5" />
           </symbol>
+          <!-- The four engine marks, the same drawings the manager uses so the
+               page and the app name them the same way. Chromium's pinwheel,
+               Firefox's flame, Edge's "e", and a globe for WebKit - a globe
+               rather than Safari's compass, for the reason in the note above
+               about what WebKit is and is not. -->
+          <symbol id="i-chromium" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="12" cy="12" r="3.6" />
+            <path d="M12 15.6V21M8.88 10.2 4.2 7.5M15.12 10.2l4.68-2.7" />
+          </symbol>
+          <symbol id="i-firefox" viewBox="0 0 24 24">
+            <path
+              d="M12 21.2c-3.8 0-6.8-2.9-6.8-6.5 0-4.5 4.1-6.1 4.1-9.7 0-.9-.2-1.7-.6-2.4 3.3.8 5.5 3.3 5.5 6.2 0 1.3-.5 2.4-1.4 3.1.9-.3 1.7-.9 2.2-1.7 1.2 1.4 1.9 3 1.9 4.5 0 3.6-3 6.5-6.9 6.5z"
+            />
+            <path
+              d="M12 21.2c-1.9 0-3.4-1.5-3.4-3.3 0-2.3 2.2-3 2.2-5.2 2.4 1 4.6 3 4.6 5.2 0 1.8-1.5 3.3-3.4 3.3z"
+            />
+          </symbol>
+          <symbol id="i-edge" viewBox="0 0 24 24">
+            <path d="M19.6 16.4A8.6 8.6 0 1 1 20.5 11.4H8.6" />
+            <path
+              d="M8.6 11.4C5.3 11.4 3 13.7 3 16.4c0 2.9 2.6 4.9 6.4 4.9 2.6 0 5-.9 6.6-2.3"
+            />
+          </symbol>
+          <symbol id="i-webkit" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18" />
+            <ellipse cx="12" cy="12" rx="4.2" ry="9" />
+          </symbol>
           <symbol id="i-zap" viewBox="0 0 24 24">
             <path d="M13.2 2.5 5 13.6h6.1l-1.3 7.9 8.2-11.1h-6.1z" />
           </symbol>
@@ -1393,7 +1509,7 @@
           />
           <span
             style="font-size: 15px; font-weight: 650; letter-spacing: -0.01em"
-            >ChromiumStack</span
+            >EngineShelf</span
           >
         </div>
         <span style="flex: 1"></span>
@@ -1411,6 +1527,7 @@
           <a href="#why" style="color: inherit">Why</a>
           <a href="#start" style="color: inherit">Quick start</a>
           <a href="#screens" style="color: inherit">Screens</a>
+          <a href="#engines" style="color: inherit">Engines</a>
           <a href="#shelf" style="color: inherit">Versions</a>
           <a href="#cli" style="color: inherit">CLI</a>
           <a href="#faq" style="color: inherit">Good to know</a>
@@ -1443,10 +1560,10 @@
         </button>
         <a
           class="nav-gh hv-theme"
-          href="https://github.com/1m93/Chromium-Stack"
+          href="https://github.com/1m93/EngineShelf"
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="ChromiumStack on GitHub"
+          aria-label="EngineShelf on GitHub"
           title="View the repository on GitHub"
           style="
             display: inline-flex;
@@ -1546,6 +1663,16 @@
             >Screens</a
           >
           <a
+            href="#engines"
+            style="
+              padding: 13px 2px;
+              font-size: 15.5px;
+              color: var(--ink-2);
+              border-bottom: 1px solid var(--line);
+            "
+            >Engines</a
+          >
+          <a
             href="#shelf"
             style="
               padding: 13px 2px;
@@ -1586,7 +1713,7 @@
             >Contact</a
           >
           <a
-            href="https://github.com/1m93/Chromium-Stack"
+            href="https://github.com/1m93/EngineShelf"
             target="_blank"
             rel="noopener noreferrer"
             style="
@@ -1638,6 +1765,23 @@
           "
         >
           <div>
+            <div
+              data-reveal
+              style="
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 18px;
+                font-family: var(--mono);
+                font-size: 11.5px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--ink-3);
+              "
+            >
+              <svg class="ic" aria-hidden="true"><use href="#i-layers" /></svg
+              ><span>A shelf of real browsers</span>
+            </div>
             <h1
               data-reveal
               style="
@@ -1646,11 +1790,11 @@
                 line-height: 1.02;
                 letter-spacing: -0.035em;
                 font-weight: 680;
-                text-wrap: balance;
               "
             >
-              A shelf of real browsers,<br /><span style="color: var(--accent)"
-                >Every Chromium, one click away.</span
+              Four engines.<br />Every version.<br /><span
+                style="color: var(--accent)"
+                >One click away.</span
               >
             </h1>
             <p
@@ -1664,9 +1808,9 @@
                 text-wrap: pretty;
               "
             >
-              Pick a Chromium version, press Launch, and it opens as an ordinary
-              desktop browser — tabs, bookmarks, DevTools and all. No account,
-              no build step, nothing to configure.
+              Pick a version of Chromium, Firefox, Edge or WebKit, press Launch,
+              and it opens as an ordinary desktop browser — tabs, bookmarks,
+              DevTools and all. No account, no build step, nothing to configure.
             </p>
             <div
               data-reveal
@@ -1748,7 +1892,7 @@
                     color: var(--ink-3);
                   "
                 >
-                  milestones catalogued
+                  versions on the shelf
                 </div>
               </div>
               <div>
@@ -1790,149 +1934,83 @@
                     color: var(--ink-3);
                   "
                 >
-                  newest milestone
+                  browsers, three engines
                 </div>
               </div>
             </div>
           </div>
 
-          <div data-r="stack" style="position: relative; height: 420px">
+          <!-- The three back windows are absolute; the front one stays in flow and
+               is what gives the deck its height, so nothing here has to be told
+               how tall it is. -->
+          <div data-r="stack" style="position: relative">
             <div
+              class="deck-win"
               style="
-                position: absolute;
-                top: 8px;
-                right: 34px;
-                width: 82%;
-                height: 212px;
-                border-radius: 16px;
-                border: 1px solid var(--line);
-                background: var(--panel-2);
+                --e: var(--e-firefox);
+                top: 2px;
+                margin: 0 10%;
                 opacity: 0.55;
-                animation: floatA 9s ease-in-out infinite;
+                animation-delay: -1.8s;
               "
             >
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  gap: 7px;
-                  height: 36px;
-                  padding: 0 14px;
-                  border-bottom: 1px solid var(--line);
-                "
-              >
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.6;
-                  "
-                ></span>
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.4;
-                  "
-                ></span>
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.25;
-                  "
-                ></span>
-                <span
-                  style="
-                    margin-left: auto;
-                    font-family: var(--mono);
-                    font-size: 10.5px;
-                    color: var(--ink-3);
-                  "
-                  >60</span
-                >
+              <div class="deck-bar">
+                <span class="deck-dot"></span><span class="deck-dot"></span
+                ><span class="deck-dot"></span>
+                <svg class="ic deck-mark" aria-hidden="true">
+                  <use href="#i-firefox" /></svg
+                ><span class="deck-name" id="mockFirefox">Firefox 154</span>
+              </div>
+            </div>
+            <div
+              class="deck-win"
+              style="
+                --e: var(--e-edge);
+                top: 40px;
+                margin: 0 6.6%;
+                opacity: 0.72;
+                animation-delay: -1.2s;
+              "
+            >
+              <div class="deck-bar">
+                <span class="deck-dot"></span><span class="deck-dot"></span
+                ><span class="deck-dot"></span>
+                <svg class="ic deck-mark" aria-hidden="true">
+                  <use href="#i-edge" /></svg
+                ><span class="deck-name" id="mockEdge">Edge 151</span>
+              </div>
+            </div>
+            <div
+              class="deck-win"
+              style="
+                --e: var(--e-webkit);
+                top: 78px;
+                margin: 0 3.3%;
+                opacity: 0.88;
+                animation-delay: -0.6s;
+              "
+            >
+              <div class="deck-bar">
+                <span class="deck-dot"></span><span class="deck-dot"></span
+                ><span class="deck-dot"></span>
+                <svg class="ic deck-mark" aria-hidden="true">
+                  <use href="#i-webkit" /></svg
+                ><span class="deck-name" id="mockWebkit">WebKit 26.5</span>
               </div>
             </div>
             <div
               style="
-                position: absolute;
-                top: 66px;
-                right: 14px;
-                width: 90%;
-                height: 250px;
+                --e: var(--e-chromium);
+                position: relative;
+                margin-top: 116px;
                 border-radius: 16px;
-                border: 1px solid var(--line);
-                background: var(--panel-2);
-                opacity: 0.8;
-                animation: floatB 7.5s ease-in-out infinite;
-              "
-            >
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  gap: 7px;
-                  height: 38px;
-                  padding: 0 14px;
-                  border-bottom: 1px solid var(--line);
-                "
-              >
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.6;
-                  "
-                ></span>
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.4;
-                  "
-                ></span>
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.25;
-                  "
-                ></span>
-                <span
-                  style="
-                    margin-left: auto;
-                    font-family: var(--mono);
-                    font-size: 10.5px;
-                    color: var(--ink-3);
-                  "
-                  >95</span
-                >
-              </div>
-            </div>
-            <div
-              style="
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                width: 96%;
-                border-radius: 18px;
                 border: 1px solid var(--line);
                 background: var(--panel);
-                box-shadow: var(--shadow);
+                box-shadow:
+                  0 34px 64px -28px rgba(0, 0, 0, 0.8),
+                  inset 0 1px 0 color-mix(in srgb, var(--e) 45%, transparent);
                 overflow: hidden;
-                animation: floatC 6.5s ease-in-out infinite;
+                animation: deckFloat 7s ease-in-out infinite;
               "
             >
               <div
@@ -1941,7 +2019,7 @@
                   align-items: center;
                   gap: 8px;
                   padding: 0 15px;
-                  height: 42px;
+                  height: 44px;
                   background: #2b3444;
                   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
                 "
@@ -1989,6 +2067,13 @@
                   "
                   >localhost:4173</span
                 >
+                <svg
+                  class="ic"
+                  aria-hidden="true"
+                  style="font-size: 15px; color: var(--e-chromium)"
+                >
+                  <use href="#i-chromium" />
+                </svg>
                 <span
                   id="mockVer"
                   style="
@@ -2417,7 +2502,7 @@
               <div class="dm-frame" aria-hidden="true">
                 <div class="dm-win">
                   <div class="dm-bar">
-                    <span class="dm-mark"></span><b>ChromiumStack</b
+                    <span class="dm-mark"></span><b>EngineShelf</b
                     ><span class="dm-host">darwin/arm64</span
                     ><span class="dm-disk">1.18 GB</span>
                   </div>
@@ -2487,7 +2572,7 @@
                       ><i class="dm-prog">Downloading Chromium 74</i
                       ><i class="dm-stop">Chromium 74 · running</i></span
                     >
-                    <span class="dm-fpath">Files in ~/.chromium-stack</span>
+                    <span class="dm-fpath">Files in ~/.engineshelf</span>
                   </div>
                 </div>
                 <div class="dm-pop">
@@ -2627,13 +2712,13 @@
               >
                 <picture>
                   <source
-                    srcset="assets/screenshot-jobs-light.webp?v=2"
+                    srcset="assets/screenshot-jobs-light.webp?v=3"
                     type="image/webp"
                   />
                   <img
-                    src="assets/screenshot-jobs-light.png?v=2"
+                    src="assets/screenshot-jobs-light.png?v=3"
                     width="2800"
-                    height="1520"
+                    height="1486"
                     loading="lazy"
                     decoding="async"
                     alt="The same window in the light theme"
@@ -2642,16 +2727,16 @@
                 </picture>
                 <picture class="shot-top">
                   <source
-                    srcset="assets/screenshot-jobs.webp?v=3"
+                    srcset="assets/screenshot-jobs.webp?v=4"
                     type="image/webp"
                   />
                   <img
-                    src="assets/screenshot-jobs.png?v=3"
+                    src="assets/screenshot-jobs.png?v=4"
                     width="2800"
-                    height="1520"
+                    height="1486"
                     loading="lazy"
                     decoding="async"
-                    alt="Three jobs running at once: Chromium 105 downloading at 43 percent with 100 MB of 232 MB transferred and 16 seconds left, two other versions already open, and the job log switching between all three"
+                    alt="Four engines on one shelf, each with its own mark: Chromium 152, Firefox 154, WebKit 26.5 open and offering Stop, Chromium 151 below it. Along the bottom, the job log switches between Firefox 115, WebKit 26.5 and a Chromium 105 download at 43 percent with 100 MB of 232 MB transferred and 16 seconds left"
                     style="
                       display: block;
                       width: 100%;
@@ -2680,9 +2765,307 @@
           </div>
         </section>
 
+        <section id="engines" style="border-top: 1px solid var(--line)">
+          <div
+            class="sec-wrap"
+            style="max-width: 1160px; margin: 0 auto; padding: 76px 28px"
+          >
+            <div
+              data-reveal
+              style="
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-family: var(--mono);
+                font-size: 11.5px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--ink-3);
+              "
+            >
+              <svg class="ic" aria-hidden="true"><use href="#i-layers" /></svg
+              ><span>Four browsers, three engines</span>
+            </div>
+            <h2
+              data-reveal
+              style="
+                margin: 14px 0 0;
+                max-width: 30ch;
+                font-size: clamp(26px, 3.2vw, 38px);
+                line-height: 1.14;
+                letter-spacing: -0.028em;
+                font-weight: 660;
+                text-wrap: balance;
+              "
+            >
+              Every engine that still ships on the desktop.
+            </h2>
+            <p
+              data-reveal
+              style="
+                margin: 16px 0 0;
+                max-width: 62ch;
+                font-size: 16px;
+                line-height: 1.65;
+                color: var(--ink-2);
+              "
+            >
+              How far back each one reaches is not a choice anyone made here —
+              it is however much its vendor still publishes, and they differ a
+              lot. Worth knowing before you go looking.
+            </p>
+
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
+                gap: 16px;
+                margin-top: 40px;
+              "
+            >
+              <div
+                data-reveal
+                style="
+                  border: 1px solid var(--line);
+                  border-radius: 14px;
+                  background: var(--panel);
+                  padding: 22px 22px 24px;
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <svg
+                    class="ic"
+                    aria-hidden="true"
+                    style="font-size: 26px; color: var(--e-chromium)"
+                  >
+                    <use href="#i-chromium" />
+                  </svg>
+                  <strong style="font-size: 17px; letter-spacing: -0.01em"
+                    >Chromium</strong
+                  >
+                </div>
+                <div
+                  style="
+                    margin-top: 14px;
+                    font-family: var(--mono);
+                    font-size: 12px;
+                    color: var(--e-chromium);
+                  "
+                >
+                  back to 2017 &middot; milestone 60
+                </div>
+                <p
+                  style="
+                    margin: 10px 0 0;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: var(--ink-2);
+                  "
+                >
+                  Every build in the Chromium snapshot archive, which prunes
+                  nothing — so any revision works, not just the catalogued
+                  milestones.
+                </p>
+                <p
+                  style="
+                    margin: 12px 0 0;
+                    padding-top: 12px;
+                    border-top: 1px solid var(--line);
+                    font-size: 13px;
+                    line-height: 1.6;
+                    color: var(--ink-3);
+                  "
+                >
+                  On Apple Silicon the pre-2021 builds have no arm64 archive and
+                  go through Rosetta, where they crash at random. The container
+                  edition runs the Linux build instead.
+                </p>
+              </div>
+              <div
+                data-reveal
+                style="
+                  border: 1px solid var(--line);
+                  border-radius: 14px;
+                  background: var(--panel);
+                  padding: 22px 22px 24px;
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <svg
+                    class="ic"
+                    aria-hidden="true"
+                    style="font-size: 26px; color: var(--e-firefox)"
+                  >
+                    <use href="#i-firefox" />
+                  </svg>
+                  <strong style="font-size: 17px; letter-spacing: -0.01em"
+                    >Firefox</strong
+                  >
+                </div>
+                <div
+                  style="
+                    margin-top: 14px;
+                    font-family: var(--mono);
+                    font-size: 12px;
+                    color: var(--e-firefox);
+                  "
+                >
+                  back to 2017 &middot; Firefox 57
+                </div>
+                <p
+                  style="
+                    margin: 10px 0 0;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: var(--ink-2);
+                  "
+                >
+                  Every release Mozilla has ever shipped is still on
+                  <span style="font-family: var(--mono); font-size: 12.5px"
+                    >ftp.mozilla.org</span
+                  >, including each ESR line.
+                </p>
+                <p
+                  style="
+                    margin: 12px 0 0;
+                    padding-top: 12px;
+                    border-top: 1px solid var(--line);
+                    font-size: 13px;
+                    line-height: 1.6;
+                    color: var(--ink-3);
+                  "
+                >
+                  An old Firefox trusts only the certificate authorities it
+                  shipped with, so EngineShelf turns on the OS trust store for
+                  it — without that, a 2019 build rejects most of today&rsquo;s
+                  HTTPS.
+                </p>
+              </div>
+              <div
+                data-reveal
+                style="
+                  border: 1px solid var(--line);
+                  border-radius: 14px;
+                  background: var(--panel);
+                  padding: 22px 22px 24px;
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <svg
+                    class="ic"
+                    aria-hidden="true"
+                    style="font-size: 26px; color: var(--e-edge)"
+                  >
+                    <use href="#i-edge" />
+                  </svg>
+                  <strong style="font-size: 17px; letter-spacing: -0.01em"
+                    >Edge</strong
+                  >
+                </div>
+                <div
+                  style="
+                    margin-top: 14px;
+                    font-family: var(--mono);
+                    font-size: 12px;
+                    color: var(--e-edge);
+                  "
+                >
+                  back to 2021 in a container
+                </div>
+                <p
+                  style="
+                    margin: 10px 0 0;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: var(--ink-2);
+                  "
+                >
+                  Chromium underneath, so not a fifth engine — what it adds is
+                  Edge&rsquo;s own Tracking Prevention defaults and a build
+                  matching the WebView2 runtime Windows kiosks ship.
+                </p>
+                <p
+                  style="
+                    margin: 12px 0 0;
+                    padding-top: 12px;
+                    border-top: 1px solid var(--line);
+                    font-size: 13px;
+                    line-height: 1.6;
+                    color: var(--ink-3);
+                  "
+                >
+                  Microsoft&rsquo;s enterprise feed holds about six months and
+                  gates every file behind a per-file GUID, so natively that is
+                  all mac and Windows can reach. The Linux package pool has kept
+                  every build since 2021, which is what the container uses.
+                </p>
+              </div>
+              <div
+                data-reveal
+                style="
+                  border: 1px solid var(--line);
+                  border-radius: 14px;
+                  background: var(--panel);
+                  padding: 22px 22px 24px;
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <svg
+                    class="ic"
+                    aria-hidden="true"
+                    style="font-size: 26px; color: var(--e-webkit)"
+                  >
+                    <use href="#i-webkit" />
+                  </svg>
+                  <strong style="font-size: 17px; letter-spacing: -0.01em"
+                    >WebKit</strong
+                  >
+                </div>
+                <div
+                  style="
+                    margin-top: 14px;
+                    font-family: var(--mono);
+                    font-size: 12px;
+                    color: var(--e-webkit);
+                  "
+                >
+                  back to 2021
+                </div>
+                <p
+                  style="
+                    margin: 10px 0 0;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: var(--ink-2);
+                  "
+                >
+                  The engine Safari is built on, from Playwright&rsquo;s build
+                  CDN — the closest thing to Safari that can be downloaded.
+                </p>
+                <p
+                  style="
+                    margin: 12px 0 0;
+                    padding-top: 12px;
+                    border-top: 1px solid var(--line);
+                    font-size: 13px;
+                    line-height: 1.6;
+                    color: var(--ink-3);
+                  "
+                >
+                  Not Safari: a minimal shell around the engine, with no Safari
+                  interface or media stack. It catches a CSS property Safari has
+                  not shipped; it will not reproduce anything specific to Safari
+                  itself.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section
           id="shelf"
           style="
+            --e: var(--e-chromium);
             border-top: 1px solid var(--line);
             border-bottom: 1px solid var(--line);
             background: var(--panel-2);
@@ -2706,7 +3089,7 @@
               "
             >
               <svg class="ic" aria-hidden="true"><use href="#i-layers" /></svg
-              ><span>The version shelf</span>
+              ><span>Four shelves, one scrubber</span>
             </div>
             <h2
               data-reveal
@@ -2720,7 +3103,7 @@
                 text-wrap: balance;
               "
             >
-              Every version on the shelf, verified against the live archive.
+              Every version each vendor still publishes.
             </h2>
             <p
               data-reveal
@@ -2732,11 +3115,85 @@
                 color: var(--ink-2);
               "
             >
-              And any other snapshot revision works too. Drag the scrubber, or
-              click a year.
+              How far back a shelf reaches is not a choice anyone made here.
+              Chromium&rsquo;s archive prunes nothing, so every milestone since
+              2017 is on it — and so is any other snapshot revision in between.
+              The other three go back exactly as far as Mozilla, Microsoft and
+              Playwright still host, which is not very far for two of them. Pick
+              an engine, drag the scrubber, or click a year.
             </p>
 
-            <div data-reveal style="margin-top: 46px">
+            <div
+              data-reveal
+              id="engineTabs"
+              role="radiogroup"
+              aria-label="Engine"
+              style="
+                display: flex;
+                flex-wrap: wrap;
+                gap: 9px;
+                margin-top: 30px;
+              "
+            >
+              <button
+                type="button"
+                role="radio"
+                class="eng-tab"
+                data-engine="chromium"
+                aria-checked="true"
+                tabindex="0"
+                style="--e: var(--e-chromium)"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-chromium" /></svg
+                ><span>Chromium</span
+                ><span class="eng-count" data-eng-count></span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                class="eng-tab"
+                data-engine="firefox"
+                aria-checked="false"
+                tabindex="-1"
+                style="--e: var(--e-firefox)"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-firefox" /></svg
+                ><span>Firefox</span
+                ><span class="eng-count" data-eng-count></span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                class="eng-tab"
+                data-engine="edge"
+                aria-checked="false"
+                tabindex="-1"
+                style="--e: var(--e-edge)"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-edge" /></svg
+                ><span>Edge</span
+                ><span class="eng-count" data-eng-count></span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                class="eng-tab"
+                data-engine="webkit"
+                aria-checked="false"
+                tabindex="-1"
+                style="--e: var(--e-webkit)"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-webkit" /></svg
+                ><span>WebKit</span
+                ><span class="eng-count" data-eng-count></span>
+              </button>
+            </div>
+
+            <div data-reveal style="margin-top: 30px">
               <div
                 id="track"
                 tabindex="0"
@@ -2771,7 +3228,7 @@
                     left: 0;
                     top: 20px;
                     height: 2px;
-                    background: var(--accent);
+                    background: var(--e);
                     transition: width 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
                     width: 20%;
                   "
@@ -2798,9 +3255,9 @@
                     height: 20px;
                     margin-left: -10px;
                     border-radius: 50%;
-                    background: var(--accent);
+                    background: var(--e);
                     box-shadow: 0 0 0 6px
-                      color-mix(in srgb, var(--accent) 22%, transparent);
+                      color-mix(in srgb, var(--e) 22%, transparent);
                     transition: left 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
                     pointer-events: none;
                     left: 20%;
@@ -2826,6 +3283,7 @@
 
               <div
                 data-r="two"
+                id="shelfCard"
                 style="
                   display: grid;
                   grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
@@ -2849,7 +3307,8 @@
                       font-variant-numeric: tabular-nums;
                     "
                   >
-                    Chromium <span id="mVer">74</span>
+                    <span id="mEngine">Chromium</span>
+                    <span id="mVer">74</span>
                   </div>
                   <div
                     style="
@@ -2864,8 +3323,10 @@
                     "
                   >
                     <span id="mFull">74.0.3729.0</span>
-                    <span>·</span>
-                    <span>r<span id="mRev">638880</span></span>
+                    <span data-m-sep>·</span>
+                    <!-- Only Chromium is addressed by snapshot revision; for the
+                         others this slot carries the release date instead. -->
+                    <span id="mSecond">r638880</span>
                     <span
                       style="
                         padding: 2px 8px;
@@ -2890,7 +3351,7 @@
                       font-size: 11px;
                       letter-spacing: 0.06em;
                       text-transform: uppercase;
-                      color: var(--accent);
+                      color: var(--e);
                     "
                     id="mYear"
                   >
@@ -2919,7 +3380,7 @@
                       color: var(--ink-2);
                     "
                   >
-                    ./chromium-stack.sh run <span id="mCmd">74</span>
+                    <span id="mCmd">./engineshelf.sh run 74</span>
                   </div>
                 </div>
               </div>
@@ -2961,7 +3422,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3005,7 +3466,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3050,7 +3511,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3096,7 +3557,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3142,7 +3603,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3188,7 +3649,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3331,7 +3792,7 @@
                     font-size: 14px;
                     color: var(--ink);
                   "
-                  >.\chromium-stack.ps1</code
+                  >.\engineshelf.ps1</code
                 >.
               </p>
             </div>
@@ -3391,7 +3852,7 @@
                     font-size: 11.5px;
                     color: var(--ink-3);
                   "
-                  >zsh — Chromium-Stack</span
+                  >zsh — EngineShelf</span
                 >
               </div>
               <div
@@ -3481,9 +3942,8 @@
                 "
               >
                 Runs the Linux x86_64 build in a container and shows its desktop
-                in a tab of your normal browser, over noVNC. It never touches
-                Rosetta, so on Apple Silicon it sidesteps the stack-profiler
-                crash.
+                in a tab of your normal browser, over noVNC. All four engines,
+                the same commands as the native launcher.
               </p>
               <p
                 data-reveal
@@ -3516,39 +3976,35 @@
               "
             >
               <div>
-                <span style="color: var(--ink-3)"
-                  >./chromium-stack-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">start 74</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./chromium-stack-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
+                <span style="color: var(--ink)">start edge:95</span>
+              </div>
+              <div>
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
+                <span style="color: var(--ink)">start firefox:52</span>
+              </div>
+              <div>
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">stop 74</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./chromium-stack-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">logs 74</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./chromium-stack-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">rebuild 74</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./chromium-stack-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">list</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./chromium-stack-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">purge 74</span>
               </div>
               <p
@@ -3556,6 +4012,29 @@
                   margin: 16px 0 0;
                   padding-top: 16px;
                   border-top: 1px solid var(--line);
+                  font-family: var(--sans);
+                  font-size: 13.5px;
+                  line-height: 1.6;
+                  color: var(--ink-3);
+                "
+              >
+                <strong style="color: var(--ink-2); font-weight: 600"
+                  >Why it earns its gigabyte differs per engine.</strong
+                >
+                For Chromium it never touches Rosetta, so on Apple Silicon it
+                sidesteps both the stack-profiler crash and the startup abort
+                that stops the oldest milestones reaching a window at all — and
+                it now covers every milestone on the shelf, not only the ones
+                catalogued by hand. For Edge it is the only
+                route to an old build at all — the feed that serves mac and
+                Windows holds about six months, while the Linux package pool has
+                kept every build since 2021. For WebKit, Playwright deleted the
+                older macOS archives and never published some; the Linux ones
+                are still there.
+              </p>
+              <p
+                style="
+                  margin: 12px 0 0;
                   font-family: var(--sans);
                   font-size: 13.5px;
                   line-height: 1.6;
@@ -3668,7 +4147,7 @@
                   letter-spacing: -0.015em;
                 "
               >
-                ChromiumStack
+                EngineShelf
               </div>
               <div
                 id="dlMeta"
@@ -3685,7 +4164,7 @@
             <a
               id="dlBtn"
               class="hv-cta"
-              href="https://github.com/1m93/Chromium-Stack/releases/latest"
+              href="https://github.com/1m93/EngineShelf/releases/latest"
               target="_blank"
               rel="noopener noreferrer"
               style="
@@ -3737,7 +4216,7 @@
             <a
               data-os="mac"
               data-reveal
-              href="https://github.com/1m93/Chromium-Stack/releases/latest"
+              href="https://github.com/1m93/EngineShelf/releases/latest"
               target="_blank"
               rel="noopener noreferrer"
               style="
@@ -3811,14 +4290,14 @@
               >
                 Unzip → double-click
                 <strong style="color: var(--ink); font-weight: 600"
-                  >ChromiumStack.app</strong
+                  >EngineShelf.app</strong
                 >
               </p>
             </a>
             <a
               data-os="win"
               data-reveal
-              href="https://github.com/1m93/Chromium-Stack/releases/latest"
+              href="https://github.com/1m93/EngineShelf/releases/latest"
               target="_blank"
               rel="noopener noreferrer"
               style="
@@ -3892,14 +4371,14 @@
               >
                 Unzip → double-click
                 <strong style="color: var(--ink); font-weight: 600"
-                  >ChromiumStack.bat</strong
+                  >EngineShelf.bat</strong
                 >
               </p>
             </a>
             <a
               data-os="linux"
               data-reveal
-              href="https://github.com/1m93/Chromium-Stack/releases/latest"
+              href="https://github.com/1m93/EngineShelf/releases/latest"
               target="_blank"
               rel="noopener noreferrer"
               style="
@@ -3973,7 +4452,7 @@
               >
                 Extract → run
                 <strong style="color: var(--ink); font-weight: 600"
-                  >./ChromiumStack</strong
+                  >./EngineShelf</strong
                 >
               </p>
             </a>
@@ -4011,12 +4490,12 @@
             >
               Need an older build, the changelog or the checksums?
               <span style="color: var(--ink-3)"
-                >Every version ChromiumStack has shipped stays available.</span
+                >Every version EngineShelf has shipped stays available.</span
               >
             </div>
             <a
               class="hv-ghost"
-              href="https://github.com/1m93/Chromium-Stack/releases"
+              href="https://github.com/1m93/EngineShelf/releases"
               target="_blank"
               rel="noopener noreferrer"
               style="
@@ -4298,7 +4777,11 @@
                   Chromium's stack sampling profiler occasionally segfaults
                   under Rosetta and there is no switch to turn it off, so the
                   launcher relaunches the browser and lets Chromium restore your
-                  tabs, up to 5 times. Use
+                  tabs, up to 5 times. A build that never reaches a window is
+                  the other case and is not retried: the oldest milestones now
+                  abort in their first second against this year's system
+                  allocator, so the shelf records that, says so on the row, and
+                  offers the container instead. Use
                   <code
                     style="
                       font-family: var(--mono);
@@ -4626,7 +5109,7 @@
             style="border-radius: 11px"
           />
           <div style="flex: 1; min-width: 220px">
-            <div style="font-size: 14.5px; font-weight: 620">ChromiumStack</div>
+            <div style="font-size: 14.5px; font-weight: 620">EngineShelf</div>
             <p
               style="
                 margin: 6px 0 0;
@@ -4653,7 +5136,7 @@
             </p>
           </div>
           <a
-            href="https://github.com/1m93/Chromium-Stack"
+            href="https://github.com/1m93/EngineShelf"
             target="_blank"
             rel="noopener noreferrer"
             style="
@@ -4854,6 +5337,215 @@
         ];
         /* seed:end */
 
+        /* shelf:begin - regenerated by tools/sync-landing.py from catalog.tsv */
+        const SHELF = {
+          firefox: [
+            '51.0|51|2017-01-24',
+            '52.0|52|2017-03-07',
+            '53.0|53|2017-04-19',
+            '54.0|54|2017-06-13',
+            '55.0|55|2017-08-08',
+            '56.0|56|2017-09-28',
+            '57.0|57|2017-11-14',
+            '58.0|58|2018-01-23',
+            '59.0|59|2018-03-13',
+            '60.0|60|2018-05-09',
+            '61.0|61|2018-06-26',
+            '62.0|62|2018-09-05',
+            '63.0|63|2018-10-23',
+            '64.0|64|2018-12-11',
+            '65.0|65|2019-01-29',
+            '66.0|66|2019-03-19',
+            '67.0|67|2019-05-21',
+            '68.0|68|2019-07-09',
+            '69.0|69|2019-09-03',
+            '70.0|70|2019-10-22',
+            '71.0|71|2019-12-03',
+            '72.0|72|2020-01-07',
+            '73.0|73|2020-02-11',
+            '74.0|74|2020-03-10',
+            '75.0|75|2020-04-07',
+            '76.0|76|2020-05-05',
+            '77.0|77|2020-06-02',
+            '78.0|78|2020-06-30',
+            '79.0|79|2020-07-28',
+            '80.0|80|2020-08-25',
+            '81.0|81|2020-09-22',
+            '82.0|82|2020-10-20',
+            '83.0|83|2020-11-17',
+            '84.0|84|2020-12-15',
+            '85.0|85|2021-01-26',
+            '86.0|86|2021-02-23',
+            '87.0|87|2021-03-23',
+            '88.0|88|2021-04-19',
+            '89.0|89|2021-06-01',
+            '90.0|90|2021-07-13',
+            '91.0|91|2021-08-10',
+            '92.0|92|2021-09-07',
+            '93.0|93|2021-10-05',
+            '94.0|94|2021-11-02',
+            '95.0|95|2021-12-07',
+            '96.0|96|2022-01-11',
+            '97.0|97|2022-02-08',
+            '98.0|98|2022-03-08',
+            '99.0|99|2022-04-05',
+            '100.0|100|2022-05-03',
+            '101.0|101|2022-05-31',
+            '102.0|102|2022-06-28',
+            '103.0|103|2022-07-26',
+            '104.0|104|2022-08-23',
+            '105.0|105|2022-09-20',
+            '106.0|106|2022-10-18',
+            '107.0|107|2022-11-15',
+            '108.0|108|2022-12-13',
+            '109.0|109|2023-01-17',
+            '110.0|110|2023-02-14',
+            '111.0|111|2023-03-14',
+            '112.0|112|2023-04-11',
+            '113.0|113|2023-05-09',
+            '114.0|114|2023-06-06',
+            '115.0|115|2023-07-04',
+            '116.0|116|2023-08-01',
+            '117.0|117|2023-08-29',
+            '118.0|118|2023-09-26',
+            '119.0|119|2023-10-24',
+            '120.0|120|2023-11-21',
+            '121.0|121|2023-12-19',
+            '122.0|122|2024-01-23',
+            '123.0|123|2024-02-20',
+            '124.0|124|2024-03-19',
+            '125.0.1|125|2024-04-16',
+            '126.0|126|2024-05-14',
+            '127.0|127|2024-06-11',
+            '128.0|128|2024-07-09',
+            '129.0|129|2024-08-06',
+            '130.0|130|2024-09-03',
+            '131.0|131|2024-10-01',
+            '132.0|132|2024-10-29',
+            '133.0|133|2024-11-26',
+            '134.0|134|2025-01-07',
+            '135.0|135|2025-02-04',
+            '136.0|136|2025-03-04',
+            '137.0|137|2025-04-01',
+            '138.0|138|2025-04-29',
+            '139.0|139|2025-05-27',
+            '140.0|140|2025-06-24',
+            '141.0|141|2025-07-22',
+            '142.0|142|2025-08-19',
+            '143.0|143|2025-09-16',
+            '144.0|144|2025-10-14',
+            '145.0|145|2025-11-11',
+            '146.0|146|2025-12-09',
+            '147.0|147|2026-01-13',
+            '148.0|148|2026-02-24',
+            '149.0|149|2026-03-24',
+            '150.0|150|2026-04-21',
+            '151.0|151|2026-05-19',
+            '152.0|152|2026-06-16',
+            '153.0|153|2026-07-21',
+            '154.0|154|2026-08-18',
+          ],
+          edge: [
+            '95.0.1020.40|95|2021-10-19',
+            '114.0.1823.82|114|2023-05-30',
+            '115.0.1901.203|115|2023-07-18',
+            '116.0.1938.81|116|2023-08-15',
+            '117.0.2045.55|117|2023-09-12',
+            '118.0.2088.76|118|2023-10-10',
+            '119.0.2151.97|119|2023-10-31',
+            '120.0.2210.144|120|2023-12-05',
+            '121.0.2277.128|121|2024-01-23',
+            '122.0.2365.92|122|2024-02-20',
+            '123.0.2420.97|123|2024-03-19',
+            '124.0.2478.109|124|2024-04-16',
+            '125.0.2535.92|125|2024-05-14',
+            '126.0.2592.113|126|2024-06-11',
+            '127.0.2651.105|127|2024-07-23',
+            '128.0.2739.79|128|2024-08-20',
+            '129.0.2792.89|129|2024-09-17',
+            '130.0.2849.80|130|2024-10-15',
+            '131.0.2903.147|131|2024-11-12',
+            '132.0.2957.140|132|2025-01-14',
+            '133.0.3065.92|133|2025-02-04',
+            '134.0.3124.95|134|2025-03-04',
+            '135.0.3179.98|135|2025-04-01',
+            '136.0.3240.92|136|2025-04-29',
+            '137.0.3296.93|137|2025-05-27',
+            '138.0.3351.121|138|2025-06-24',
+            '139.0.3405.125|139|2025-08-05',
+            '140.0.3485.94|140|2025-09-02',
+            '141.0.3537.99|141|2025-09-30',
+            '142.0.3595.94|142|2025-10-28',
+            '143.0.3650.139|143|2025-12-02',
+            '144.0.3719.115|144|2026-01-13',
+            '145.0.3800.97|145|2026-02-10',
+            '146.0.3856.97|146|2026-03-10',
+            '147.0.3912.98|147|2026-04-07',
+            '148.0.3967.96|148|2026-05-05',
+            '149.0.4022.98|149|2026-06-02',
+            '150.0.4078.105|150|2026-06-30',
+            '151.0.4129.107|151|2026-07-28',
+          ],
+          webkit: [
+            '1446|r1446|2021-03-24',
+            '1472|r1472|2021-05-20',
+            '1492|r1492|2021-06-26',
+            '1516|r1516|2021-07-29',
+            '1530|r1530|2021-08-24',
+            '1550|r1550|2021-10-05',
+            '1564|r1564|2021-11-02',
+            '1578|r1578|2022-01-10',
+            '1596|r1596|2022-01-27',
+            '1609|r1609|2022-02-24',
+            '1616|r1616|2022-04-01',
+            '1630|r1630|2022-04-18',
+            '1641|15.4|2022-05-21',
+            '1668|15.4|2022-07-16',
+            '1683|16.0|2022-07-29',
+            '1699|16.0|2022-09-07',
+            '1715|16.0|2022-09-27',
+            '1724|16.0|2022-10-12',
+            '1735|16.4|2022-11-23',
+            '1751|16.4|2023-01-06',
+            '1767|16.4|2023-01-25',
+            '1792|16.4|2023-03-02',
+            '1811|16.4|2023-04-11',
+            '1837|16.4|2023-04-27',
+            '1848|16.4|2023-05-25',
+            '1860|16.4|2023-06-15',
+            '1869|17.0|2023-07-25',
+            '1883|17.0|2023-08-17',
+            '1908|17.0|2023-09-21',
+            '1921|17.4|2023-10-11',
+            '1944|17.4|2023-11-28',
+            '1967|17.4|2024-02-01',
+            '1983|17.4|2024-03-02',
+            '1992|17.4|2024-04-12',
+            '2003|17.4|2024-05-23',
+            '2035|17.4|2024-07-22',
+            '2051|18.0|2024-08-16',
+            '2070|18.0|2024-09-20',
+            '2083|18.0|2024-10-25',
+            '2104|18.2|2024-12-10',
+            '2123|18.2|2025-01-31',
+            '2140|18.4|2025-03-17',
+            '2158|18.4|2025-04-17',
+            '2182|18.5|2025-06-30',
+            '2191|26.0|2025-08-01',
+            '2203|26.0|2025-09-23',
+            '2215|26.0|2025-10-17',
+            '2227|26.0|2025-11-25',
+            '2248|26.0|2026-02-06',
+            '2272|26.4|2026-04-01',
+            '2287|26.4|2026-05-11',
+            '2311|26.5|2026-06-23',
+            '2336|26.5|2026-07-30',
+          ],
+        };
+        // The manager prints this same number, so the two must come from one place.
+        const SHELF_TOTAL = 288;
+        /* shelf:end */
+
         /* ---------- catalogue: seed, cache, revalidate ----------
      SEED is what shipped with this page. Chrome branches a new milestone about
      every four weeks, so the page also asks the same public sources the CLI uses
@@ -4864,7 +5556,7 @@
      built - the nearest position at or after the branch point, which is often
      tens of commits later. That is a handful of requests, so it happens in the
      background after first paint and only for milestones not already known. */
-        const CACHE_KEY = 'chromiumstack:catalog:v2';
+        const CACHE_KEY = 'engineshelf:catalog:v2';
         const CACHE_TTL = 216e5; // 6h before bothering to revalidate
         const DASH = 'https://chromiumdash.appspot.com';
         const GCS =
@@ -5000,26 +5692,51 @@
           writeCache(MS);
         }
 
+        /* Copied from what these commands actually print, not written to look
+           like it. The previous set was invented - "Launching Chromium 74",
+           "74  r638880  142 MB" - and none of it matched a real run, which is
+           the sort of thing someone notices the first time they try it. */
         const CLI = [
           {
-            cmd: './chromium-stack.sh catalog',
-            out: 'Available Chromium versions (host: Mac_Arm)',
+            cmd: './engineshelf.sh catalog',
+            out:
+              'Available versions (host: Mac_Arm)\n\n' +
+              'Firefox  104 releases, 2017 - 2026\n' +
+              '  2026    154  153  152  151  150  149  148  147',
           },
           {
-            cmd: './chromium-stack.sh run 74',
-            out: 'Downloading r638880 — 142 MB\nLaunching Chromium 74',
+            cmd: './engineshelf.sh run firefox:115',
+            out:
+              'Downloading Firefox 115.0 (mac, one time only)\n' +
+              'Extracting...\n' +
+              'v Firefox 115.0 ready.\n\n' +
+              '  > Firefox 115.0 (mac)',
           },
           {
-            cmd: './chromium-stack.sh run 120 localhost:4173',
-            out: 'Launching Chromium 120 → localhost:4173',
+            cmd: './engineshelf.sh run 120 localhost:4173',
+            out:
+              '  > Chromium 120.0.6099.0 (Mac_Arm)\n' +
+              '  > http://localhost:4173',
           },
           {
-            cmd: './chromium-stack.sh list',
-            out: '74   r638880    142 MB  +18 MB profile\n120  r1217378   168 MB   +6 MB profile',
+            cmd: './engineshelf.sh list',
+            out:
+              'Chromium  120.0.6099.0   Mac_Arm        272 MB browser   16 MB profile\n' +
+              'Firefox   115.0          mac            359 MB browser   29 MB profile\n' +
+              'WebKit    26.5           mac-26-arm64   294 MB browser    0 MB profile',
           },
           {
-            cmd: './chromium-stack.sh doctor',
-            out: 'curl ok · unzip ok · python3 ok · rosetta ok',
+            cmd: './engineshelf-docker.sh start edge:95',
+            out:
+              'Edge 95.0.1020.40 in Docker (Linux x86_64 95.0.1020.40)\n\n' +
+              '  > http://localhost:6080/vnc.html?autoconnect=1&resize=scale',
+          },
+          {
+            cmd: './engineshelf.sh doctor',
+            out:
+              '  curl        ok           required\n' +
+              '  Python 3    ok           recommended\n' +
+              '  Docker      ok           optional',
           },
         ];
 
@@ -5092,14 +5809,25 @@
         /* ---------- hero counters ---------- */
         // Read off the catalogue rather than written down, so they cannot contradict
         // the shelf below once a newly released milestone arrives.
+        // Only Chromium's list can grow after load, so the other three shelves
+        // are measured once.
+        const SHELF_YEARS = Object.values(SHELF).flatMap((rows) =>
+          rows.map((row) => +row.split('|')[2].slice(0, 4)),
+        );
         const statTargets = () => {
-          const years = MS.map((m) => +m.year).filter(Boolean);
+          const years = MS.map((m) => +m.year)
+            .concat(SHELF_YEARS)
+            .filter(Boolean);
           return {
-            statM: MS.length,
+            // SHELF_TOTAL is what discover.py catalogued; anything the page has
+            // resolved for itself since then is on the shelf too, and the count
+            // has to say so or it contradicts the scrubber below.
+            statM: SHELF_TOTAL + Math.max(0, MS.length - SEED.length),
             statY: years.length
               ? Math.max(...years) - Math.min(...years) + 1
               : 8,
-            statV: +MS[MS.length - 1].v,
+            // SHELF holds the three engines that are not Chromium.
+            statV: 1 + Object.keys(SHELF).length,
           };
         };
         // Targets are re-read every frame rather than captured when the count-up
@@ -5134,33 +5862,149 @@
           requestAnimationFrame(step);
         }
 
+        /* ---------- the shelf: four engines, one scrubber ----------
+     Chromium is the only engine with a per-release story worth telling, so it
+     keeps the shape it always had: milestone, full version, snapshot revision,
+     and an editorial note. The other three come off the S rows discover.py
+     writes, which carry an id, a published label and a release date and nothing
+     else - so their note is the one thing that is always true and never guessed:
+     when the vendor shipped it.
+
+     Everything below works on `list`, whichever engine that currently is. */
+        const NATIVE = './engineshelf.sh run ';
+        const CONTAINER = './engineshelf-docker.sh start ';
+        const MONTH = 2629800000;
+
+        // Microsoft's enterprise feed holds roughly the last half-year and drops
+        // everything behind it, so for an older Edge the honest command is the
+        // container one - the Linux package pool is what still has that build.
+        // Read off the release date rather than a milestone number, so it keeps
+        // being right without anybody editing it.
+        const edgeIsGone = (e) => Date.now() - Date.parse(e.date) > 7 * MONTH;
+
+        const ENGINE_META = {
+          chromium: {
+            name: 'Chromium',
+            tint: 'var(--e-chromium)',
+            // Chromium is the bare number to the CLI; everything else is prefixed,
+            // because "115" alone would mean three different things.
+            cmd: (e) => NATIVE + e.v,
+            plat: (e) => e.plat,
+          },
+          firefox: {
+            name: 'Firefox',
+            tint: 'var(--e-firefox)',
+            cmd: (e) => NATIVE + 'firefox:' + e.v,
+            plat: () => 'macOS · Windows · Linux',
+          },
+          edge: {
+            name: 'Edge',
+            tint: 'var(--e-edge)',
+            cmd: (e) => (edgeIsGone(e) ? CONTAINER : NATIVE) + 'edge:' + e.v,
+            plat: (e) =>
+              edgeIsGone(e) ? 'Linux build, in a container' : 'macOS · Windows',
+          },
+          webkit: {
+            name: 'WebKit',
+            tint: 'var(--e-webkit)',
+            // Two WebKit builds can share a published name, so the revision is
+            // what the CLI is given - it is the only unambiguous handle.
+            cmd: (e) => NATIVE + 'webkit:' + e.id,
+            plat: () => 'Playwright build CDN',
+          },
+        };
+
+        // 'id|label|date' -> the same shape SEED already has, so one renderer
+        // covers all four. The year is read off the date rather than stored
+        // twice, and the note is the date spelt out.
+        const DATE_FMT = new Intl.DateTimeFormat('en-GB', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        });
+        const spellDate = (iso) => {
+          const d = new Date(iso + 'T00:00:00Z');
+          return isNaN(d) ? iso : DATE_FMT.format(d);
+        };
+        const unpack = (engine, row) => {
+          const [id, label, date] = row.split('|');
+          return {
+            engine,
+            id,
+            date,
+            v: label,
+            // Whatever the engine, this slot only earns its place when it says
+            // something the headline does not. WebKit's id is a Playwright
+            // revision rather than a version, so it is written as one - and
+            // dropped when the build has no published name and the headline is
+            // already showing that revision.
+            full:
+              engine === 'webkit'
+                ? label === 'r' + id
+                  ? ''
+                  : 'r' + id
+                : id === label
+                  ? ''
+                  : id,
+            second: spellDate(date),
+            year: date.slice(0, 4),
+            note: 'Released ' + spellDate(date) + '.',
+          };
+        };
+
+        const shelfFor = (engine) =>
+          engine === 'chromium'
+            ? MS.map((m) => ({
+                engine: 'chromium',
+                id: m.v,
+                v: m.v,
+                full: m.full,
+                second: 'r' + m.rev,
+                plat: m.plat,
+                year: m.year,
+                note: m.note,
+              }))
+            : (SHELF[engine] || []).map((row) => unpack(engine, row));
+
         /* ---------- version scrubber ---------- */
         const track = $('track'),
           cursor = $('cursor'),
-          progress = $('progress');
-        let idx = 3,
+          progress = $('progress'),
+          shelfSection = $('shelf');
+        let engine = 'chromium',
+          list = [],
+          idx = 3,
           dragging = false;
 
         function render() {
-          const m = MS[idx];
-          const pct = (idx / (MS.length - 1)) * 100 + '%';
+          const m = list[idx];
+          if (!m) return;
+          const meta = ENGINE_META[engine];
+          const pct = (idx / Math.max(1, list.length - 1)) * 100 + '%';
           cursor.style.left = pct;
           progress.style.width = pct;
+          $('mEngine').textContent = meta.name;
           $('mVer').textContent = m.v;
-          $('mCmd').textContent = m.v;
+          $('mCmd').textContent = meta.cmd(m);
           $('mFull').textContent = m.full;
-          $('mRev').textContent = m.rev;
-          $('mPlat').textContent = m.plat;
+          $('mSecond').textContent = m.second;
+          $('mPlat').textContent = meta.plat(m);
           $('mYear').textContent = m.year;
           $('mNote').textContent = m.note;
+          // Firefox publishes 115.0 as "115"; printing both would just be the
+          // same number twice with a dot in it.
+          document
+            .querySelectorAll('[data-m-sep]')
+            .forEach((el) => (el.hidden = !m.full));
+          $('mFull').hidden = !m.full;
           track.setAttribute('aria-valuenow', String(idx));
-          track.setAttribute('aria-valuetext', 'Chromium ' + m.v);
+          track.setAttribute('aria-valuetext', meta.name + ' ' + m.v);
         }
 
         function setFromX(clientX) {
           const r = track.getBoundingClientRect();
           const p = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-          idx = Math.round(p * (MS.length - 1));
+          idx = Math.round(p * (list.length - 1));
           render();
         }
 
@@ -5186,51 +6030,125 @@
                 : 0;
           if (!d) return;
           e.preventDefault();
-          idx = Math.min(MS.length - 1, Math.max(0, idx + d));
+          idx = Math.min(list.length - 1, Math.max(0, idx + d));
           render();
         });
 
         /* ---------- era grid ----------
-     The cards are editorial: each names a milestone because something specific
-     lands there, and no generator can write that. But the catalogue keeps
-     growing past the last one anybody has written about, so whatever none of
-     them mention gets a card of its own at the end. The boundary is read off
+     Chromium's cards are editorial: each names a milestone because something
+     specific lands there, and no generator can write that. But the catalogue
+     keeps growing past the last one anybody has written about, so whatever none
+     of them mention gets a card of its own at the end. The boundary is read off
      the cards themselves rather than written down, so adding a hand-written
-     card automatically shrinks the generated one. */
+     card automatically shrinks the generated one.
+
+     The other three have no such story - what they have is a release cadence,
+     so their cards are one year each. Same grid, same shelf, honestly labelled. */
         const eraGrid = $('eraGrid');
         const eraTemplate = eraGrid && eraGrid.lastElementChild.cloneNode(true);
+        const eraEditorial = eraGrid ? [...eraGrid.children] : [];
 
-        function renderEraTail() {
+        // Every version printed on a card jumps the scrubber to it. The copy above
+        // promises exactly this, so it cannot be decoration.
+        function makeVersions(el, entries) {
+          el.replaceChildren(
+            ...entries.flatMap((entry, i) => {
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = 'era-jump';
+              button.textContent = entry.v;
+              button.setAttribute(
+                'aria-label',
+                ENGINE_META[engine].name + ' ' + entry.v,
+              );
+              button.addEventListener('click', () => {
+                idx = list.indexOf(entry);
+                render();
+                $('shelfCard').scrollIntoView({
+                  block: 'nearest',
+                  behavior: reduced ? 'auto' : 'smooth',
+                });
+              });
+              return i ? [document.createTextNode(' · '), button] : [button];
+            }),
+          );
+        }
+
+        function eraCard(title, entries, note) {
+          const card = eraTemplate.cloneNode(true);
+          card.setAttribute('data-reveal', 'in'); // the observer has long since run
+          const [era, versions, text] = card.children;
+          era.textContent = title;
+          versions.removeAttribute('data-era-versions'); // generated, not editorial
+          makeVersions(versions, entries);
+          text.textContent = note;
+          return card;
+        }
+
+        function renderEras() {
           if (!eraGrid || !eraTemplate) return;
-          const named = new Set();
-          eraGrid
-            .querySelectorAll('[data-era-versions]')
-            .forEach((el) =>
-              el.textContent.split('·').forEach((t) => named.add(t.trim())),
+
+          if (engine !== 'chromium') {
+            const years = [];
+            list.forEach((entry) => {
+              const bucket = years.find((y) => y.year === entry.year);
+              if (bucket) bucket.entries.push(entry);
+              else years.push({ year: entry.year, entries: [entry] });
+            });
+            eraGrid.replaceChildren(
+              ...years.map((y) => {
+                // Playwright pins several revisions to one published WebKit name,
+                // so a year of them would read "16.4 · 16.4 · 16.4". Name each
+                // version once, pointing at the newest build that carries it, and
+                // let the note keep the difference honest.
+                const named = [];
+                y.entries.forEach((entry) => {
+                  const at = named.findIndex((e) => e.v === entry.v);
+                  if (at >= 0) named[at] = entry;
+                  else named.push(entry);
+                });
+                const builds =
+                  y.entries.length === 1
+                    ? 'One build'
+                    : y.entries.length + ' builds';
+                return eraCard(
+                  y.year,
+                  named,
+                  named.length === y.entries.length
+                    ? builds + ' catalogued this year.'
+                    : builds + ' this year, under ' + named.length + ' names.',
+                );
+              }),
             );
+            return;
+          }
 
-          const existing = $('eraTail');
-          if (existing) existing.remove();
+          eraGrid.replaceChildren(...eraEditorial);
+          const named = new Set();
+          eraGrid.querySelectorAll('[data-era-versions]').forEach((el) => {
+            const versions = el.textContent.split('·').map((t) => t.trim());
+            versions.forEach((v) => named.add(v));
+            makeVersions(
+              el,
+              versions.map((v) => list.find((m) => m.v === v)).filter(Boolean),
+            );
+          });
 
-          const rest = MS.filter((m) => !named.has(m.v));
+          const rest = list.filter((m) => !named.has(m.v));
           if (!rest.length) return;
-
           const years = rest.map((m) => m.year).filter(Boolean);
           const first = years[0],
             last = years[years.length - 1];
-          const card = eraTemplate.cloneNode(true);
+          const card = eraCard(
+            !years.length
+              ? 'Newer'
+              : first === last
+                ? first
+                : first + '–' + last,
+            rest,
+            'Added on the same spacing as Chrome releases them.',
+          );
           card.id = 'eraTail';
-          card.setAttribute('data-reveal', 'in'); // the observer has long since run
-          const [era, versions, note] = card.children;
-          era.textContent = !years.length
-            ? 'Newer'
-            : first === last
-              ? first
-              : first + '–' + last;
-          versions.textContent = rest.map((m) => m.v).join(' · ');
-          versions.removeAttribute('data-era-versions'); // generated, not editorial
-          note.textContent =
-            'Added on the same spacing as Chrome releases them.';
           eraGrid.appendChild(card);
         }
 
@@ -5238,50 +6156,144 @@
           tickLabels = $('tickLabels');
         function renderTicks() {
           tickMarks.replaceChildren(
-            ...MS.map(() => {
+            ...list.map(() => {
               const tick = document.createElement('span');
               tick.style.cssText =
                 'width:2px;height:14px;background:var(--line)';
               return tick;
             }),
           );
-          // Every milestone gets a mark, but past sixteen or so the labels start
-          // colliding on a narrow screen, so only every nth is written out.
-          const step = Math.ceil(MS.length / 16);
+          // Every release gets a mark, but past sixteen or so the labels start
+          // colliding on a narrow screen, so only every nth is written out - and
+          // never the same one twice running, which is what an axis of WebKit
+          // builds would otherwise be.
+          const step = Math.ceil(list.length / 16);
+          let printed = null;
           tickLabels.replaceChildren(
-            ...MS.map((m, i) => {
+            ...list.map((m, i) => {
               const label = document.createElement('span');
-              label.textContent =
-                i % step === 0 || i === MS.length - 1 ? m.v : '';
+              const due = i % step === 0 || i === list.length - 1;
+              if (due && m.v !== printed) {
+                label.textContent = m.v;
+                printed = m.v;
+              }
               return label;
             }),
           );
         }
 
-        function setMilestones(list) {
-          MS = list;
-          track.setAttribute('aria-valuemax', String(MS.length - 1));
+        /* ---------- engine tabs ---------- */
+        const engineTabs = [
+          ...document.querySelectorAll('#engineTabs [data-engine]'),
+        ];
+
+        // shelfFor builds fresh objects every time, so what is held across a
+        // repaint is the id, never the object.
+        function paintShelf(keepPosition) {
+          const previous = keepPosition && list[idx] ? list[idx].id : null;
+          list = shelfFor(engine);
+          if (!list.length) return;
+          const meta = ENGINE_META[engine];
+          shelfSection.style.setProperty('--e', meta.tint);
+          track.setAttribute('aria-label', meta.name + ' release');
+          track.setAttribute('aria-valuemax', String(list.length - 1));
+          const at = previous
+            ? list.findIndex((entry) => entry.id === previous)
+            : -1;
+          // A newly picked engine opens on its newest build - the one somebody is
+          // most likely to be checking something against.
+          idx =
+            at >= 0
+              ? at
+              : keepPosition
+                ? Math.min(idx, list.length - 1)
+                : list.length - 1;
           renderTicks();
-          idx = Math.min(idx, MS.length - 1);
-          renderEraTail();
-          const mock = $('mockVer');
-          if (mock) mock.textContent = 'Chromium ' + MS[MS.length - 1].v;
+          renderEras();
           render();
+        }
+
+        function setEngine(next, focus) {
+          if (!ENGINE_META[next]) return;
+          engine = next;
+          engineTabs.forEach((tab) => {
+            const on = tab.dataset.engine === next;
+            tab.setAttribute('aria-checked', String(on));
+            // Roving tabindex: a radio group is one stop, and the arrows move
+            // inside it.
+            tab.tabIndex = on ? 0 : -1;
+            if (on && focus) tab.focus();
+          });
+          paintShelf(false);
+        }
+
+        engineTabs.forEach((tab, i) => {
+          const count = tab.querySelector('[data-eng-count]');
+          if (count) {
+            const n =
+              tab.dataset.engine === 'chromium'
+                ? SEED.length
+                : (SHELF[tab.dataset.engine] || []).length;
+            count.textContent = n ? String(n) : '';
+          }
+          tab.addEventListener('click', () => setEngine(tab.dataset.engine));
+          tab.addEventListener('keydown', (e) => {
+            const d =
+              e.key === 'ArrowRight' || e.key === 'ArrowDown'
+                ? 1
+                : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+                  ? -1
+                  : 0;
+            if (!d) return;
+            e.preventDefault();
+            const at = (i + d + engineTabs.length) % engineTabs.length;
+            setEngine(engineTabs[at].dataset.engine, true);
+          });
+        });
+
+        // The four windows in the hero name the newest build of each engine, off
+        // the same catalogue the scrubber reads. Nothing there is written down,
+        // so nothing there can go stale while the shelf below moves on.
+        const deckLabel = (id, engine) => {
+          const el = $(id);
+          if (!el) return;
+          const shelf = shelfFor(engine);
+          if (!shelf.length) return;
+          const newest = shelf[shelf.length - 1];
+          el.textContent = ENGINE_META[engine].name + ' ' + newest.v;
+        };
+
+        function setMilestones(ms) {
+          MS = ms;
+          deckLabel('mockVer', 'chromium');
+          // Only the Chromium shelf can have grown; the others are whatever
+          // discover.py last catalogued and nothing here changes them.
+          if (engine === 'chromium') paintShelf(true);
+          const tab = engineTabs.find((t) => t.dataset.engine === 'chromium');
+          const count = tab && tab.querySelector('[data-eng-count]');
+          if (count) count.textContent = String(MS.length);
           syncStats();
         }
+
+        deckLabel('mockFirefox', 'firefox');
+        deckLabel('mockEdge', 'edge');
+        deckLabel('mockWebkit', 'webkit');
 
         // Paint from whatever the last visit learned, then look for more. A fetch that
         // fails, is blocked, or is simply offline changes nothing on screen: the cached
         // list still stands, and the seed stands behind that.
         const cached = readCache();
-        setMilestones(cached ? cached.ms : SEED);
+        MS = cached ? cached.ms : SEED;
+        list = shelfFor(engine);
+        idx = Math.min(3, list.length - 1); // where the shelf has always opened
+        setMilestones(MS);
         if (!cached || Date.now() - cached.at > CACHE_TTL)
           revalidate().catch(() => {});
 
         if (!reduced) {
           setInterval(() => {
             if (dragging || document.hidden) return;
-            idx = (idx + 1) % MS.length;
+            idx = (idx + 1) % list.length;
             render();
           }, 2300);
         }
@@ -5335,7 +6347,7 @@
         onScroll();
 
         /* ---------- download: detect platform, resolve the latest release asset ---------- */
-        const REPO = '1m93/Chromium-Stack';
+        const REPO = '1m93/EngineShelf';
         const RELEASES = 'https://github.com/' + REPO + '/releases/latest';
         const OS_NAME = { mac: 'macOS', win: 'Windows', linux: 'Linux' };
         const PLATFORM = {
@@ -5374,7 +6386,7 @@
           heroBtnText = $('heroBtnText');
 
         if (os && cards[os]) {
-          dlName.textContent = 'ChromiumStack for ' + OS_NAME[os];
+          dlName.textContent = 'EngineShelf for ' + OS_NAME[os];
           dlBtnText.textContent = 'Download for ' + OS_NAME[os];
           if (heroBtnText)
             heroBtnText.textContent = 'Download for ' + OS_NAME[os];

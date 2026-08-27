@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>              <string>EngineShelf</string>
+  <key>CFBundleDisplayName</key>       <string>EngineShelf</string>
+  <key>CFBundleIdentifier</key>        <string>local.engineshelf.manager</string>
+  <key>CFBundleVersion</key>           <string>2.0</string>
+  <key>CFBundleShortVersionString</key><string>2.0</string>
+  <key>CFBundlePackageType</key>       <string>APPL</string>
+  <key>CFBundleExecutable</key>        <string>EngineShelf</string>
+  <key>CFBundleIconFile</key>          <string>AppIcon</string>
+  <key>NSHighResolutionCapable</key>   <true/>
+  <!-- The window is a WKWebView pointed at the manager, which serves plain HTTP
+       on 127.0.0.1 and nothing else. Loopback is the only exception this asks
+       for; no other host is reachable from the page. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key> <true/>
+  </dict>
+  <key>LSMinimumSystemVersion</key>    <string>10.13</string>
+  <!-- Shown in the macOS permission prompt when the app lives under ~/Documents,
+       ~/Desktop or ~/Downloads, which are TCC-protected. -->
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>EngineShelf reads its own launcher scripts and catalog from the folder it is in.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>EngineShelf reads its own launcher scripts and catalog from the folder it is in.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>EngineShelf reads its own launcher scripts and catalog from the folder it is in.</string>
+</dict>
+</plist>

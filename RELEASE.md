@@ -14,9 +14,9 @@ tools/release.sh --ps-heavy      # heavy-obfuscate PowerShell too (see below)
 
 | File | What it is | How the user opens it |
 |---|---|---|
-| `ChromiumStack-<ver>-macOS.zip` | A single self-contained `ChromiumStack.app`, everything sealed inside it | Unzip, double-click (optionally drag to **Applications**) |
-| `ChromiumStack-<ver>-Windows.zip` | `ChromiumStack.bat` + `Create-Shortcut.ps1` + `icon.ico`, with the real scripts tucked into `app\` | Unzip, double-click `ChromiumStack.bat` |
-| `ChromiumStack-<ver>-Linux.tar.gz` | A `chromium-stack/` folder with a `./ChromiumStack` launcher | Extract, run `./ChromiumStack` |
+| `EngineShelf-<ver>-macOS.zip` | A single self-contained `EngineShelf.app`, everything sealed inside it | Unzip, double-click (optionally drag to **Applications**) |
+| `EngineShelf-<ver>-Windows.zip` | `EngineShelf.bat` + `Create-Shortcut.ps1` + `icon.ico`, with the real scripts tucked into `app\` | Unzip, double-click `EngineShelf.bat` |
+| `EngineShelf-<ver>-Linux.tar.gz` | A `engineshelf/` folder with a `./EngineShelf` launcher | Extract, run `./EngineShelf` |
 | `SHA256SUMS.txt` | Checksums for every file above | `shasum -c SHA256SUMS.txt` |
 
 Each artifact also carries a short **`HOW TO OPEN.txt`** with the open steps for
@@ -25,7 +25,7 @@ SmartScreen/Unblock on Windows).
 
 Each artifact stands alone — the launcher finds the scripts *inside* the
 package, so there is no loose folder of files to keep together. The repo layout
-still works too (double-click `ChromiumStack.app` in the checkout); the macOS
+still works too (double-click `EngineShelf.app` in the checkout); the macOS
 launcher tries its own `Contents/Resources` first and the sibling folder second.
 
 ## Obfuscation — what it does and does not do
@@ -48,14 +48,14 @@ protection.** See the header of `tools/obfuscate.sh` for the details.
 
 ## Windows SmartScreen — why the release no longer ships an `.exe`
 
-The Windows package used to lead with `ChromiumStack.exe`, a tiny compiled
+The Windows package used to lead with `EngineShelf.exe`, a tiny compiled
 launcher that only carried the icon and then ran `powershell -ExecutionPolicy
 Bypass -File gui.ps1`. That is precisely the shape SmartScreen and Defender
 distrust: an **unsigned** binary (no paid Authenticode certificate) with no
 download reputation, whose one job is to spawn PowerShell — a generic loader
 pattern. On a fresh machine it produced *“Windows protected your PC.”*
 
-So the release now ships **`ChromiumStack.bat`** as the entry point and no `.exe`
+So the release now ships **`EngineShelf.bat`** as the entry point and no `.exe`
 at all. A `.bat` is a short, readable script rather than a PE binary, so it never
 triggers the unsigned-executable reputation check. It keeps the release honest
 too — there is nothing compiled to trust. What we do to keep the remaining noise
@@ -87,8 +87,8 @@ false positives can be reported to Microsoft at
 Upload the whole `dist/` folder to a GitHub Release so people get one link:
 
 ```bash
-gh release create v2.0 dist/ChromiumStack-* dist/SHA256SUMS.txt \
-  --title "ChromiumStack 2.0" \
+gh release create v2.0 dist/EngineShelf-* dist/SHA256SUMS.txt \
+  --title "EngineShelf 2.0" \
   --notes "macOS (.zip), Windows (.zip), Linux (.tar.gz). Verify with SHA256SUMS.txt."
 ```
 
@@ -103,5 +103,5 @@ tools/make-icons.sh   # icons, after changing the SVGs
 ```
 
 The Windows package no longer ships a compiled launcher — it uses
-`ChromiumStack.bat` (see the SmartScreen note above), so there is nothing to
+`EngineShelf.bat` (see the SmartScreen note above), so there is nothing to
 rebuild there.
