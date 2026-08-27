@@ -238,6 +238,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # over every screenshot: that badge is for a manager old enough
             # to have had the mode, and this one is a fixture.
             return self._json({"autoQuit": True, "grace": 12})
+        # The shelf's changelogs. Served from features.tsv through the backend's
+        # own reader, because without it every row on the shot reads "N/A" -
+        # which is what the page says when a version has nothing to report, and
+        # would be a picture of a missing file rather than of the product.
+        if path == "/api/features":
+            import server as backend
+            return self._json({"%s:%s" % key: value
+                               for key, value in backend.read_features().items()})
         if path.startswith("/api/job/"):
             job = JOBS.get(path.rsplit("/", 1)[-1])
             if not job:

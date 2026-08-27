@@ -332,7 +332,10 @@
         border-color: color-mix(in srgb, var(--e) 45%, var(--line));
         color: var(--ink);
       }
-      .eng-tab[aria-selected='true'] {
+      /* The tabs are a radio group, so the state is aria-checked. This rule read
+         aria-selected, which nothing sets - so the engine you were looking at
+         was never the one that looked picked. */
+      .eng-tab[aria-checked='true'] {
         border-color: color-mix(in srgb, var(--e) 55%, var(--line));
         background: color-mix(in srgb, var(--e) 13%, transparent);
         color: var(--ink);
@@ -438,9 +441,16 @@
         }
       }
       /* ---------- the same window, dark and light ----------
-   Two identical captures stacked; only the top one animates. The dark frame is
-   what shows at rest, so with animation off the shot still matches the page's
-   own default theme. */
+   Two identical captures stacked, the dark one on top. Which one shows is an
+   attribute rather than a keyframe: the swap used to be a 16s CSS animation,
+   which meant nothing on the page could say which theme was on screen and
+   nobody could stop it on the one they wanted to look at. Now a script flips the
+   attribute on a timer and the toggle beside it reads the same attribute, so the
+   control is honest whether the change came from the timer or from a click - and
+   a click ends the timer, because at that point somebody has chosen.
+
+   Dark is the resting state, so with no script at all the shot still matches the
+   page's own default theme. */
       .shot-swap {
         position: relative;
       }
@@ -450,20 +460,72 @@
       .shot-swap .shot-top {
         position: absolute;
         inset: 0;
-        animation: shotSwap 16s ease-in-out infinite;
+        opacity: 1;
+        transition: opacity 0.7s ease-in-out;
       }
-      @keyframes shotSwap {
-        0%,
-        42% {
-          opacity: 1;
+      .shot-swap[data-shot='light'] .shot-top {
+        opacity: 0;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .shot-swap .shot-top {
+          transition: none;
         }
-        50%,
-        92% {
-          opacity: 0;
-        }
-        100% {
-          opacity: 1;
-        }
+      }
+      /* Two named halves rather than one switch, so the control states which
+         theme is on screen instead of implying it - and so either can be reached
+         in one press. It carries the manager's own theme glyph, because it is
+         doing to the picture what that button does to the window. */
+      .shot-themes {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 16px;
+      }
+      .shot-themes .shot-label {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+      }
+      .shot-seg {
+        display: inline-flex;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel);
+      }
+      .shot-seg button {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 13px;
+        border: 0;
+        border-radius: 999px;
+        background: none;
+        color: var(--ink-3);
+        font: inherit;
+        font-size: 12.5px;
+        font-weight: 550;
+        cursor: pointer;
+        transition:
+          background 0.25s,
+          color 0.25s;
+      }
+      .shot-seg button .ic {
+        font-size: 15px;
+      }
+      .shot-seg button[aria-checked='true'] {
+        background: color-mix(in srgb, var(--accent) 15%, transparent);
+        color: var(--ink);
+      }
+      .shot-seg button:hover {
+        color: var(--ink);
+      }
+      /* The manager's own theme glyph: a circle half filled. Rotated a half turn
+         for the light side, which is how that button reads in the window too. */
+      .shot-seg button[data-shot='light'] .ic {
+        transform: rotate(180deg);
       }
 
       /* ---------- the sixty-seconds demo ----------
@@ -616,10 +678,34 @@
         color: var(--ink-3);
       }
       .dm-disk {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
         margin-left: auto;
         font-family: var(--mono);
         font-size: 10.5px;
         color: var(--ink-3);
+      }
+      .dm-disk .ic {
+        font-size: 13px;
+      }
+      /* The header's disk gauge. One segment, because the window below holds one
+         downloaded version - the manager draws one bar per kind of thing on
+         disk and the second only appears once there is a container image. */
+      .dm-gauge {
+        display: block;
+        width: 54px;
+        height: 4px;
+        border-radius: 3px;
+        background: var(--line);
+        overflow: hidden;
+      }
+      .dm-gauge i {
+        display: block;
+        width: 34%;
+        height: 100%;
+        border-radius: 3px;
+        background: var(--accent);
       }
       .dm-rows {
         padding: 10px;
@@ -669,7 +755,17 @@
           background: var(--ink-3);
         }
       }
+      /* The engine's own mark, in the engine's own colour - the thing that lets
+         one shelf hold four of them. Only Chromium appears in this window, so it
+         is the only tint set here. */
+      .dm-mk {
+        font-size: 17px;
+        flex: none;
+        color: var(--e-chromium);
+      }
       .dm-id {
+        width: 128px;
+        flex: none;
         min-width: 0;
       }
       .dm-id b {
@@ -683,6 +779,108 @@
         margin-top: 2px;
         font-family: var(--mono);
         font-size: 11px;
+        color: var(--ink-3);
+      }
+      /* What the release brought, and when it shipped - the two things the
+         manager puts between the name and the buttons. The changelog is one line
+         with the rest behind a button; the date tag under it is how most rows
+         actually get picked. */
+      .dm-note {
+        flex: 1;
+        min-width: 0;
+      }
+      /* The line truncates; the button that opens the rest sits outside it, so a
+         narrow window loses words rather than the affordance. The cut written
+         into the text is where the manager cuts, at 64 characters - and it is the
+         last thing in the line, so CSS clips it away before printing an ellipsis
+         of its own. There is never more than one. */
+      .dm-line {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+      }
+      .dm-line b {
+        overflow: hidden;
+        min-width: 0;
+        font-size: 12.5px;
+        font-weight: 400;
+        line-height: 1.35;
+        color: var(--ink-2);
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .dm-open {
+        flex: none;
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      .dm-tags {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 5px;
+      }
+      .dm-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 7px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--ink-3);
+      }
+      .dm-tag .ic {
+        font-size: 11px;
+      }
+      /* Where a version can run: this machine, or a container. Half-drawn on the
+         builds that only exist for x86_64, which on an Apple Silicon Mac is
+         every Chromium before 95 - the manager says so before anything is
+         downloaded, because translation is where its failures live. */
+      .dm-route {
+        font-size: 13px;
+        color: var(--accent);
+      }
+      .dm-docker {
+        color: var(--ok);
+      }
+      /* "It runs here, translated." Two copies of the same glyph, each clipped to
+         one half: accent on the left, grey on the right. A hard split rather than
+         a tint, because at 13px a tint is indistinguishable from full colour and
+         this is the mark that says take the container instead. */
+      .dm-split {
+        position: relative;
+        display: inline-block;
+        width: 1em;
+        height: 1em;
+        font-size: 13px;
+      }
+      .dm-split svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+      .dm-split svg:first-child {
+        clip-path: inset(0 50% 0 0);
+        color: var(--accent);
+      }
+      .dm-split svg:last-child {
+        clip-path: inset(0 0 0 50%);
+        color: var(--ink-3);
+      }
+      .dm-size i {
+        font-style: normal;
+      }
+      .dm-size {
+        width: 150px;
+        flex: none;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        text-align: right;
+        white-space: nowrap;
         color: var(--ink-3);
       }
       .dm-act {
@@ -1061,6 +1259,14 @@
       [data-demo][data-play] * {
         animation-play-state: running;
       }
+      /* The window sheds columns in the order the manager itself would: the disk
+         column first, then the changelog, then the row is a name and a button -
+         which is what step 2 above is actually about. */
+      @media (max-width: 900px) {
+        .dm-size {
+          display: none;
+        }
+      }
       @media (max-width: 680px) {
         .dm-act {
           width: 118px;
@@ -1069,8 +1275,14 @@
           width: 62px;
         }
         .dm-host,
-        .dm-fpath {
+        .dm-fpath,
+        .dm-note,
+        .dm-gauge {
           display: none;
+        }
+        .dm-id {
+          width: auto;
+          flex: 1;
         }
         .dm-pop {
           width: 74%;
@@ -1326,6 +1538,34 @@
             <rect x="2.5" y="4" width="19" height="12.5" rx="2" />
             <path d="M9 20.5h6" />
             <path d="M12 16.5v4" />
+          </symbol>
+          <!-- The manager's own theme button, drawn the same way: a circle with
+               one half filled. -->
+          <symbol id="i-theme" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none" />
+          </symbol>
+          <!-- Three more lifted straight out of the manager's icon set, for the
+               demo window below: the date tag on every row, the button that
+               opens a changelog too long for one line, and the disk gauge in
+               the header. -->
+          <symbol id="i-calendar" viewBox="0 0 24 24">
+            <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+            <path d="M3.5 10h17" />
+            <path d="M8.5 3.5v3" />
+            <path d="M15.5 3.5v3" />
+          </symbol>
+          <symbol id="i-expand" viewBox="0 0 24 24">
+            <path d="M4 14v6h6" />
+            <path d="M20 10V4h-6" />
+            <path d="M4.5 19.5L10 14" />
+            <path d="M19.5 4.5L14 10" />
+          </symbol>
+          <symbol id="i-disk" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="7" rx="2" />
+            <rect x="3" y="13" width="18" height="7" rx="2" />
+            <path d="M7 7.5h.01" />
+            <path d="M7 16.5h.01" />
           </symbol>
           <symbol id="i-ticket" viewBox="0 0 24 24">
             <path
@@ -2503,16 +2743,40 @@
                 <div class="dm-win">
                   <div class="dm-bar">
                     <span class="dm-mark"></span><b>EngineShelf</b
-                    ><span class="dm-host">darwin/arm64</span
-                    ><span class="dm-disk">1.18 GB</span>
+                    ><span class="dm-host">darwin/arm64 · Mac_Arm</span
+                    ><span class="dm-disk"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-disk" /></svg
+                      ><span>301 MB</span><i class="dm-gauge"><i></i></i
+                    ></span>
                   </div>
                   <div class="dm-rows">
                     <div class="dm-row">
                       <span class="dm-dot is-ok"></span>
+                      <svg class="ic dm-mk" aria-hidden="true">
+                        <use href="#i-chromium" />
+                      </svg>
                       <span class="dm-id"
-                        ><b>Chromium 130</b
-                        ><span>130.0.6723.0 · native arm64</span></span
+                        ><b>Chromium 130</b><span>130.0.6723.0</span></span
                       >
+                      <span class="dm-note"
+                        ><span class="dm-line"
+                          ><b
+                            >Near-current engine — use it as the control when
+                            bisecting…</b
+                          ><svg class="ic dm-open" aria-hidden="true">
+                            <use href="#i-expand" /></svg></span
+                        ><span class="dm-tags"
+                          ><span class="dm-tag"
+                            ><svg class="ic" aria-hidden="true">
+                              <use href="#i-calendar" /></svg
+                            ><span>15 Oct 2024</span></span
+                          ><svg class="ic dm-route" aria-hidden="true">
+                            <use href="#i-monitor" /></svg
+                          ><svg class="ic dm-route dm-docker" aria-hidden="true">
+                            <use href="#i-box" /></svg></span
+                      ></span>
+                      <span class="dm-size">285 MB · 16 MB profile</span>
                       <span class="dm-act"
                         ><span class="dm-slot"
                           ><span class="dm-btn is-primary">Launch</span></span
@@ -2521,9 +2785,32 @@
                     </div>
                     <div class="dm-row is-target">
                       <span class="dm-dot dm-tdot"></span>
+                      <svg class="ic dm-mk" aria-hidden="true">
+                        <use href="#i-chromium" />
+                      </svg>
                       <span class="dm-id"
-                        ><b>Chromium 74</b
-                        ><span>r638880 · no flexbox gap</span></span
+                        ><b>Chromium 74</b><span>74.0.3729.0</span></span
+                      >
+                      <span class="dm-note"
+                        ><span class="dm-line"
+                          ><b
+                            >No flexbox gap (84), aspect-ratio/:is() (88),
+                            optional chaining…</b
+                          ><svg class="ic dm-open" aria-hidden="true">
+                            <use href="#i-expand" /></svg></span
+                        ><span class="dm-tags"
+                          ><span class="dm-tag"
+                            ><svg class="ic" aria-hidden="true">
+                              <use href="#i-calendar" /></svg
+                            ><span>23 Apr 2019</span></span
+                          ><span class="dm-route dm-split" aria-hidden="true"
+                            ><svg class="ic"><use href="#i-monitor" /></svg
+                            ><svg class="ic"><use href="#i-monitor" /></svg></span
+                          ><svg class="ic dm-route dm-docker" aria-hidden="true">
+                            <use href="#i-box" /></svg></span
+                      ></span>
+                      <span class="dm-size"
+                        ><i class="dm-stop">142 MB · 8 MB profile</i></span
                       >
                       <span class="dm-act">
                         <span class="dm-slot dm-get"
@@ -2538,6 +2825,7 @@
                           ><i class="dm-track"><i class="dm-fill"></i></i
                         ></span>
                         <span class="dm-slot dm-stop"
+                          ><span class="dm-btn is-ghost">Open</span
                           ><span class="dm-btn is-warn">Stop</span></span
                         >
                         <span class="dm-cursor"
@@ -2554,10 +2842,30 @@
                     </div>
                     <div class="dm-row">
                       <span class="dm-dot"></span>
+                      <svg class="ic dm-mk" aria-hidden="true">
+                        <use href="#i-chromium" />
+                      </svg>
                       <span class="dm-id"
-                        ><b>Chromium 60</b
-                        ><span>r474901 · not installed</span></span
+                        ><b>Chromium 60</b><span>60.0.3112.0</span></span
                       >
+                      <span class="dm-note"
+                        ><span class="dm-line"
+                          ><b
+                            >Pre-Grid-everywhere era; a hard floor for very old
+                            WebViews.</b
+                          ></span
+                        ><span class="dm-tags"
+                          ><span class="dm-tag"
+                            ><svg class="ic" aria-hidden="true">
+                              <use href="#i-calendar" /></svg
+                            ><span>25 Jul 2017</span></span
+                          ><span class="dm-route dm-split" aria-hidden="true"
+                            ><svg class="ic"><use href="#i-monitor" /></svg
+                            ><svg class="ic"><use href="#i-monitor" /></svg></span
+                          ><svg class="ic dm-route dm-docker" aria-hidden="true">
+                            <use href="#i-box" /></svg></span
+                      ></span>
+                      <span class="dm-size"></span>
                       <span class="dm-act"
                         ><span class="dm-slot"
                           ><span class="dm-btn is-ghost">Get</span></span
@@ -2569,10 +2877,11 @@
                     <span class="dm-fdot"></span>
                     <span class="dm-ftext"
                       ><i class="dm-get">Nothing running</i
-                      ><i class="dm-prog">Downloading Chromium 74</i
+                      ><i class="dm-prog"
+                        >Installing Chromium 74 · 41 MB / 142 MB · 38s left</i
                       ><i class="dm-stop">Chromium 74 · running</i></span
                     >
-                    <span class="dm-fpath">Files in ~/.engineshelf</span>
+                    <span class="dm-fpath">Files in /Users/you/.engineshelf</span>
                   </div>
                 </div>
                 <div class="dm-pop">
@@ -2588,7 +2897,9 @@
                 </div>
               </div>
               <figcaption class="dm-cap">
-                One row, one button. The download happens once; after that the
+                One row, one press. Beside the name is what that version was
+                first to support and the day it shipped, which is how a row
+                actually gets picked. The download happens once; after that the
                 same button opens a 2019 engine in about the time a tab takes.
               </figcaption>
             </figure>
@@ -2699,9 +3010,42 @@
               remembers every one of them.
             </p>
 
-            <figure data-reveal data-demo style="margin: 44px 0 0">
+            <figure data-reveal style="margin: 44px 0 0">
+              <!-- Two buttons rather than one switch, so the current theme is
+                   stated rather than implied - and so either one can be pressed
+                   directly instead of pressed twice. -->
+              <div class="shot-themes" id="shotThemes" role="radiogroup"
+                   aria-label="Theme shown in the screenshot">
+                <span class="shot-label">Theme</span>
+                <div class="shot-seg">
+                  <button
+                    type="button"
+                    role="radio"
+                    data-shot="dark"
+                    aria-checked="true"
+                    tabindex="0"
+                  >
+                    <svg class="ic" aria-hidden="true">
+                      <use href="#i-theme" /></svg
+                    ><span>Dark</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    data-shot="light"
+                    aria-checked="false"
+                    tabindex="-1"
+                  >
+                    <svg class="ic" aria-hidden="true">
+                      <use href="#i-theme" /></svg
+                    ><span>Light</span>
+                  </button>
+                </div>
+              </div>
               <div
                 class="shot-swap"
+                id="shotSwap"
+                data-shot="dark"
                 style="
                   border: 1px solid var(--line);
                   border-radius: 16px;
@@ -2712,13 +3056,13 @@
               >
                 <picture>
                   <source
-                    srcset="assets/screenshot-jobs-light.webp?v=3"
+                    srcset="assets/screenshot-jobs-light.webp?v=5"
                     type="image/webp"
                   />
                   <img
-                    src="assets/screenshot-jobs-light.png?v=3"
+                    src="assets/screenshot-jobs-light.png?v=5"
                     width="2800"
-                    height="1486"
+                    height="1645"
                     loading="lazy"
                     decoding="async"
                     alt="The same window in the light theme"
@@ -2727,16 +3071,16 @@
                 </picture>
                 <picture class="shot-top">
                   <source
-                    srcset="assets/screenshot-jobs.webp?v=4"
+                    srcset="assets/screenshot-jobs.webp?v=5"
                     type="image/webp"
                   />
                   <img
-                    src="assets/screenshot-jobs.png?v=4"
+                    src="assets/screenshot-jobs.png?v=5"
                     width="2800"
-                    height="1486"
+                    height="1645"
                     loading="lazy"
                     decoding="async"
-                    alt="Four engines on one shelf, each with its own mark: Chromium 152, Firefox 154, WebKit 26.5 open and offering Stop, Chromium 151 below it. Along the bottom, the job log switches between Firefox 115, WebKit 26.5 and a Chromium 105 download at 43 percent with 100 MB of 232 MB transferred and 16 seconds left"
+                    alt="Four engines on one shelf, each row led by its engine's mark and followed by what that release was first to support: Chromium 152, Firefox 154, WebKit 26.5 open and offering Stop and Open, Chromium 151, Edge 151 installed. Along the bottom, the job log has a tab per job — Chromium 105, WebKit 26.5, Firefox 115 — showing curl's download meter at 43 percent, with 100 MB of 232 MB transferred and 16 seconds left"
                     style="
                       display: block;
                       width: 100%;
@@ -2755,11 +3099,12 @@
                   text-wrap: pretty;
                 "
               >
-                One version downloading, two already open. The download shows
-                the bytes and the time left rather than a spinner, the log keeps
-                a tab per job, and the bar at the bottom follows whichever one
-                you picked. The window follows your system theme — or pin it
-                light or dark from the header, as it is doing here.
+                One version downloading, two already open. Every row carries what
+                that release was first to support, the download shows the bytes
+                and the time left rather than a spinner, the log keeps a tab per
+                job, and the bar at the bottom follows whichever one you picked.
+                The window follows your system theme, or pins to one from the
+                header — which is what the switch above is doing to this shot.
               </figcaption>
             </figure>
           </div>
@@ -3200,8 +3545,8 @@
                 role="slider"
                 aria-label="Chromium milestone"
                 aria-valuemin="0"
-                aria-valuemax="20"
-                aria-valuenow="3"
+                aria-valuemax="91"
+                aria-valuenow="14"
                 aria-valuetext="Chromium 74"
                 style="
                   position: relative;
@@ -3369,6 +3714,21 @@
                   >
                     No flexbox `gap` (84), `aspect-ratio`/`:is()` (88), optional
                     chaining (80).
+                  </p>
+                  <!-- How much of the release the line above is not naming. Off
+                       the same compat data the manager reads, so the two windows
+                       report the same number. -->
+                  <p
+                    style="
+                      margin: 10px 0 0;
+                      font-family: var(--mono);
+                      font-size: 11.5px;
+                      line-height: 1.55;
+                      color: var(--ink-3);
+                    "
+                    id="mMeta"
+                  >
+                    32 features first supported here.
                   </p>
                   <div
                     style="
@@ -5166,179 +5526,126 @@
 
         /* seed:begin - regenerated by tools/sync-landing.py from catalog.tsv */
         const SEED = [
-          {
-            v: '60',
-            full: '60.0.3112.0',
-            rev: '474901',
-            plat: 'x86_64 · Rosetta',
-            year: '2017',
-            note: 'Pre-Grid-everywhere era; a hard floor for very old WebViews.',
-          },
-          {
-            v: '65',
-            full: '65.0.3325.0',
-            rev: '530377',
-            plat: 'x86_64 · Rosetta',
-            year: '2018',
-            note: 'Before flexbox `gap`, before optional chaining.',
-          },
-          {
-            v: '70',
-            full: '70.0.3538.0',
-            rev: '587811',
-            plat: 'x86_64 · Rosetta',
-            year: '2018',
-            note: 'Common floor for Android 9-era System WebView.',
-          },
-          {
-            v: '74',
-            full: '74.0.3729.0',
-            rev: '638880',
-            plat: 'x86_64 · Rosetta',
-            year: '2019',
-            note: 'No flexbox `gap` (84), `aspect-ratio`/`:is()` (88), optional chaining (80).',
-          },
-          {
-            v: '76',
-            full: '76.0.3809.0',
-            rev: '665002',
-            plat: 'x86_64 · Rosetta',
-            year: '2019',
-            note: 'Adds prefers-color-scheme; still no flexbox `gap`.',
-          },
-          {
-            v: '80',
-            full: '80.0.3987.0',
-            rev: '722274',
-            plat: 'x86_64 · Rosetta',
-            year: '2020',
-            note: 'Optional chaining and nullish coalescing land here.',
-          },
-          {
-            v: '85',
-            full: '85.0.4183.0',
-            rev: '782801',
-            plat: 'x86_64 · Rosetta',
-            year: '2020',
-            note: 'First catalogued build with flexbox `gap` (landed in 84).',
-          },
-          {
-            v: '90',
-            full: '90.0.4430.0',
-            rev: '857950',
-            plat: 'x86_64 · Rosetta',
-            year: '2021',
-            note: '`aspect-ratio` and `:is()` (88) available.',
-          },
-          {
-            v: '95',
-            full: '95.0.4638.0',
-            rev: '920022',
-            plat: 'native arm64',
-            year: '2021',
-            note: 'First catalogued milestone with native Apple Silicon builds.',
-          },
-          {
-            v: '100',
-            full: '100.0.4896.0',
-            rev: '972785',
-            plat: 'native arm64',
-            year: '2022',
-            note: 'Three-digit UA string — useful for UA-parsing regressions.',
-          },
-          {
-            v: '105',
-            full: '105.0.5195.0',
-            rev: '1027019',
-            plat: 'native arm64',
-            year: '2022',
-            note: 'Container queries and `:has()` land here.',
-          },
-          {
-            v: '110',
-            full: '110.0.5481.0',
-            rev: '1084032',
-            plat: 'native arm64',
-            year: '2023',
-            note: '`dvh`/`svh` viewport units (108) available.',
-          },
-          {
-            v: '115',
-            full: '115.0.5790.0',
-            rev: '1148146',
-            plat: 'native arm64',
-            year: '2023',
-            note: 'CSS nesting (112) and view transitions (111) available.',
-          },
-          {
-            v: '120',
-            full: '120.0.6099.0',
-            rev: '1217378',
-            plat: 'native arm64',
-            year: '2023',
-            note: '`subgrid` (117) and `text-wrap: balance` (114) available.',
-          },
-          {
-            v: '125',
-            full: '125.0.6422.0',
-            rev: '1287761',
-            plat: 'native arm64',
-            year: '2024',
-            note: 'Recent baseline for comparison against the old builds.',
-          },
-          {
-            v: '130',
-            full: '130.0.6723.0',
-            rev: '1356025',
-            plat: 'native arm64',
-            year: '2024',
-            note: 'Near-current engine — use it as the control when bisecting a bug.',
-          },
-          {
-            v: '135',
-            full: '135.0.7049.0',
-            rev: '1427274',
-            plat: 'native arm64',
-            year: '2025',
-            note: 'Added automatically as Chrome released it.',
-          },
-          {
-            v: '140',
-            full: '140.0.7339.0',
-            rev: '1496485',
-            plat: 'native arm64',
-            year: '2025',
-            note: 'Added automatically as Chrome released it.',
-          },
-          {
-            v: '145',
-            full: '145.0.7632.0',
-            rev: '1568193',
-            plat: 'native arm64',
-            year: '2026',
-            note: 'Added automatically as Chrome released it.',
-          },
-          {
-            v: '150',
-            full: '150.0.7871.0',
-            rev: '1639818',
-            plat: 'native arm64',
-            year: '2026',
-            note: 'Added automatically as Chrome released it.',
-          },
-          {
-            v: '152',
-            full: '152.0.7977.0',
-            rev: '1669021',
-            plat: 'native arm64',
-            year: '2026',
-            note: 'Added automatically as Chrome released it.',
-          },
+          {v:'60', full:'60.0.3112.0', rev:'474901', plat:'x86_64 · Rosetta', year:'2017', note:'Pre-Grid-everywhere era; a hard floor for very old WebViews.'},
+          {v:'65', full:'65.0.3325.0', rev:'530377', plat:'x86_64 · Rosetta', year:'2018', note:'Before flexbox `gap`, before optional chaining.'},
+          {v:'70', full:'70.0.3538.0', rev:'587811', plat:'x86_64 · Rosetta', year:'2018', note:'Common floor for Android 9-era System WebView.'},
+          {v:'74', full:'74.0.3729.0', rev:'638880', plat:'x86_64 · Rosetta', year:'2019', note:'No flexbox `gap` (84), `aspect-ratio`/`:is()` (88), optional chaining (80).'},
+          {v:'76', full:'76.0.3809.0', rev:'665002', plat:'x86_64 · Rosetta', year:'2019', note:'Adds prefers-color-scheme; still no flexbox `gap`.'},
+          {v:'80', full:'80.0.3987.0', rev:'722274', plat:'x86_64 · Rosetta', year:'2020', note:'Optional chaining and nullish coalescing land here.'},
+          {v:'85', full:'85.0.4183.0', rev:'782801', plat:'x86_64 · Rosetta', year:'2020', note:'First catalogued build with flexbox `gap` (landed in 84).'},
+          {v:'90', full:'90.0.4430.0', rev:'857950', plat:'x86_64 · Rosetta', year:'2021', note:'`aspect-ratio` and `:is()` (88) available.'},
+          {v:'95', full:'95.0.4638.0', rev:'920022', plat:'native arm64', year:'2021', note:'First catalogued milestone with native Apple Silicon builds.'},
+          {v:'100', full:'100.0.4896.0', rev:'972785', plat:'native arm64', year:'2022', note:'Three-digit UA string — useful for UA-parsing regressions.'},
+          {v:'105', full:'105.0.5195.0', rev:'1027019', plat:'native arm64', year:'2022', note:'Container queries and `:has()` land here.'},
+          {v:'110', full:'110.0.5481.0', rev:'1084032', plat:'native arm64', year:'2023', note:'`dvh`/`svh` viewport units (108) available.'},
+          {v:'115', full:'115.0.5790.0', rev:'1148146', plat:'native arm64', year:'2023', note:'CSS nesting (112) and view transitions (111) available.'},
+          {v:'120', full:'120.0.6099.0', rev:'1217378', plat:'native arm64', year:'2023', note:'`subgrid` (117) and `text-wrap: balance` (114) available.'},
+          {v:'125', full:'125.0.6422.0', rev:'1287761', plat:'native arm64', year:'2024', note:'Recent baseline for comparison against the old builds.'},
+          {v:'130', full:'130.0.6723.0', rev:'1356025', plat:'native arm64', year:'2024', note:'Near-current engine — use it as the control when bisecting a bug.'},
+          {v:'135', full:'135.0.7049.0', rev:'1427274', plat:'native arm64', year:'2025', note:'Added automatically as Chrome released it.'},
+          {v:'140', full:'140.0.7339.0', rev:'1496485', plat:'native arm64', year:'2025', note:'Added automatically as Chrome released it.'},
+          {v:'145', full:'145.0.7632.0', rev:'1568193', plat:'native arm64', year:'2026', note:'Added automatically as Chrome released it.'},
+          {v:'150', full:'150.0.7871.0', rev:'1639818', plat:'native arm64', year:'2026', note:'Added automatically as Chrome released it.'},
+          {v:'152', full:'152.0.7977.0', rev:'1669021', plat:'native arm64', year:'2026', note:'Added automatically as Chrome released it.'}
         ];
         /* seed:end */
 
         /* shelf:begin - regenerated by tools/sync-landing.py from catalog.tsv */
         const SHELF = {
+          chromium: [
+            '60|60|2017-07-25',
+            '61|61|2017-09-05',
+            '62|62|2017-10-17',
+            '63|63|2017-12-05',
+            '64|64|2018-01-23',
+            '65|65|2018-03-06',
+            '66|66|2018-04-17',
+            '67|67|2018-05-29',
+            '68|68|2018-07-24',
+            '69|69|2018-09-04',
+            '70|70|2018-10-16',
+            '71|71|2018-12-04',
+            '72|72|2019-01-29',
+            '73|73|2019-03-12',
+            '74|74|2019-04-23',
+            '75|75|2019-06-04',
+            '76|76|2019-07-30',
+            '77|77|2019-09-10',
+            '78|78|2019-10-22',
+            '79|79|2019-12-10',
+            '80|80|2020-02-04',
+            '81|81|2020-04-07',
+            '83|83|2020-05-19',
+            '84|84|2020-07-14',
+            '85|85|2020-08-25',
+            '86|86|2020-10-06',
+            '87|87|2020-11-17',
+            '88|88|2021-01-19',
+            '89|89|2021-03-02',
+            '90|90|2021-04-13',
+            '91|91|2021-05-25',
+            '92|92|2021-07-20',
+            '93|93|2021-08-31',
+            '94|94|2021-09-21',
+            '95|95|2021-10-19',
+            '96|96|2021-11-16',
+            '97|97|2022-01-04',
+            '98|98|2022-02-01',
+            '99|99|2022-03-01',
+            '100|100|2022-03-29',
+            '101|101|2022-04-26',
+            '102|102|2022-05-24',
+            '103|103|2022-06-21',
+            '104|104|2022-08-02',
+            '105|105|2022-08-30',
+            '106|106|2022-09-27',
+            '107|107|2022-10-25',
+            '108|108|2022-11-29',
+            '109|109|2023-01-10',
+            '110|110|2023-02-07',
+            '111|111|2023-03-07',
+            '112|112|2023-04-04',
+            '113|113|2023-05-02',
+            '114|114|2023-05-30',
+            '115|115|2023-07-18',
+            '116|116|2023-08-15',
+            '117|117|2023-09-12',
+            '118|118|2023-10-10',
+            '119|119|2023-10-31',
+            '120|120|2023-12-05',
+            '121|121|2024-01-23',
+            '122|122|2024-02-20',
+            '123|123|2024-03-19',
+            '124|124|2024-04-16',
+            '125|125|2024-05-14',
+            '126|126|2024-06-11',
+            '127|127|2024-07-23',
+            '128|128|2024-08-20',
+            '129|129|2024-09-17',
+            '130|130|2024-10-15',
+            '131|131|2024-11-12',
+            '132|132|2025-01-14',
+            '133|133|2025-02-04',
+            '134|134|2025-03-04',
+            '135|135|2025-04-01',
+            '136|136|2025-04-29',
+            '137|137|2025-05-27',
+            '138|138|2025-06-24',
+            '139|139|2025-08-05',
+            '140|140|2025-09-02',
+            '141|141|2025-09-30',
+            '142|142|2025-10-28',
+            '143|143|2025-12-02',
+            '144|144|2026-01-13',
+            '145|145|2026-02-10',
+            '146|146|2026-03-10',
+            '147|147|2026-04-07',
+            '148|148|2026-05-05',
+            '149|149|2026-06-02',
+            '150|150|2026-06-30',
+            '151|151|2026-07-28',
+            '152|152|2026-08-25',
+          ],
           firefox: [
             '51.0|51|2017-01-24',
             '52.0|52|2017-03-07',
@@ -5546,6 +5853,275 @@
         const SHELF_TOTAL = 288;
         /* shelf:end */
 
+        /* notes:begin - regenerated by tools/sync-landing.py from features.tsv */
+        // What each release was first to support, off the same features.tsv the
+        // manager reads, keyed the same way: "<engine>:<id>" -> "<total>|<name>|...".
+        // Trimmed to the 6 most notable names, which is what one line of the card
+        // holds; the total rides along so the card can say how much it is not showing.
+        const NOTES = {
+          'chromium:100': '14|<iframe>|mix-blend-mode|AbortSignal|CSSMathClamp|Element|HIDDevice',
+          'chromium:101': '11|<img>|<link>|<script>|@font-palette-values|font-palette|color()',
+          'chromium:102': '26|break-after|break-before|color()|hidden attribute|inert attribute|AudioContext',
+          'chromium:103': '20|<iframe>|BatteryManager|CompressionStream|DecompressionStream|Element|ElementInternals',
+          'chromium:104': '13|<iframe>|@media|object-view-box|overflow-clip-margin|rotate|scale',
+          'chromium:105': '35|:has|:highlight|:modal|:selection|<link>|<script>',
+          'chromium:106': '10|forced-color-adjust|hyphenate-character|Intl.NumberFormat|Intl.PluralRules|length()|AudioDecoder',
+          'chromium:107': '11|grid-template-columns|grid-template-rows|Element|ElementInternals|MediaDevices|MediaStreamTrack',
+          'chromium:108': '29|<form>|<iframe>|<textarea>|@font-face|@supports|align-items',
+          'chromium:109': '86|:view-transition|:view-transition-group|:view-transition-image-pair|:view-transition-new|:view-transition-old|<script>',
+          'chromium:110': '26|:autofill|:picture-in-picture|<iframe>|<script>|Array.toReversed|Array.toSorted',
+          'chromium:111': '40|:nth-child|:nth-last-child|<script>|<template>|@container|@font-feature-values',
+          'chromium:112': '15|animation-composition|hyphens|RegExp.unicodeSets|createImageBitmap|CSSStyleRule|FormData',
+          'chromium:113': '18|<hgroup>|<iframe>|@media|background-image|content|easing-function()',
+          'chromium:114': '29|:backdrop|:closed|:popover-open|<button>|<input>|ArrayBuffer.detached',
+          'chromium:115': '32|<iframe>|@keyframes|align-content|align-items|align-self|animation',
+          'chromium:116': '20|content-visibility|display|offset|offset-anchor|offset-path|offset-position',
+          'chromium:117': '43|<iframe>|@starting-style|contain-intrinsic-size|content-visibility|display|font-variant-position',
+          'chromium:118': '29|<search>|@media|@scope|clear|float|resize',
+          'chromium:119': '22|:user-invalid|:user-valid|<hr>|<select>|clip-path|Promise.withResolvers',
+          'chromium:120': '38|:dir|:nesting|<details>|@media|background-clip|Intl.DateTimeFormat',
+          'chromium:121': '29|:grammar-error|:spelling-error|<audio>|<script>|<video>|Array.fromAsync',
+          'chromium:122': '40|:backdrop|<script>|@import|align-self|Iterator.drop|Iterator.every',
+          'chromium:123': '22|<template>|@media|align-content|field-sizing|paint-order|text-spacing-trim',
+          'chromium:124': '28|<input>|<link>|<template>|direction|writing-mode|inert attribute',
+          'chromium:125': '79|:active-view-transition|:active-view-transition-type|:state|<a>|<area>|<iframe>',
+          'chromium:126': '32|<a>|<fencedframe>|<iframe>|<img>|@view-transition|AudioEncoder',
+          'chromium:127': '15|<script>|font-size-adjust|Symbol.asyncDispose|ChapterInformation|HTMLInputElement|HTMLTextAreaElement',
+          'chromium:128': '17|position-try-fallbacks|Promise.try|ruby-align|AudioContext|CaretPosition|CredentialsContainer',
+          'chromium:129': '18|@media|container-type|interpolate-size|Intl.DurationFormat|position-area|position-try',
+          'chromium:130': '23|<link>|box-decoration-break|Intl.Locale|justify-items|justify-self|text-wrap',
+          'chromium:131': '19|:details-content|@page|anchor-scope|font-variant-emoji|color()|CSSMarginRule',
+          'chromium:132': '39|@media|bottom|inset|inset-block|inset-block-end|inset-block-start',
+          'chromium:133': '38|:checkmark|:open|:picker-icon|<button>|<input>|<script>',
+          'chromium:134': '42|<dialog>|<meta>|AsyncDisposableStack|AsyncDisposableStack.@@asyncDispose|AsyncDisposableStack.adopt|AsyncDisposableStack.AsyncDisposableStack',
+          'chromium:135': '37|:after|:before|:column|:picker|:scroll-button|:scroll-marker',
+          'chromium:136': '19|<script>|dynamic-range-limit|print-color-adjust|RegExp.escape|dynamic-range-limit-mix()|BaseAudioContext',
+          'chromium:137': '25|reading-flow|reading-order|view-transition-name|if()|HTMLCanvasElement|HTMLElement',
+          'chromium:138': '47|<script>|@media|block-size|flex|flex-basis|height',
+          'chromium:139': '37|<button>|@function|corner-block-end-shape|corner-block-start-shape|corner-bottom-left-shape|corner-bottom-right-shape',
+          'chromium:140': '24|:view-transition-group-children|<h1>|@font-face|caret-animation|scroll-target-group|text-autospace',
+          'chromium:141': '27|<script>|console|DedicatedWorkerGlobalScope|DigitalCredential|Document|Element',
+          'chromium:142': '30|:interest-source|:interest-target|:target-after|:target-before|<a>|<area>',
+          'chromium:143': '13|:nesting|@container|container-type|font-language-override|position-area|position-try',
+          'chromium:144': '85|:search-text|<geolocation>|@container|anchor-name|background-position-x|background-position-y',
+          'chromium:145': '29|appearance|column-height|column-wrap|columns|letter-spacing|Map.getOrInsert',
+          'chromium:146': '30|<meta>|<template>|animation-trigger|Iterator.concat|text-indent|timeline-trigger',
+          'chromium:147': '31|<link>|border-shape|Math.sumPrecise|view-transition-scope|color()|timeline-range-name()',
+          'chromium:148': '16|@container|@supports|container|container-name|container-type|image-rendering',
+          'chromium:149': '49|:active|:focus-within|:hover|<meta>|column-rule-break|column-rule-inset',
+          'chromium:150': '30|<audio>|<video>|@supports|background|background-clip|flex-flow',
+          'chromium:151': '16|position-anchor|ruby-overhang|color()|headingoffset attribute|headingreset attribute|popover attribute',
+          'chromium:152': '15|:buffering|:muted|:paused|:playing|:seeking|:stalled',
+          'chromium:60': '49|:focus-within|<iframe>|@font-face|align-content|font|font-stretch',
+          'chromium:61': '58|<iframe>|<script>|offset|scroll-behavior|default|export',
+          'chromium:62': '26|<data>|<iframe>|<time>|@font-face|font-stretch|font-style',
+          'chromium:63': '32|<link>|AsyncGenerator|AsyncGenerator.next|AsyncGenerator.return|AsyncGenerator.throw|AsyncGeneratorFunction',
+          'chromium:64': '32|<iframe>|Intl.NumberFormat|offset-path|text-decoration-skip-ink|transform-box|import meta',
+          'chromium:65': '29|:any-link|<img>|<td>|display|color()|image()',
+          'chromium:66': '73|<iframe>|<link>|<select>|<textarea>|@font-face|@media',
+          'chromium:67': '45|<video>|BigInt|BigInt.asIntN|BigInt.asUintN|BigInt.BigInt|BigInt.toLocaleString',
+          'chromium:68': '38|<iframe>|Atomics|Atomics.add|Atomics.and|Atomics.compareExchange|Atomics.exchange',
+          'chromium:69': '100|:backdrop|<form>|<iframe>|<video>|Array.flat|Array.flatMap',
+          'chromium:70': '30|<script>|Array.sort|Symbol.description|AbortPaymentEvent|Bluetooth|BluetoothCharacteristicProperties',
+          'chromium:71': '20|:fullscreen|display|globalThis|Intl.RelativeTimeFormat|text-underline-position|gradient()',
+          'chromium:72': '19|Intl.ListFormat|JSON.stringify|class fields|gradient()|namespace|public class fields',
+          'chromium:73': '27|:part|<link>|<meta>|Intl.DateTimeFormat|Object.fromEntries|RegExp.@@matchAll',
+          'chromium:74': '32|@media|Intl.Locale|hashbang comments|private class fields|AudioContext|AuthenticatorAttestationResponse',
+          'chromium:75': '31|<video>|scroll-snap-stop|numeric separators|Animation|AnimationEffect|EXT_float_blend',
+          'chromium:76': '33|@media|backdrop-filter|BigInt.toLocaleString|Intl.DateTimeFormat|Promise.allSettled|white-space',
+          'chromium:77': '39|<iframe>|<img>|animation-timing-function|content|Error.serializable_object|EvalError.serializable_object',
+          'chromium:78': '16|opacity|scroll-padding-bottom|scroll-padding-left|scroll-padding-right|scroll-padding-top|shape-image-threshold',
+          'chromium:79': '43|<iframe>|<img>|<video>|font-optical-sizing|font-size|list-style-type',
+          'chromium:80': '32|<a>|Intl.DateTimeFormat|offset-path|overflow-wrap|nullish coalescing|optional chaining',
+          'chromium:81': '28|<a>|<meta>|color-scheme|image-orientation|Intl.DisplayNames|Element',
+          'chromium:83': '33|:xr-overlay|<iframe>|@page|@supports|appearance|contain-intrinsic-size',
+          'chromium:84': '43|<iframe>|appearance|column-gap|FinalizationRegistry|FinalizationRegistry.FinalizationRegistry|FinalizationRegistry.register',
+          'chromium:85': '34|@media|@page|@property|AggregateError|AggregateError.AggregateError|AggregateError.errors',
+          'chromium:86': '30|:focus-visible|:marker|<iframe>|Intl.Collator|Clipboard|DataTransferItem',
+          'chromium:87': '48|<iframe>|@font-face|border-block|border-block-color|border-block-style|border-block-width',
+          'chromium:88': '33|:is|:not|:where|<a>|<area>|aspect-ratio',
+          'chromium:89': '40|:file-selector-button|:target-text|<iframe>|<script>|<summary>|@media',
+          'chromium:90': '32|<source>|Atomics.waitAsync|overflow|overflow-clip-margin|overflow-x|overflow-y',
+          'chromium:91': '110|@counter-style|Intl.DateTimeFormat|Intl.NumberFormat|list-style-type|import assertions|options parameter',
+          'chromium:92': '13|@font-face|Array.at|Intl.DateTimeFormat|String.at|TypedArray.at|Bluetooth',
+          'chromium:93': '26|<form>|<iframe>|<textarea>|accent-color|align-content|align-items',
+          'chromium:94': '38|<iframe>|flex|flex-basis|outline|scrollbar-gutter|env()',
+          'chromium:95': '20|contain-intrinsic-block-size|contain-intrinsic-height|contain-intrinsic-inline-size|contain-intrinsic-width|Intl.DateTimeFormat|CredentialsContainer',
+          'chromium:96': '20|@media|Document|EyeDropper|HTMLScriptElement|PerformanceEventTiming|RTCStatsReport',
+          'chromium:97': '22|<details>|Array.findLast|Array.findLastIndex|font-synthesis|font-synthesis-small-caps|font-synthesis-style',
+          'chromium:98': '19|@font-face|@media|AggregateError.serializable_object|color-scheme|contain-intrinsic-block-size|contain-intrinsic-height',
+          'chromium:99': '21|@import|@layer|Intl.Locale|Intl.supportedValuesOf|text-emphasis|text-emphasis-color',
+          'firefox:100.0': '17|@media|AbortSignal|ReadableStream|ReadableStreamDefaultReader|RTCStatsReport|WritableStream',
+          'firefox:101.0': '15|<iframe>|@media|contain|length()|CanvasRenderingContext2D|CSSStyleSheet',
+          'firefox:102.0': '12|@media|overflow-clip-margin|ReadableByteStreamController|ReadableStream|ReadableStreamBYOBReader|ReadableStreamBYOBRequest',
+          'firefox:103.0': '19|:modal|AggregateError.serializable_object|backdrop-filter|contain|Error.serializable_object|EvalError.serializable_object',
+          'firefox:104.0': '8|Array.findLast|Array.findLastIndex|TypedArray.findLast|TypedArray.findLastIndex|CanvasRenderingContext2D|HTMLElement',
+          'firefox:105.0': '22|@font-face|@media|FontFace|FontFaceSet|FontFaceSetLoadEvent|HTMLCanvasElement',
+          'firefox:106.0': '5|@supports|resolve|Element|HTMLMetaElement|RTCStatsReport',
+          'firefox:107.0': '9|@font-face|@font-palette-values|contain-intrinsic-block-size|contain-intrinsic-height|contain-intrinsic-inline-size|contain-intrinsic-size',
+          'firefox:108.0': '27|<script>|<source>|text-emphasis-position|acos()|asin()|atan()',
+          'firefox:109.0': '9|<form>|<input>|<textarea>|@font-face|color()|CSSKeyframesRule',
+          'firefox:110.0': '21|<datalist>|<input>|@container|@media|container|container-name',
+          'firefox:111.0': '22|<form>|font-synthesis-small-caps|font-synthesis-style|font-synthesis-weight|autocapitalize attribute|translate attribute',
+          'firefox:112.0': '13|overflow-block|overflow-inline|easing-function()|inert attribute|overflow()|CanvasRenderingContext2D',
+          'firefox:113.0': '15|:nth-child|:nth-last-child|@media|content|forced-color-adjust|color()',
+          'firefox:114.0': '20|-webkit-text-security|:lang|@media|calc-keyword()|worker support|worklet support',
+          'firefox:115.0': '22|<link>|@import|animation-composition|Array.fromAsync|Array.toReversed|Array.toSorted',
+          'firefox:116.0': '17|:first|<iframe>|<input>|<textarea>|Intl.NumberFormat|Intl.PluralRules',
+          'firefox:117.0': '25|:nesting|contain-intrinsic-size|font-size|math-depth|math-style|text-transform',
+          'firefox:118.0': '18|<iframe>|<search>|font-size-adjust|font-synthesis|font-synthesis-position|abs()',
+          'firefox:119.0': '13|Map.groupBy|Object.groupBy|String.isWellFormed|String.toWellFormed|attr()|AuthenticatorAttestationResponse',
+          'firefox:120.0': '20|:backdrop|<input>|direction|writing-mode|color()|inert attribute',
+          'firefox:121.0': '9|:has|<iframe>|Intl.DateTimeFormat|Promise.withResolvers|text-indent|text-wrap',
+          'firefox:122.0': '18|<form>|<hr>|<select>|<video>|@page|ArrayBuffer.detached',
+          'firefox:123.0': '8|<iframe>|<template>|color-interpolation|Element|HTMLTemplateElement|ShadowRoot',
+          'firefox:124.0': '10|:first-letter|:first-line|<hgroup>|text-wrap|text-wrap-mode|text-wrap-style',
+          'firefox:125.0.1': '28|:backdrop|:popover-open|<button>|<input>|<template>|align-content',
+          'firefox:126.0': '16|:state|<iframe>|zoom|CustomStateSet|Element|ElementInternals',
+          'firefox:127.0': '16|<base>|<link>|Set.difference|Set.intersection|Set.isDisjointFrom|Set.isSubsetOf',
+          'firefox:128.0': '28|@property|ArrayBuffer.ArrayBuffer|ArrayBuffer.maxByteLength|ArrayBuffer.resizable|ArrayBuffer.resize|content',
+          'firefox:129.0': '20|@starting-style|DataView.getFloat16|DataView.setFloat16|Float16Array|Float16Array.Float16Array|Math.f16round',
+          'firefox:130.0': '18|<details>|hyphens|AudioData|AudioDecoder|AudioEncoder|Element',
+          'firefox:131.0': '28|:target-text|<a>|Iterator.drop|Iterator.every|Iterator.filter|Iterator.find',
+          'firefox:132.0': '18|<img>|<link>|<script>|text-emphasis-position|modifier|CSSNestedDeclarations',
+          'firefox:133.0': '18|container-type|Uint8Array.fromBase64|Uint8Array.fromHex|Uint8Array.setFromBase64|Uint8Array.setFromHex|Uint8Array.toBase64',
+          'firefox:134.0': '10|align-self|justify-self|place-self|Promise.try|RegExp.escape|PushManager',
+          'firefox:135.0': '7|JSON.isRawJSON|JSON.parse|JSON.rawJSON|PointerEvent|PublicKeyCredential|RTCStatsReport',
+          'firefox:136.0': '10|:has-slotted|:open|Intl.DurationFormat|autocorrect attribute|contenteditable attribute|gradient()',
+          'firefox:137.0': '8|Atomics.pause|font-synthesis-style|hyphenate-limit-chars|Math.sumPrecise|text-decoration|text-decoration-line',
+          'firefox:138.0': '20|<script>|Error.captureStackTrace|Error.isError|import attributes|options parameter|trailing commas in dynamic import',
+          'firefox:139.0': '14|Date.toTemporalInstant|Temporal|Temporal.Duration|Temporal.Instant|Temporal.Now|Temporal.PlainDate',
+          'firefox:140.0': '17|<h1>|CookieChangeEvent|CookieStore|CookieStoreManager|CSS|Document',
+          'firefox:141.0': '77|<dialog>|AsyncDisposableStack|AsyncDisposableStack.@@asyncDispose|AsyncDisposableStack.adopt|AsyncDisposableStack.AsyncDisposableStack|AsyncDisposableStack.defer',
+          'firefox:142.0': '15|:nesting|Animation|RTCRtpSender|RTCStatsReport|Scheduler|scheduler',
+          'firefox:143.0': '6|:after|:before|:details-content|<input>|SpeechRecognition|http host-http prefixes',
+          'firefox:144.0': '32|:active-view-transition|:view-transition|:view-transition-group|:view-transition-image-pair|:view-transition-new|:view-transition-old',
+          'firefox:145.0': '15|Atomics.waitAsync|text-autospace|CSSStyleRule|HTMLElement|MathMLElement|RTCEncodedAudioFrame',
+          'firefox:146.0': '15|@scope|FinalizationRegistry.register|height|math-shift|text-decoration-inset|WeakMap.symbol_as_keys',
+          'firefox:147.0': '80|:active-view-transition-type|:marker|<button>|<input>|@position-try|align-items',
+          'firefox:148.0': '38|<details>|@custom-media|Iterator.zip|Iterator.zipKeyed|overflow|overflow-clip-margin',
+          'firefox:149.0': '30|:highlight|@container|alignment-baseline|appearance|baseline-shift|container',
+          'firefox:150.0': '30|:buffering|:muted|:paused|:playing|:seeking|:stalled',
+          'firefox:151.0': '20|<iframe>|<template>|@container|@media|position-anchor|CanvasRenderingContext2D',
+          'firefox:152.0': '16|@keyframes|field-sizing|AnimationEvent|Element|MathMLElement|Notification',
+          'firefox:153.0': '29|:-webkit-scrollbar|:picture-in-picture|<area>|<iframe>|alignment-baseline|Error.stackTraceLimit',
+          'firefox:154.0': '16|<input>|Iterator.chunks|Iterator.includes|Iterator.join|Iterator.windows|text-box',
+          'firefox:51.0': '36|:indeterminate|:placeholder|:placeholder-shown|<img>|<input>|<textarea>',
+          'firefox:52.0': '195|:first-child|:focus-within|:last-child|:nth-child|:nth-last-child|:only-child',
+          'firefox:53.0': '56|caret-color|display|Function.name|Intl.DateTimeFormat|mask|mask-clip',
+          'firefox:54.0': '14|appearance|clip-path|Function.toString|Intl.DateTimeFormat|Intl.NumberFormat|basic-shape()',
+          'firefox:55.0': '70|:-moz-first-node|:-moz-last-node|:cue|AsyncGenerator|AsyncGenerator.next|AsyncGenerator.return',
+          'firefox:56.0': '18|<iframe>|<link>|CanvasRenderingContext2D|Document|HTMLButtonElement|HTMLIFrameElement',
+          'firefox:57.0': '33|<input>|@media|AsyncIterator|AsyncIterator.@@asyncIterator|Symbol.asyncIterator|async generator function',
+          'firefox:58.0': '20|@font-face|Intl.DateTimeFormat|Intl.NumberFormat|Intl.PluralRules|Promise.finally|optional catch binding',
+          'firefox:59.0': '30|:placeholder-shown|<select>|<textarea>|@media|display|overscroll-behavior',
+          'firefox:60.0': '23|<script>|Array.values|paint-order|default|export|import',
+          'firefox:61.0': '34|@document|column-gap|flex|flex-basis|font-stretch|font-style',
+          'firefox:62.0': '34|:selection|@font-face|Array.flat|Array.flatMap|font-optical-sizing|font-variation-settings',
+          'firefox:63.0': '57|:defined|:host|:hostfunction|:slotted|<img>|<slot>',
+          'firefox:64.0': '21|:fullscreen|@media|display|JSON.stringify|scrollbar-color|scrollbar-width',
+          'firefox:65.0': '33|<iframe>|<marquee>|<script>|animation-timing-function|break-after|break-before',
+          'firefox:66.0': '43|:attribute|@media|block-size|border-block|border-block-color|border-block-style',
+          'firefox:67.0': '15|<textarea>|<video>|@media|RegExp.@@matchAll|String.matchAll|Symbol.matchAll',
+          'firefox:68.0': '57|:marker|BigInt|BigInt.asIntN|BigInt.asUintN|BigInt.BigInt|BigInt.toLocaleString',
+          'firefox:69.0': '39|<form>|@supports|contain|cx|cy|line-break',
+          'firefox:70.0': '31|BigInt.toLocaleString|display|font-size|grid-auto-columns|grid-auto-rows|Intl.RelativeTimeFormat',
+          'firefox:71.0': '15|<img>|<video>|clip-path|column-span|grid-template-columns|grid-template-rows',
+          'firefox:72.0': '25|:part|letter-spacing|offset|offset-anchor|offset-distance|offset-path',
+          'firefox:73.0': '3|overscroll-behavior-block|overscroll-behavior-inline|Navigator',
+          'firefox:74.0': '12|<audio>|<iframe>|<video>|text-decoration-thickness|text-underline-offset|text-underline-position',
+          'firefox:75.0': '26|<img>|Intl.Locale|text-decoration-skip-ink|clamp()|class fields|max()',
+          'firefox:76.0': '14|grid-template-columns|grid-template-rows|Intl.DateTimeFormat|Intl.NumberFormat|Intl.RelativeTimeFormat|AudioParamMap',
+          'firefox:77.0': '4|<input>|String.replaceAll|IDBCursor|transform-origin',
+          'firefox:78.0': '35|:is|:read-only|:read-write|:where|<link>|Atomics',
+          'firefox:79.0': '51|<a>|<area>|<iframe>|AggregateError|AggregateError.AggregateError|AggregateError.errors',
+          'firefox:80.0': '6|:marker|<iframe>|appearance|namespace|Element|KeyframeEffect',
+          'firefox:81.0': '10|<iframe>|flex-direction|overflow|overflow-block|overflow-inline|overflow-x',
+          'firefox:82.0': '11|:file-selector-button|:is|:where|<iframe>|counter-reset|MediaMetadata',
+          'firefox:83.0': '2|gradient()|displaystyle',
+          'firefox:84.0': '6|:not|Intl.DateTimeFormat|EventTarget|FetchEvent|PerformancePaintTiming|allow localhost url',
+          'firefox:85.0': '4|:focus-visible|<link>|Intl.Collator|touch-action',
+          'firefox:86.0': '4|:autofill|Intl.DisplayNames|EventTarget|lighter value',
+          'firefox:87.0': '10|:any-link|:first-letter|:link|:visited|arbitrary module namespace identifier names|Element',
+          'firefox:88.0': '7|:-moz-submit-invalid|:user-invalid|:user-valid|outline|RegExp.hasIndices|ruby-position',
+          'firefox:89.0': '105|@font-face|@media|aspect-ratio|background-image|content|image()',
+          'firefox:90.0': '15|Array.at|Intl.DateTimeFormat|scroll-margin|String.at|TypedArray.at|private class fields',
+          'firefox:91.0': '21|<iframe>|block-size|content|Error.cause|Error.Error|height',
+          'firefox:92.0': '13|@font-face|accent-color|break-inside|font-family|font-size-adjust|Object.hasOwn',
+          'firefox:93.0': '13|font-synthesis|image-rendering|Intl.supportedValuesOf|initialization blocks|transform-function()|createImageBitmap',
+          'firefox:94.0': '20|block-size|flex|flex-basis|height|inline-size|max-block-size',
+          'firefox:95.0': '4|@page|inputmode attribute|Crypto|HTMLElement',
+          'firefox:96.0': '13|<meta>|color-scheme|counter-reset|color()|BarProp|HTMLCanvasElement',
+          'firefox:97.0': '15|@import|@layer|d|print-color-adjust|scrollbar-gutter|basic-shape()',
+          'firefox:98.0': '20|:backdrop|<dialog>|hyphenate-character|console|createImageBitmap|ElementInternals',
+          'firefox:99.0': '8|mix-blend-mode|scroll-snap-type|DedicatedWorkerGlobalScope|FetchEvent|NavigationPreloadManager|Navigator',
+          'edge:114.0.1823.82': '30|:backdrop|:closed|:popover-open|<button>|<input>|ArrayBuffer.detached',
+          'edge:115.0.1901.203': '32|<iframe>|@keyframes|align-content|align-items|align-self|animation',
+          'edge:116.0.1938.81': '20|content-visibility|display|offset|offset-anchor|offset-path|offset-position',
+          'edge:117.0.2045.55': '43|<iframe>|@starting-style|contain-intrinsic-size|content-visibility|display|font-variant-position',
+          'edge:118.0.2088.76': '29|<search>|@media|@scope|clear|float|resize',
+          'edge:119.0.2151.97': '20|:user-invalid|:user-valid|<hr>|<select>|clip-path|Promise.withResolvers',
+          'edge:120.0.2210.144': '38|:dir|:nesting|<details>|@media|background-clip|Intl.DateTimeFormat',
+          'edge:121.0.2277.128': '28|:grammar-error|:spelling-error|<audio>|<script>|<video>|Array.fromAsync',
+          'edge:122.0.2365.92': '39|:backdrop|<script>|@import|align-self|Iterator.drop|Iterator.every',
+          'edge:123.0.2420.97': '22|<template>|@media|align-content|field-sizing|paint-order|text-spacing-trim',
+          'edge:124.0.2478.109': '27|<link>|<template>|direction|writing-mode|inert attribute|writingsuggestions attribute',
+          'edge:125.0.2535.92': '77|:active-view-transition|:active-view-transition-type|:state|<a>|<area>|<iframe>',
+          'edge:126.0.2592.113': '32|<a>|<fencedframe>|<iframe>|<img>|@view-transition|AudioEncoder',
+          'edge:127.0.2651.105': '14|<script>|font-size-adjust|Symbol.asyncDispose|ChapterInformation|HTMLInputElement|HTMLTextAreaElement',
+          'edge:128.0.2739.79': '17|position-try-fallbacks|Promise.try|ruby-align|AudioContext|CaretPosition|CredentialsContainer',
+          'edge:129.0.2792.89': '18|@media|container-type|interpolate-size|Intl.DurationFormat|position-area|position-try',
+          'edge:130.0.2849.80': '23|<link>|box-decoration-break|Intl.Locale|justify-items|justify-self|text-wrap',
+          'edge:131.0.2903.147': '14|:details-content|@page|anchor-scope|font-variant-emoji|color()|CSSMarginRule',
+          'edge:132.0.2957.140': '38|@media|bottom|inset|inset-block|inset-block-end|inset-block-start',
+          'edge:133.0.3065.92': '38|:checkmark|:open|:picker-icon|<button>|<input>|<script>',
+          'edge:134.0.3124.95': '42|<dialog>|<meta>|AsyncDisposableStack|AsyncDisposableStack.@@asyncDispose|AsyncDisposableStack.adopt|AsyncDisposableStack.AsyncDisposableStack',
+          'edge:135.0.3179.98': '37|:after|:before|:column|:picker|:scroll-button|:scroll-marker',
+          'edge:136.0.3240.92': '19|<script>|dynamic-range-limit|print-color-adjust|RegExp.escape|dynamic-range-limit-mix()|BaseAudioContext',
+          'edge:137.0.3296.93': '22|reading-flow|reading-order|view-transition-name|if()|HTMLCanvasElement|HTMLElement',
+          'edge:138.0.3351.121': '45|<script>|@media|block-size|flex|flex-basis|height',
+          'edge:139.0.3405.125': '37|<button>|@function|corner-block-end-shape|corner-block-start-shape|corner-bottom-left-shape|corner-bottom-right-shape',
+          'edge:140.0.3485.94': '25|:view-transition-group-children|<h1>|@font-face|caret-animation|content|scroll-target-group',
+          'edge:141.0.3537.99': '27|<script>|console|DedicatedWorkerGlobalScope|DigitalCredential|Document|Element',
+          'edge:142.0.3595.94': '30|:interest-source|:interest-target|:target-after|:target-before|<a>|<area>',
+          'edge:143.0.3650.139': '13|:nesting|@container|container-type|font-language-override|position-area|position-try',
+          'edge:144.0.3719.115': '82|:search-text|<geolocation>|@container|anchor-name|background-position-x|background-position-y',
+          'edge:145.0.3800.97': '29|appearance|column-height|column-wrap|columns|letter-spacing|Map.getOrInsert',
+          'edge:146.0.3856.97': '30|<meta>|<template>|animation-trigger|Iterator.concat|text-indent|timeline-trigger',
+          'edge:147.0.3912.98': '31|<link>|border-shape|Math.sumPrecise|view-transition-scope|color()|timeline-range-name()',
+          'edge:148.0.3967.96': '16|@container|@supports|container|container-name|container-type|image-rendering',
+          'edge:149.0.4022.98': '49|:active|:focus-within|:hover|<meta>|column-rule-break|column-rule-inset',
+          'edge:150.0.4078.105': '30|<audio>|<video>|@supports|background|background-clip|flex-flow',
+          'edge:151.0.4129.107': '16|position-anchor|ruby-overhang|color()|headingoffset attribute|headingreset attribute|popover attribute',
+          'edge:95.0.1020.40': '20|contain-intrinsic-block-size|contain-intrinsic-height|contain-intrinsic-inline-size|contain-intrinsic-width|Intl.DateTimeFormat|CredentialsContainer',
+          'webkit:1641': '139|:backdrop|:buffering|:focus-visible|:has|:muted|:paused',
+          'webkit:1668': '139|:backdrop|:buffering|:focus-visible|:has|:muted|:paused',
+          'webkit:1735': '224|:backdrop|:dir|:fullscreen|<form>|<iframe>|<script>',
+          'webkit:1751': '224|:backdrop|:dir|:fullscreen|<form>|<iframe>|<script>',
+          'webkit:1767': '224|:backdrop|:dir|:fullscreen|<form>|<iframe>|<script>',
+          'webkit:1792': '224|:backdrop|:dir|:fullscreen|<form>|<iframe>|<script>',
+          'webkit:1811': '224|:backdrop|:dir|:fullscreen|<form>|<iframe>|<script>',
+          'webkit:1837': '224|:backdrop|:dir|:fullscreen|<form>|<iframe>|<script>',
+          'webkit:1848': '224|:backdrop|:dir|:fullscreen|<form>|<iframe>|<script>',
+          'webkit:1860': '224|:backdrop|:dir|:fullscreen|<form>|<iframe>|<script>',
+          'webkit:1921': '35|:backdrop|:grammar-error|:spelling-error|:state|<input>|align-content',
+          'webkit:1944': '35|:backdrop|:grammar-error|:spelling-error|:state|<input>|align-content',
+          'webkit:1967': '35|:backdrop|:grammar-error|:spelling-error|:state|<input>|align-content',
+          'webkit:1983': '35|:backdrop|:grammar-error|:spelling-error|:state|<input>|align-content',
+          'webkit:1992': '35|:backdrop|:grammar-error|:spelling-error|:state|<input>|align-content',
+          'webkit:2003': '35|:backdrop|:grammar-error|:spelling-error|:state|<input>|align-content',
+          'webkit:2035': '35|:backdrop|:grammar-error|:spelling-error|:state|<input>|align-content',
+          'webkit:2104': '49|:active-view-transition-type|:target-text|<link>|<script>|<style>|@page',
+          'webkit:2123': '49|:active-view-transition-type|:target-text|<link>|<script>|<style>|@page',
+          'webkit:2140': '67|:details-content|<input>|<script>|@font-face|animation-duration|Atomics.pause',
+          'webkit:2158': '67|:details-content|<input>|<script>|@font-face|animation-duration|Atomics.pause',
+          'webkit:2272': '24|@container|@scope|container|container-name|container-type|display',
+          'webkit:2287': '24|@container|@scope|container|container-name|container-type|display',
+          'webkit:2311': '8|:open|hanging-punctuation|text-box|text-box-trim|timeline-range-name()|Origin',
+          'webkit:2336': '8|:open|hanging-punctuation|text-box|text-box-trim|timeline-range-name()|Origin',
+        };
+        /* notes:end */
+
         /* ---------- catalogue: seed, cache, revalidate ----------
      SEED is what shipped with this page. Chrome branches a new milestone about
      every four weeks, so the page also asks the same public sources the CLI uses
@@ -5656,16 +6232,16 @@
           const meta = await milestoneMeta(m);
           const rev = await nearestRevision(meta.position);
           if (rev == null) return null;
+          // No note: nobody has written one for a milestone this new, and the
+          // shipped changelog data cannot know about it either. The card falls
+          // back to the branch-point year, which is all this actually establishes.
           return {
             v: String(m),
             full: m + '.0.' + meta.branch + '.0',
             rev: String(rev),
             plat: 'native arm64',
             year: meta.year,
-            note:
-              'Released ' +
-              (meta.year || 'recently') +
-              '. Resolved from the live snapshot archive.',
+            note: '',
           };
         }
 
@@ -5806,6 +6382,85 @@
           loops.forEach((el) => io2.observe(el));
         }
 
+        /* ---------- the screenshot's theme ----------
+     The two captures are the same window in the two themes, and the section is
+     partly about the fact that there are two. So it alternates on its own - but
+     through a script rather than a keyframe, because the toggle beside it has to
+     say which one is on screen, and a CSS animation is invisible to the page.
+
+     Pressing either half pins it. That is the whole point of the control: the
+     shot is dense enough that somebody who wants to read it needs it to hold
+     still. Nothing here stores the choice - it is about this one figure, not
+     about the visitor. */
+        const shotSwap = $('shotSwap'),
+          shotThemes = $('shotThemes');
+        if (shotSwap && shotThemes) {
+          const shotButtons = [...shotThemes.querySelectorAll('[data-shot]')];
+          let shotTimer = null,
+            shotPinned = false;
+
+          const showShot = (which, focus) => {
+            shotSwap.dataset.shot = which;
+            shotButtons.forEach((button) => {
+              const on = button.dataset.shot === which;
+              button.setAttribute('aria-checked', String(on));
+              // Roving tabindex: a radio group is one tab stop and the arrows
+              // move inside it.
+              button.tabIndex = on ? 0 : -1;
+              if (on && focus) button.focus();
+            });
+          };
+
+          const pin = (which, focus) => {
+            shotPinned = true;
+            if (shotTimer) {
+              clearInterval(shotTimer);
+              shotTimer = null;
+            }
+            showShot(which, focus);
+          };
+
+          shotButtons.forEach((button, i) => {
+            button.addEventListener('click', () => pin(button.dataset.shot));
+            button.addEventListener('keydown', (e) => {
+              const d =
+                e.key === 'ArrowRight' || e.key === 'ArrowDown'
+                  ? 1
+                  : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+                    ? -1
+                    : 0;
+              if (!d) return;
+              e.preventDefault();
+              const at = (i + d + shotButtons.length) % shotButtons.length;
+              pin(shotButtons[at].dataset.shot, true);
+            });
+          });
+
+          // Only while it is on screen, and never once somebody has chosen. With
+          // reduced motion or no observer it simply never starts, and the dark
+          // frame the markup ships is what stands.
+          if (!reduced && 'IntersectionObserver' in window) {
+            const io3 = new IntersectionObserver(
+              (entries) => {
+                const seen = entries.some((e) => e.isIntersecting);
+                if (seen && !shotTimer && !shotPinned) {
+                  shotTimer = setInterval(() => {
+                    if (document.hidden) return;
+                    showShot(
+                      shotSwap.dataset.shot === 'dark' ? 'light' : 'dark',
+                    );
+                  }, 7000);
+                } else if (!seen && shotTimer) {
+                  clearInterval(shotTimer);
+                  shotTimer = null;
+                }
+              },
+              { rootMargin: '10% 0px' },
+            );
+            io3.observe(shotSwap);
+          }
+        }
+
         /* ---------- hero counters ---------- */
         // Read off the catalogue rather than written down, so they cannot contradict
         // the shelf below once a newly released milestone arrives.
@@ -5826,8 +6481,9 @@
             statY: years.length
               ? Math.max(...years) - Math.min(...years) + 1
               : 8,
-            // SHELF holds the three engines that are not Chromium.
-            statV: 1 + Object.keys(SHELF).length,
+            // Chromium is a shelf in SHELF like the other three now, so this is
+            // the length of that object rather than one more than it.
+            statV: Object.keys(SHELF).length,
           };
         };
         // Targets are re-read every frame rather than captured when the count-up
@@ -5863,12 +6519,21 @@
         }
 
         /* ---------- the shelf: four engines, one scrubber ----------
-     Chromium is the only engine with a per-release story worth telling, so it
-     keeps the shape it always had: milestone, full version, snapshot revision,
-     and an editorial note. The other three come off the S rows discover.py
-     writes, which carry an id, a published label and a release date and nothing
-     else - so their note is the one thing that is always true and never guessed:
-     when the vendor shipped it.
+     All four engines come off the same S rows discover.py writes: an id, a
+     published label and a release date. Chromium used to be the exception,
+     listed from the twenty-one curated milestones alone - which left the tabs
+     adding up to 217 while the hero above counted 288, and the manager listing
+     ninety-two Chromium versions while the page listed twenty-one.
+
+     SEED is now a layer over those rows rather than a list of its own: for the
+     milestones catalog.tsv has a V row for it adds the full version, the
+     snapshot revision, the host platform and a hand-written note. Everything
+     else on the Chromium shelf is a milestone and a date, which is all the
+     archive says about it.
+
+     The changelog comes from NOTES, keyed the way the manager keys it, and the
+     rule for which one to print is the manager's rule too: a hand-written note
+     where somebody wrote one, otherwise what the release was first to support.
 
      Everything below works on `list`, whichever engine that currently is. */
         const NATIVE = './engineshelf.sh run ';
@@ -5926,8 +6591,59 @@
           const d = new Date(iso + 'T00:00:00Z');
           return isNaN(d) ? iso : DATE_FMT.format(d);
         };
-        const unpack = (engine, row) => {
+        // Two notes in the catalog say nothing about the version: one is written
+        // when a milestone is added automatically as Chrome ships it, the other
+        // when a row is resolved against the live archive. They are about how the
+        // row got here, not about what the release brought - so where a changelog
+        // goes they count as no note at all, which is the same call the manager
+        // makes on the same strings.
+        const BOILERPLATE = [
+          'Added automatically as Chrome released it.',
+          'Resolved from the live archive.',
+          'Resolved from the live snapshot archive.',
+        ];
+        const curatedNote = (note) => {
+          // A leading year, and the "Released 2026." an older build of this page
+          // wrote into localStorage in front of its own boilerplate, both come
+          // off before the comparison.
+          const text = (note || '')
+            .replace(/^\s*(?:Released\s+)?\d{4}\.\s*/, '')
+            .trim();
+          return BOILERPLATE.includes(text) ? '' : text;
+        };
+
+        // '<total>|<name>|<name>|...' -> what the card prints and what it says it
+        // is leaving out. The names are already ordered by how notable they are,
+        // so the first six are the six worth naming.
+        const featuresOf = (engine, id) => {
+          const packed = NOTES[engine + ':' + id];
+          if (!packed) return null;
+          const parts = packed.split('|');
+          const count = parseInt(parts[0], 10);
+          const names = parts.slice(1);
+          if (!names.length) return null;
+          return { count: Number.isFinite(count) ? count : names.length, names };
+        };
+
+        // The manager's rule: the hand-written note where there is one, otherwise
+        // what this release was first to support. Only WebKit ever falls through
+        // both - Playwright publishes builds MDN has no compat data for - and for
+        // those the ship date is the one thing that is certainly true. A milestone
+        // this browser resolved for itself has no S row and so no date either,
+        // only the branch-point year.
+        const changelog = (engine, id, note, date, year) => {
+          const curated = curatedNote(note).replace(/`/g, '');
+          if (curated) return curated;
+          const feats = featuresOf(engine, id);
+          if (feats) return feats.names.join(', ');
+          if (date) return 'Released ' + spellDate(date) + '.';
+          return year ? 'Released in ' + year + '.' : '';
+        };
+
+        const unpack = (engine, row, seed) => {
           const [id, label, date] = row.split('|');
+          const m = seed || null;
+          const year = m && m.year ? m.year : date.slice(0, 4);
           return {
             engine,
             id,
@@ -5937,34 +6653,49 @@
             // something the headline does not. WebKit's id is a Playwright
             // revision rather than a version, so it is written as one - and
             // dropped when the build has no published name and the headline is
-            // already showing that revision.
-            full:
-              engine === 'webkit'
+            // already showing that revision. Chromium's full version only exists
+            // for the milestones catalog.tsv resolved a build for.
+            full: m
+              ? m.full
+              : engine === 'webkit'
                 ? label === 'r' + id
                   ? ''
                   : 'r' + id
                 : id === label
                   ? ''
                   : id,
-            second: spellDate(date),
-            year: date.slice(0, 4),
-            note: 'Released ' + spellDate(date) + '.',
+            // A snapshot revision where the catalog has one, and otherwise the
+            // date - which is what the other three engines put here anyway.
+            second: m && m.rev ? 'r' + m.rev : spellDate(date),
+            plat: m ? m.plat : null,
+            year,
+            note: changelog(engine, id, m && m.note, date, year),
+            features: featuresOf(engine, id),
           };
         };
 
-        const shelfFor = (engine) =>
-          engine === 'chromium'
-            ? MS.map((m) => ({
-                engine: 'chromium',
-                id: m.v,
-                v: m.v,
-                full: m.full,
-                second: 'r' + m.rev,
-                plat: m.plat,
-                year: m.year,
-                note: m.note,
-              }))
-            : (SHELF[engine] || []).map((row) => unpack(engine, row));
+        const shelfFor = (engine) => {
+          const rows = SHELF[engine] || [];
+          if (engine !== 'chromium') return rows.map((row) => unpack(engine, row));
+          // SEED is an overlay, not a list: the shelf is every milestone the
+          // archive holds, and the curated ones simply have more to say. MS is
+          // SEED plus whatever this browser has since resolved for itself, so a
+          // milestone newer than the shipped catalog arrives with a revision and
+          // no S row - and joins the end.
+          const seeded = new Map(MS.map((m) => [m.v, m]));
+          const listed = rows.map((row) => {
+            const id = row.split('|')[0];
+            const m = seeded.get(id);
+            seeded.delete(id);
+            return unpack('chromium', row, m);
+          });
+          // No S row means no release date - the milestone was resolved against
+          // the snapshot bucket, which knows a branch point and not a ship day.
+          const extra = [...seeded.values()].map((m) =>
+            unpack('chromium', m.v + '|' + m.v + '|', m),
+          );
+          return listed.concat(extra).sort((a, b) => +a.v - +b.v);
+        };
 
         /* ---------- version scrubber ---------- */
         const track = $('track'),
@@ -5988,11 +6719,25 @@
           $('mCmd').textContent = meta.cmd(m);
           $('mFull').textContent = m.full;
           $('mSecond').textContent = m.second;
-          $('mPlat').textContent = meta.plat(m);
           $('mYear').textContent = m.year;
           $('mNote').textContent = m.note;
+          // The same line the manager's changelog dialog opens with. It is what
+          // keeps six names from reading as the whole release, and it is the only
+          // thing the card can say about a version whose note came from somewhere
+          // other than the compat data.
+          const feats = m.features;
+          $('mMeta').textContent = !feats
+            ? ''
+            : feats.count === 1
+              ? 'One feature first supported here.'
+              : feats.count + ' features first supported here.';
           // Firefox publishes 115.0 as "115"; printing both would just be the
-          // same number twice with a dot in it.
+          // same number twice with a dot in it. Chromium's platform pill is the
+          // same: only the catalogued milestones have a resolved build behind
+          // them, so only those know which architecture it is.
+          const plat = meta.plat(m) || '';
+          $('mPlat').textContent = plat;
+          $('mPlat').hidden = !plat;
           document
             .querySelectorAll('[data-m-sep]')
             .forEach((el) => (el.hidden = !m.full));
@@ -6134,9 +6879,19 @@
             );
           });
 
-          const rest = list.filter((m) => !named.has(m.v));
+          // Everything past the last milestone anybody has written a card about.
+          // Not every one of them: the Chromium shelf is ninety-odd milestones
+          // now, and a card printing seventy version buttons is not a card - so
+          // it names the five-step marks the curated list used, plus whatever the
+          // newest build is, and says outright that the rest are there too.
+          const lastNamed = Math.max(
+            ...[...named].map(Number).filter(Number.isFinite),
+          );
+          const rest = list.filter((m) => +m.v > lastNamed);
           if (!rest.length) return;
-          const years = rest.map((m) => m.year).filter(Boolean);
+          const newest = rest[rest.length - 1];
+          const marks = rest.filter((m) => +m.v % 5 === 0 || m === newest);
+          const years = marks.map((m) => m.year).filter(Boolean);
           const first = years[0],
             last = years[years.length - 1];
           const card = eraCard(
@@ -6145,8 +6900,11 @@
               : first === last
                 ? first
                 : first + '–' + last,
-            rest,
-            'Added on the same spacing as Chrome releases them.',
+            marks,
+            rest.length +
+              ' milestones past ' +
+              lastNamed +
+              ', all on the shelf. Drag the scrubber for the ones between.',
           );
           card.id = 'eraTail';
           eraGrid.appendChild(card);
@@ -6167,12 +6925,18 @@
           // colliding on a narrow screen, so only every nth is written out - and
           // never the same one twice running, which is what an axis of WebKit
           // builds would otherwise be.
+          //
+          // The newest release is always labelled, and a regular label too close
+          // to it is dropped rather than printed on top of it: ninety-two
+          // milestones land on a step of six, which put 151 hard against 152.
           const step = Math.ceil(list.length / 16);
+          const end = list.length - 1;
           let printed = null;
           tickLabels.replaceChildren(
             ...list.map((m, i) => {
               const label = document.createElement('span');
-              const due = i % step === 0 || i === list.length - 1;
+              const due =
+                i === end || (i % step === 0 && end - i >= step / 2);
               if (due && m.v !== printed) {
                 label.textContent = m.v;
                 printed = m.v;
@@ -6186,6 +6950,13 @@
         const engineTabs = [
           ...document.querySelectorAll('#engineTabs [data-engine]'),
         ];
+
+        const countTab = (tab) => {
+          const badge = tab.querySelector('[data-eng-count]');
+          if (!badge) return;
+          const n = shelfFor(tab.dataset.engine).length;
+          badge.textContent = n ? String(n) : '';
+        };
 
         // shelfFor builds fresh objects every time, so what is held across a
         // repaint is the id, never the object.
@@ -6228,14 +6999,11 @@
         }
 
         engineTabs.forEach((tab, i) => {
+          // Off the shelf itself, for every engine including Chromium. It used to
+          // be SEED.length there - twenty-one - which is what made the four tabs
+          // add up to 217 under a hero claiming 288.
           const count = tab.querySelector('[data-eng-count]');
-          if (count) {
-            const n =
-              tab.dataset.engine === 'chromium'
-                ? SEED.length
-                : (SHELF[tab.dataset.engine] || []).length;
-            count.textContent = n ? String(n) : '';
-          }
+          if (count) countTab(tab);
           tab.addEventListener('click', () => setEngine(tab.dataset.engine));
           tab.addEventListener('keydown', (e) => {
             const d =
@@ -6270,8 +7038,7 @@
           // discover.py last catalogued and nothing here changes them.
           if (engine === 'chromium') paintShelf(true);
           const tab = engineTabs.find((t) => t.dataset.engine === 'chromium');
-          const count = tab && tab.querySelector('[data-eng-count]');
-          if (count) count.textContent = String(MS.length);
+          if (tab) countTab(tab);
           syncStats();
         }
 

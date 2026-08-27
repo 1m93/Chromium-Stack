@@ -70,6 +70,10 @@ stage_tree() {
 
   # Shared, never obfuscated: data and container-internal plumbing.
   cp "$ROOT/catalog.tsv"            "$dest/"
+  # The per-engine changelog data both servers read for the notes column. Without
+  # it every non-Chromium row falls back to "N/A", since only a couple of dozen
+  # Chromium milestones carry a hand-written note.
+  cp "$ROOT/features.tsv"           "$dest/"
   cp "$ROOT/gui/icon.svg"           "$dest/gui/"
   # The whole of docker/ - it is all container-internal plumbing and none of it is
   # obfuscated. Named file by file before this, which is how three of the four
@@ -88,6 +92,7 @@ stage_tree() {
     cp "$ROOT/engineshelf-docker.sh" "$dest/"
     cp "$ROOT/gui.sh"                   "$dest/"
     cp "$ROOT/lib/preflight.sh"         "$dest/lib/"
+    cp "$ROOT/lib/engines.sh"           "$dest/lib/"
     cp "$ROOT/gui/server.py"            "$dest/gui/"
     chmod +x "$dest"/*.sh
   else
@@ -95,6 +100,7 @@ stage_tree() {
     cp "$ROOT/engineshelf-docker.ps1" "$dest/"
     cp "$ROOT/gui.ps1"                   "$dest/"
     cp "$ROOT/lib/preflight.ps1"         "$dest/lib/"
+    cp "$ROOT/lib/engines.ps1"           "$dest/lib/"
     cp "$ROOT/gui/server.ps1"            "$dest/gui/"
   fi
 
@@ -109,8 +115,9 @@ stage_tree() {
     obf_bash "$dest/engineshelf-docker.sh"
     obf_bash "$dest/gui.sh"
     obf_bash "$dest/lib/preflight.sh"
+    obf_bash "$dest/lib/engines.sh"
     obf_py   "$dest/gui/server.py"
-    say "obfuscated: 4 bash + 1 python + 3 web assets"
+    say "obfuscated: 5 bash + 1 python + 3 web assets"
   else
     local fn=obf_ps1_light label="light (comment strip)"
     [ "$PS_HEAVY" = "1" ] && { fn=obf_ps1_heavy; label="heavy (encoded, UNTESTED here)"; }
@@ -118,8 +125,9 @@ stage_tree() {
     "$fn" "$dest/engineshelf-docker.ps1"
     "$fn" "$dest/gui.ps1"
     "$fn" "$dest/lib/preflight.ps1"
+    "$fn" "$dest/lib/engines.ps1"
     "$fn" "$dest/gui/server.ps1"
-    say "obfuscated: 5 powershell [$label] + 3 web assets"
+    say "obfuscated: 6 powershell [$label] + 3 web assets"
   fi
 }
 

@@ -48,6 +48,9 @@ $JobsDir     = Join-Path $Root 'jobs'
 New-Item -ItemType Directory -Force -Path $JobsDir | Out-Null
 
 . (Join-Path $Project 'lib\preflight.ps1')
+# Get-NativeAvailable asks Get-EnginePlatforms which builds this host publishes;
+# that lives in lib\engines.ps1, same as it does for the CLI.
+. (Join-Path $Project 'lib\engines.ps1')
 
 $HostPlatform = 'Win_x64'
 

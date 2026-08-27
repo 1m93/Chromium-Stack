@@ -113,13 +113,15 @@ launcher window when you are done.
 </table>
 
 <p align="center">
-  <img src="assets/screenshot-manager.png" width="100%" alt="The EngineShelf manager: one shelf holding every release of all four engines, each row led by its engine's own mark — Chromium 152, Firefox 154, a running WebKit 26.5 offering Stop, Edge 151 already installed — with the engines listed down the side and a count of how many of each are on disk">
+  <img src="assets/screenshot-manager.png" width="100%" alt="The EngineShelf manager: one shelf holding every release of all four engines, each row led by its engine's own mark and followed by what that release was first to support — Chromium 152, Firefox 154, a running WebKit 26.5 offering Open and Stop, Chromium 151, Edge 151 already installed — with the engines listed down the side, a count of how many of each are on disk, and a disk breakdown at the foot of the sidebar">
   <br>
   <sub>Every release of all four engines on one shelf, newest first, each row under its own
-  mark. Version numbers do not line up between engines — Chromium 120, Firefox 121, Edge 120
-  and WebKit 17.4 are contemporaries and none of those numbers say so — so the rows are
-  ordered by when things shipped, which puts contemporaries next to each other. Narrow to one
-  engine down the left, or search by version, date or feature.</sub>
+  mark and next to what that version brought — the features it was first to support, from
+  MDN's compat data, which is why most of the shelf has something to say rather than
+  nothing. Version numbers do not line up between engines — Chromium 120, Firefox 121, Edge 120 and WebKit
+  17.4 are contemporaries and none of those numbers say so — so the rows are ordered by when
+  things shipped, which puts contemporaries next to each other. Narrow to one engine down the
+  left, or search by version, date or feature.</sub>
 </p>
 
 > [!TIP]
@@ -592,8 +594,9 @@ colour on a dim screen, and the state has to be legible at a glance to be worth 
 
 **The rest of a row.** A date tag comes first — every row has one and most rows get picked by it,
 because nobody hunts for "Chromium 88", they hunt for something from early 2021. Above it sits
-the changelog, on one line, with a button to open the rest when there is more than fits; rows
-with no changelog say `N/A`, which most of the shelf does, because nobody wrote one. The feature
+the changelog, on one line, with a button to open the rest when there is more than fits; the few
+rows with nothing to report say `N/A` — *Every version says what it brought*, further down, is
+where those lines come from and which rows have none. The feature
 pills that used to sit beside the date are gone: they were lifted out of the changelog printed
 directly above them and said the same thing twice.
 
