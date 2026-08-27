@@ -1081,6 +1081,11 @@ function Open-AppWindow {
 }
 
 function Get-RunningContainers {
+    # No docker on the machine means nothing of ours can be running - and a bare
+    # `docker` call would throw CommandNotFoundException, which 2>$null does not
+    # catch. This runs at startup (Set-InheritedContainers) before anything is
+    # wrapped in a request handler, so an unguarded call takes the manager down.
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { return @() }
     return @(docker ps --filter "name=$ContainerPrefix" --format '{{.Names}}' 2>$null |
              Where-Object { $_ -like "$ContainerPrefix*" })
 }
