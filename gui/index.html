@@ -204,7 +204,19 @@
             <span data-icon="x" id="log-cancel-icon"></span
             ><span id="log-cancel-label">Cancel</span>
           </button>
-          <button class="iconish" id="log-close" title="Close">
+          <!-- Tabs no longer push each other off the end, so a session with
+               twenty finished downloads in it needs one press to tidy up.
+               Hides them: nothing is thrown away, and anything written to one of
+               these logs again brings its tab straight back. -->
+          <button
+            class="iconish log-clear"
+            id="log-clear"
+            title="Close every log that has finished. Nothing is deleted - a log comes back if something runs against that version again."
+            hidden
+          >
+            Close finished
+          </button>
+          <button class="iconish" id="log-close" title="Hide the log panel">
             <span data-icon="x"></span>
           </button>
         </div>
@@ -220,10 +232,21 @@
         ></span>
         <button class="job-more" id="job-more" hidden></button>
         <div class="spacer"></div>
-        <button class="btn" id="log-btn">
+        <button
+          class="btn"
+          id="log-btn"
+          title="Open the job log. Anything still running is there; a log you closed stays closed until something runs against it again."
+        >
           <span data-icon="terminal"></span
           ><span id="log-btn-label">Show log</span>
         </button>
+        <!-- Only when this manager will outlive its window, which now means only
+             one thing: it is older than the page. The server has answered
+             "autoQuit" on every heartbeat since the shutdown work landed and
+             nothing read it, so a manager in that mode looked exactly like one
+             that closes with the window - right up to the point where closing
+             the window left two containers running. -->
+        <span class="foot-keep" id="foot-keep" hidden></span>
         <span class="foot-path" id="foot-path"></span>
         <span class="rule"></span>
         <a

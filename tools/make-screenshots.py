@@ -24,6 +24,7 @@ import argparse
 import glob
 import http.server
 import json
+from urllib.parse import unquote
 import os
 import platform
 import shutil
@@ -94,14 +95,31 @@ def job_output(label, platform_dir, phase):
     return "\n".join(lines)
 
 
+# Output is filed against a log per version rather than per job, so each of these
+# names the log it writes to and what that log is called - exactly what the page
+# is handed by a real manager.
 JOBS = {
     "1": {"kind": "launch", "revision": RUNNING, "label": "Firefox 115.0",
+          "stream": "firefox:115.0", "streamLabel": "Firefox 115.0",
           "output": job_output("Firefox 115.0", "mac", "open")},
     "2": {"kind": "launch", "revision": RUNNING_2, "label": "WebKit 26.5",
+          "stream": "webkit:2336", "streamLabel": "WebKit 26.5",
           "output": job_output("WebKit 26.5", "mac-26-arm64", "open")},
     "3": {"kind": "launch", "revision": DOWNLOADING, "label": "Chromium 105",
+          "stream": "chromium:105", "streamLabel": "Chromium 105",
           "output": job_output("Chromium 105.0.5195.0", "Mac_Arm", "downloading")},
 }
+
+
+def staged_logs():
+    """The log list the page builds its tab strip from."""
+    return [{"key": j["stream"], "label": j["streamLabel"],
+             "lines": len(j["output"].split("\n")),
+             "updated": 0,
+             "job": {"id": i, "kind": j["kind"], "revision": j["revision"],
+                     "label": j["label"], "status": "running", "code": None,
+                     "stream": j["stream"]}}
+            for i, j in JOBS.items()]
 
 
 def staged_state():
@@ -146,8 +164,10 @@ def staged_state():
     state["profileBytes"] = profiles
     state["totalBytes"] = browsers + profiles
     state["jobs"] = [{"id": i, "kind": j["kind"], "revision": j["revision"],
-                      "label": j["label"], "status": "running"}
+                      "label": j["label"], "status": "running", "code": None,
+                      "stream": j["stream"]}
                      for i, j in JOBS.items()]
+    state["logs"] = staged_logs()
     return state
 
 
@@ -176,7 +196,7 @@ STAGE = """
     if (typeof state === 'undefined' || !state || !state.jobs.length) {
       return setTimeout(stage, 40);
     }
-    watch('3', 'Chromium 105');
+    watch('chromium:105', 'Chromium 105');
   })();
 </script>
 """
@@ -214,12 +234,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/state":
             return self._json(STATE)
         if path == "/api/ping":
-            return self._json({"autoQuit": False, "grace": 0})
+            # True, or the page draws the "stays running when closed" warning
+            # over every screenshot: that badge is for a manager old enough
+            # to have had the mode, and this one is a fixture.
+            return self._json({"autoQuit": True, "grace": 12})
         if path.startswith("/api/job/"):
             job = JOBS.get(path.rsplit("/", 1)[-1])
             if not job:
                 return self._json({"error": "no such job"})
             return self._json(dict(job, status="running", code=None))
+        if path == "/api/logs":
+            return self._json({"streams": staged_logs()})
+        if path.startswith("/api/log/"):
+            key = unquote(path[len("/api/log/"):])
+            found = next((s for s in staged_logs() if s["key"] == key), None)
+            if not found:
+                return self._json({"error": "no such log"})
+            lines = JOBS[found["job"]["id"]]["output"].split("\n")
+            # Whole thing every time: the page asks for a delta and one request
+            # is all a screenshot ever makes.
+            return self._json(dict(found, first=0, total=len(lines),
+                                   mark=0, lines=lines))
         if path in ("/", "/index.html"):
             with open(os.path.join(GUI, "index.html"), encoding="utf-8") as handle:
                 page = handle.read()

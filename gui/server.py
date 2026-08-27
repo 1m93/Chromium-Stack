@@ -13,7 +13,7 @@ The manager is its own window, not a page that outlives you: closing it stops
 this server, the browsers it launched and the containers it brought up. See
 "lifetime" below for how the window and the server keep track of each other.
 
-    python3 gui/server.py [--port N] [--no-open] [--tab] [--keep-alive]
+    python3 gui/server.py [--port N] [--no-open] [--tab]
 """
 import argparse
 import errno
@@ -32,6 +32,7 @@ import threading
 import time
 import urllib.request
 import webbrowser
+from urllib.parse import parse_qs, unquote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +53,13 @@ ENGINE_NAMES = {"chromium": "Chromium", "firefox": "Firefox",
 # an option, or a second word.
 SELECTOR_RE = re.compile(
     r"^(?:(?:%s):)?[0-9A-Za-z][0-9A-Za-z.]{0,31}$" % "|".join(ENGINES))
+
+# Which log a job writes to. The page names it, because the page is what knows
+# that a native build and its container are two ways of running one row of the
+# shelf - the server sees two unrelated selectors, and filing them apart is what
+# gave one version two logs. Never a path and never a shell word, same as above;
+# it is only ever a dictionary key here, but it also reaches the page as a URL.
+STREAM_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.:_-]{0,63}$")
 
 
 try:
@@ -1059,6 +1067,11 @@ def build_state():
         "docker": docker,
         "doctor": doctor_report(),
         "jobs": jobs.summary(),
+        # Every log this manager holds, without its contents. Rides along with
+        # the state rather than being a request of its own: the tab strip is
+        # rebuilt from it on every refresh, which is what makes it agree with the
+        # other window onto the same manager - and survive a reload of this one.
+        "logs": jobs.logs(),
     }
 
 
@@ -1066,23 +1079,134 @@ def build_state():
 # jobs
 # --------------------------------------------------------------------------- #
 
+# curl draws its meter by redrawing one line, and text-mode pipes translate the
+# carriage return that does it into a newline - so a 90 MB download arrives here
+# as several hundred near-identical lines. Recognising a frame is what lets the
+# buffer keep the newest one and throw the rest away, which is the difference
+# between a log that holds one install and a log that holds a day of them.
+#
+# The plain meter is twelve columns wide, the first a percentage and the ninth
+# and eleventh clocks:
+#   % Total  Total  % Recd  Recd  % Xferd  Xferd  Dload  Upload  Total  Spent  Left  Speed
+_CURL_CLOCK = re.compile(r"^(?:\d+:\d\d:\d\d|--:--:--)$")
+
+
+def is_meter(line):
+    columns = line.split()
+    if len(columns) != 12 or not columns[0].isdigit() or len(columns[0]) > 3:
+        return False
+    return bool(_CURL_CLOCK.match(columns[8]) and _CURL_CLOCK.match(columns[10]))
+
+
 class Jobs:
-    """Background CLI invocations, with their output kept for the page to poll."""
+    """Background CLI invocations, with their output kept for the page to poll.
+
+    Output is filed against a *stream* rather than against the job that produced
+    it. A stream is one target - one row of the shelf, or one dependency the
+    doctor fixes - and every job that touches that target appends to the same
+    stream. Cancel a download and start it again and it is the same log with a
+    divider in it, which is what someone watching a version actually wants: the
+    old model handed out a fresh empty log per job, so the record of what just
+    went wrong disappeared the moment it was retried.
+
+    A job still has its own view of that stream: it remembers where in the
+    buffer its own output began, so /api/job/<id> reads exactly as it did.
+    """
+
+    # A download is one long carriage-return progress bar and Python's universal
+    # newlines turn every frame of it into its own line, so a single install used
+    # to bury everything before it. Consecutive meter frames collapse onto one
+    # line now, which is what makes a buffer this size hold real history.
+    STREAM_LINES = 1500
+    # Beyond this many streams the least recently used idle one is dropped. Not a
+    # display limit - the page shows every stream it is given - just a ceiling on
+    # a manager that has been left running for a week.
+    STREAM_MAX = 60
 
     def __init__(self):
         self._jobs = {}
+        self._streams = {}
         self._lock = threading.Lock()
         self._next = 1
 
-    def start(self, kind, revision, argv, label, env=None):
+    # -- streams ----------------------------------------------------------- #
+
+    def _stream(self, key, label):
+        """The stream for `key`, created on first use. Called under the lock."""
+        stream = self._streams.get(key)
+        if stream is None:
+            stream = {
+                "key": key, "label": label or key, "lines": [],
+                # Lines trimmed off the front. Every index a job or a page holds
+                # is absolute, so this is what makes them keep meaning something
+                # after the buffer wraps.
+                "dropped": 0, "jobs": [], "updated": time.time(),
+            }
+            self._streams[key] = stream
+            self._evict()
+        elif label:
+            # The newest name wins: a row relabelled between two runs - a
+            # Chromium milestone that resolved to a revision - should not keep
+            # answering to what it was called the first time.
+            stream["label"] = label
+        # Most recently used goes last, which is what _evict reads.
+        self._streams[key] = self._streams.pop(key)
+        return stream
+
+    def _evict(self):
+        """Drop the oldest idle streams. Called under the lock."""
+        if len(self._streams) <= self.STREAM_MAX:
+            return
+        busy = {job["stream"] for job in self._jobs.values()
+                if job["status"] == "running"}
+        for key in list(self._streams):
+            if len(self._streams) <= self.STREAM_MAX:
+                return
+            if key not in busy:
+                del self._streams[key]
+
+    def _append(self, stream, lines):
+        """Add output, collapsing a redrawn progress meter. Under the lock."""
+        for line in lines:
+            if (is_meter(line) and stream["lines"]
+                    and is_meter(stream["lines"][-1])):
+                stream["lines"][-1] = line
+            else:
+                stream["lines"].append(line)
+        extra = len(stream["lines"]) - self.STREAM_LINES
+        if extra > 0:
+            # A block at a time rather than one line per append: shifting a
+            # 1500-element list on every meter frame is work for nothing.
+            block = max(extra, 200)
+            del stream["lines"][:block]
+            stream["dropped"] += block
+        stream["updated"] = time.time()
+
+    def start(self, kind, revision, argv, label, env=None,
+              stream=None, stream_label=None, action=None):
+        key = stream or "sel:%s" % revision
         with self._lock:
             job_id = str(self._next)
             self._next += 1
+            log = self._stream(key, stream_label)
+            # Where this job's own output starts, so /api/job/<id> can still cut
+            # its slice out of a buffer several jobs deep.
+            start = log["dropped"] + len(log["lines"])
             job = {
                 "id": job_id, "kind": kind, "revision": revision, "label": label,
-                "status": "running", "lines": [], "started": time.time(), "code": None,
+                "status": "running", "started": time.time(), "code": None,
+                "stream": key, "start": start,
+                # Which docker verb this was. A container's job ends as soon as
+                # the desktop answers, so "done" is all the page could see - and
+                # a stop that succeeded looked exactly like a build that did.
+                "action": action,
             }
             self._jobs[job_id] = job
+            log["jobs"].append(job_id)
+            # A divider rather than a fresh log: this is the same target as
+            # whatever ran before it, and the point is to be able to read both.
+            self._append(log, ["", "── %s · %s ──"
+                               % (label, time.strftime("%H:%M:%S")), ""])
         threading.Thread(target=self._run, args=(job, argv, env or {}), daemon=True).start()
         return job_id
 
@@ -1096,7 +1220,7 @@ class Jobs:
         except OSError as error:
             with self._lock:
                 job["status"] = "error"
-                job["lines"].append(str(error))
+                self._append(self._stream(job["stream"], None), [str(error)])
             return
 
         with self._lock:
@@ -1105,11 +1229,13 @@ class Jobs:
         for line in process.stdout:
             line = line.rstrip("\n")
             with self._lock:
-                job["lines"].append(line)
-                # A download is one long carriage-return progress bar; keeping the
-                # last few hundred lines is plenty for the page to render.
-                if len(job["lines"]) > 400:
-                    del job["lines"][:200]
+                log = self._streams.get(job["stream"])
+                # Evicted from under a job that outlived its stream's turn at the
+                # front of the queue: give it its stream back rather than losing
+                # the rest of the run.
+                if log is None:
+                    log = self._stream(job["stream"], None)
+                self._append(log, [line])
         code = process.wait()
         invalidate_sizes()
         forget_doctor()
@@ -1143,12 +1269,98 @@ class Jobs:
             return False
         return True
 
+    def _output(self, job):
+        """One job's own share of its stream. Called under the lock.
+
+        Bounded above by whatever ran next on the same stream: without that, an
+        install that was cancelled and retried reported the retry's output as its
+        own, and the row read the new download's percentage off the old job.
+        """
+        log = self._streams.get(job["stream"])
+        if not log:
+            return ""
+        after = log["dropped"] + len(log["lines"])
+        following = log["jobs"][log["jobs"].index(job["id"]) + 1:] \
+            if job["id"] in log["jobs"] else []
+        for job_id in following:
+            nxt = self._jobs.get(job_id)
+            if nxt:
+                after = nxt["start"]
+                break
+        first = max(0, job["start"] - log["dropped"])
+        return "\n".join(log["lines"][first:max(first, after - log["dropped"])])
+
     def get(self, job_id):
         with self._lock:
             job = self._jobs.get(job_id)
             if not job:
                 return None
-            return {k: v for k, v in job.items() if k != "lines"} | {"output": "\n".join(job["lines"])}
+            return ({k: v for k, v in job.items() if k != "start"}
+                    | {"output": self._output(job)})
+
+    def _latest(self, key):
+        """The job a stream is named by: the running one, else the last to run."""
+        log = self._streams.get(key)
+        if not log:
+            return None
+        found = None
+        running = None
+        for job_id in log["jobs"]:
+            job = self._jobs.get(job_id)
+            if not job:
+                continue
+            found = job
+            if job["status"] == "running":
+                running = job
+        return running or found
+
+    def stream_of(self, job_id):
+        """Which log a job writes to - the key the page watches it by."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return job["stream"] if job else None
+
+    def log(self, key, since=0):
+        """A stream, from line `since` on.
+
+        Absolute line numbers, so the page asks for what it has not seen instead
+        of being sent the whole buffer four times a second. `first` above what
+        was asked for means the buffer wrapped past it and the page has to redraw
+        from there.
+        """
+        with self._lock:
+            log = self._streams.get(key)
+            if not log:
+                return None
+            first = max(int(since or 0), log["dropped"])
+            job = self._latest(key)
+            return {
+                "key": key, "label": log["label"],
+                "updated": log["updated"],
+                "first": first,
+                "total": log["dropped"] + len(log["lines"]),
+                "lines": log["lines"][first - log["dropped"]:],
+                # Where the current run starts, so the page can read the phase
+                # and the meter off this run rather than off one that ended.
+                "mark": max(job["start"], log["dropped"]) if job else log["dropped"],
+                "job": self._summary(job) if job else None,
+            }
+
+    def logs(self):
+        """Every stream, newest activity last - what a reloaded page rebuilds
+        its tab strip from. Without this a reload lost the lot: the tabs lived
+        only in the page, so the output was still here and unreachable."""
+        with self._lock:
+            out = []
+            for key, log in self._streams.items():
+                job = self._latest(key)
+                out.append({
+                    "key": key, "label": log["label"],
+                    "lines": log["dropped"] + len(log["lines"]),
+                    "updated": log["updated"],
+                    "job": self._summary(job) if job else None,
+                })
+            return out
 
     def revision(self):
         """What a window needs in order to know it has missed something.
@@ -1164,13 +1376,17 @@ class Jobs:
             return ",".join(f"{job['id']}:{job['status']}"
                             for job in self._jobs.values())
 
+    @staticmethod
+    def _summary(job):
+        return {"id": job["id"], "kind": job["kind"], "revision": job["revision"],
+                "label": job["label"], "status": job["status"],
+                "code": job["code"], "stream": job["stream"],
+                "action": job.get("action")}
+
     def summary(self):
         with self._lock:
-            return [
-                {"id": j["id"], "kind": j["kind"], "revision": j["revision"],
-                 "label": j["label"], "status": j["status"]}
-                for j in self._jobs.values() if j["status"] == "running"
-            ]
+            return [self._summary(j) for j in self._jobs.values()
+                    if j["status"] == "running"]
 
 
 jobs = Jobs()
@@ -1277,7 +1493,6 @@ GRACE_SECONDS = 12
 _life = {
     "seen": 0.0,        # last authorised request from a page
     "shell": None,      # the browser process hosting the window, if we own it
-    "auto": True,       # quit when the window is gone
     "quitting": False,
     "server": None,
     "port": 0,
@@ -1587,8 +1802,6 @@ def watch_window():
             if slept > 5:
                 _life["seen"] = now
                 continue
-            if not _life["auto"]:
-                continue
             # The macOS app hosts the window itself rather than handing it to a
             # browser, so there is no browser process to watch - what stands in
             # for it is the app, and a manager whose app is gone has no window.
@@ -1667,7 +1880,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routes ------------------------------------------------------------ #
     def do_GET(self):
-        path = self.path.split("?", 1)[0]
+        path, _, raw = self.path.partition("?")
+        query = parse_qs(raw)
 
         if path == "/api/alive":
             # Before the token check on purpose, and not a heartbeat: this is
@@ -1701,12 +1915,37 @@ class Handler(BaseHTTPRequestHandler):
             job = jobs.get(path.rsplit("/", 1)[-1])
             return self._json(job or {"error": "no such job"}, 200 if job else 404)
 
+        # Every log this manager holds. A page that has just been reloaded knows
+        # nothing about what ran before it, and the output was here all along -
+        # this is what it reads to put the tab strip back.
+        if path == "/api/logs":
+            if not self._authorised():
+                return self._json({"error": "unauthorised"}, 403)
+            return self._json({"streams": jobs.logs()})
+
+        # One log, from a line number on. Asked for four times a second while a
+        # download runs, so it sends the difference rather than the buffer.
+        if path.startswith("/api/log/"):
+            if not self._authorised():
+                return self._json({"error": "unauthorised"}, 403)
+            key = unquote(path[len("/api/log/"):])
+            try:
+                since = int(query.get("since", ["0"])[0])
+            except ValueError:
+                since = 0
+            found = jobs.log(key, since)
+            return self._json(found or {"error": "no such log"},
+                              200 if found else 404)
+
         if path == "/api/ping":
             # _authorised() has already noted the time; the body is only so the
             # page can tell whether closing it will end the session.
             if not self._authorised():
                 return self._json({"error": "unauthorised"}, 403)
-            return self._json({"autoQuit": _life["auto"], "grace": GRACE_SECONDS,
+            # Always true now: a manager that outlives its window was a mode,
+            # and it is gone. Still answered, because a page talking to a
+            # manager old enough to have it needs to be able to say so.
+            return self._json({"autoQuit": True, "grace": GRACE_SECONDS,
                                "revision": jobs.revision()})
 
         if path == "/api/token":
@@ -1764,18 +2003,32 @@ class Handler(BaseHTTPRequestHandler):
                 # Tells preflight there is no terminal here, so a fix needing
                 # root asks through the system dialog instead of failing on sudo.
                 env={"PF_GUI": "1"},
+                stream="doctor:%s" % component,
+                # "Docker" rather than "docker": the page knows what the
+                # component is called, and the tab is what wears the name.
+                stream_label=str(body.get("streamLabel", "")).strip()[:80]
+                or component,
             )
-            return self._json({"job": job_id})
+            return self._json({"job": job_id, "stream": jobs.stream_of(job_id)})
 
         selector = str(body.get("selector", "")).strip()
 
         if not SELECTOR_RE.match(selector):
             return self._json({"error": "bad selector"}, 400)
 
+        # Which row of the shelf this is for, and what that row is called. Absent
+        # or malformed, jobs.start falls back to filing by selector - which is
+        # what an older page, or a request made by hand, gets.
+        stream = str(body.get("stream", "")).strip()
+        if not STREAM_RE.match(stream):
+            stream = None
+        label = str(body.get("streamLabel", "")).strip()[:80] or None
+
         if path == "/api/install":
             job_id = jobs.start("install", selector, ["bash", CLI, "install", selector],
-                                f"Installing {selector_label(selector)}")
-            return self._json({"job": job_id})
+                                f"Installing {selector_label(selector)}",
+                                stream=stream, stream_label=label)
+            return self._json({"job": job_id, "stream": jobs.stream_of(job_id)})
 
         if path == "/api/launch":
             argv = ["bash", CLI, "run", selector]
@@ -1789,21 +2042,24 @@ class Handler(BaseHTTPRequestHandler):
                 argv.append("--gpu")
             elif body.get("gpu") is False:
                 argv.append("--no-gpu")
-            job_id = jobs.start("launch", selector, argv, selector_label(selector))
-            return self._json({"job": job_id})
+            job_id = jobs.start("launch", selector, argv, selector_label(selector),
+                                stream=stream, stream_label=label)
+            return self._json({"job": job_id, "stream": jobs.stream_of(job_id)})
 
         if path == "/api/remove":
             argv = ["bash", CLI, "remove", selector]
             if body.get("withProfile"):
                 argv.append("--with-profile")
             job_id = jobs.start("remove", selector, argv,
-                                f"Removing {selector_label(selector)}")
-            return self._json({"job": job_id})
+                                f"Removing {selector_label(selector)}",
+                                stream=stream, stream_label=label)
+            return self._json({"job": job_id, "stream": jobs.stream_of(job_id)})
 
         if path == "/api/clean":
             job_id = jobs.start("clean", selector, ["bash", CLI, "clean", selector],
-                                f"Resetting profile {selector_label(selector)}")
-            return self._json({"job": job_id})
+                                f"Resetting profile {selector_label(selector)}",
+                                stream=stream, stream_label=label)
+            return self._json({"job": job_id, "stream": jobs.stream_of(job_id)})
 
         if path == "/api/docker":
             action = str(body.get("action", "start"))
@@ -1819,8 +2075,9 @@ class Handler(BaseHTTPRequestHandler):
             # shelf; otherwise the only way to get that disk back is raw docker.
             if action == "purge" and body.get("withProfile"):
                 argv.append("--with-profile")
-            job_id = jobs.start("docker", selector, argv, f"Docker {action} {selector}")
-            return self._json({"job": job_id})
+            job_id = jobs.start("docker", selector, argv, f"Docker {action} {selector}",
+                                stream=stream, stream_label=label, action=action)
+            return self._json({"job": job_id, "stream": jobs.stream_of(job_id)})
 
         return self._json({"error": "no such endpoint"}, 404)
 
@@ -1860,8 +2117,6 @@ def main():
                         help="start the server without opening anything")
     parser.add_argument("--tab", action="store_true",
                         help="open a tab in the default browser instead of a window")
-    parser.add_argument("--keep-alive", action="store_true",
-                        help="keep serving after the window closes")
     parser.add_argument("--new", action="store_true",
                         help="start another manager even if one is running")
     parser.add_argument("--owner-pid", type=int, default=0,
@@ -1923,7 +2178,6 @@ def main():
     # waits. An owner is the exception: --no-open there means the window is
     # somewhere else, not that there is none.
     _life["owner"] = args.owner_pid if pid_alive(args.owner_pid) else 0
-    _life["auto"] = not (args.keep_alive or (args.no_open and not _life["owner"]))
 
     # Asked to stop rather than interrupted - which is how the app that owns the
     # window says the window has closed. Without this the browsers and the
@@ -1946,15 +2200,21 @@ def main():
     say()
     say(f"  EngineShelf manager  ->  {url}")
     say(f"  Files: {root_dir()}")
-    if _life["owner"]:
-        # The window is the app's own, and the app is what this reads as gone.
+    if _life["owner"] or shell is not None:
+        # A window we can watch: the app's own, or the browser we started for it.
         say("  Closing the window quits the manager, the browsers it opened")
         say("  and any Docker containers it started.")
-    elif shell is not None:
-        say("  Closing the window quits the manager, the browsers it opened")
-        say("  and any Docker containers it started.")
-    elif not _life["auto"]:
-        say("  Press Ctrl-C to stop the manager.")
+    elif args.no_open:
+        # No window at all, so the first page to connect is what gets watched and
+        # its silence is what ends the run. Nothing is watched until then, which
+        # is why this waits rather than quitting where it stands.
+        #
+        # Worth saying out loud: there is no longer a mode that serves on
+        # regardless, so a script driving this API keeps it alive only for as long
+        # as it keeps calling.
+        say("  Nothing opened. Once something connects, the manager quits")
+        say(f"  {GRACE_SECONDS}s after it stops answering - along with the browsers")
+        say("  and containers it started.")
     else:
         # No window of our own: the page's heartbeat is the only thing that can
         # say it is still there, so say what silence will be taken to mean.

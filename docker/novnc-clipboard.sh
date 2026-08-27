@@ -31,3 +31,12 @@ sed -i 's|^export default UI;|window.UI = UI;   /* EngineShelf: app/clipboard.js
 sed -i 's|<script type="module" crossorigin="anonymous" src="app/ui.js"></script>|&\n    <script src="app/clipboard.js" defer></script>|' "$page"
 
 grep -q 'app/clipboard.js' "$page"
+
+# One mtime for the whole tree. The two rewrites above leave ui.js and vnc.html
+# carrying today's date while everything they import still carries the Debian
+# package's - 2021 - and websockify serves both with no Cache-Control. A browser
+# then revalidates the two young files and holds the old ones for years, which is
+# how a rebuilt image ends up running a new ui.js against a cached core/. The
+# no-store header in novnc-serve.py is the real fix; this makes the tree
+# consistent for anything that reaches it another way.
+find /usr/share/novnc -exec touch {} +

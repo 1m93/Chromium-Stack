@@ -60,6 +60,10 @@ const ICONS = {
   empty:
     '<rect x="3" y="6" width="18" height="14" rx="3"/><path d="M3 10h18"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3 2"/>',
+  // A three-quarter arc, drawn to be spun by CSS. The log tabs needed one glyph
+  // that says "this is working" without claiming to know what the work is: a
+  // dozen tabs each carrying a differently coloured dot said nothing at all.
+  spinner: '<path d="M12 3.2a8.8 8.8 0 1 0 8.8 8.8"/>',
   'down-circle':
     '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v8"/><path d="M8.5 12l3.5 3.5 3.5-3.5"/>',
 
@@ -151,18 +155,15 @@ function writeStored(key, value) {
 let TOKEN = null;
 let state = null;
 let openMenu = null; // the row overflow menu, if one is open
-let watching = null; // job id currently shown in the log panel
-let watchedTitle = ''; // its name, kept so a finished job keeps its tab
-let pollFailures = 0; // consecutive failed polls of the watched job
+// Whether the manager on the other end keeps logs at all. The page is served off
+// disk and the manager is a process that was started once, so updating the
+// project and reloading leaves a new page talking to an old server - and an old
+// one has no streams to list. Saying so beats an empty panel reading "No job
+// yet" over a download that is running.
+let managerLogs = true;
 const jobInfo = new Map(); // job id -> {phase, percent, detail} read out of its output
-// Every job this window has seen, newest first, running or not. The tab strip
-// used to be built from the running list alone, plus the one job being watched -
-// so a Docker container's log vanished the moment the next one was started,
-// because starting a container is a job that ends as soon as the desktop
-// answers. The server keeps the output of a finished job for as long as it lives;
-// this is what keeps it reachable.
-const jobSeen = new Map(); // job id -> {id, kind, revision, label, done}
-const JOB_TABS = 6; // how many fit across the strip before the oldest drops off
+// The log panel's own state - which stream it shows and what it holds of each -
+// lives with the rest of that section, further down.
 const dropdowns = [];
 
 
@@ -245,8 +246,22 @@ const WORK_WORD = {
 // reset is over in a moment and cutting one short leaves half a directory.
 const CANCELLABLE = new Set(['install', 'launch', 'docker']);
 
+// A docker job says which verb it is rather than falling back to the word
+// "docker": "docker..." over a container coming down read as a noun with an
+// ellipsis after it, where the row beside it said "stopping...".
+const DOCKER_WORD = {
+  start: 'starting',
+  stop: 'stopping',
+  build: 'building',
+  rebuild: 'rebuilding',
+  purge: 'removing',
+};
+
 const workWord = (job, info) =>
-  (info && WORK_WORD[info.phase]) || WORK_WORD[job.kind] || 'working';
+  (info && WORK_WORD[info.phase]) ||
+  (job.kind === 'docker' && DOCKER_WORD[job.action]) ||
+  WORK_WORD[job.kind] ||
+  'working';
 const capitalise = (word) => word.charAt(0).toUpperCase() + word.slice(1);
 
 // Job labels are built by the server, which only knows the selector it was
@@ -275,7 +290,16 @@ function jobName(job) {
     (job.kind === 'docker'
       ? rows.find((entry) => dockerSelectorOf(entry) === wanted)
       : null);
-  if (!row) return job.label;
+  if (!row) {
+    // The log's label is this page's own name for the row - "Chromium 125" -
+    // where job.label is the server's sentence about the work, "Installing
+    // Chromium 125". Falling straight through to that is what put "Installing
+    // Installing Chromium 125" in the status bar: a milestone installs, its row
+    // starts answering to the revision instead, and the lookup above stops
+    // finding the selector the job was started with.
+    const stream = job.stream ? logStreams.get(job.stream) : null;
+    return (stream && !stream.local && stream.label) || job.label;
+  }
   const label = row.label || row.version;
   return label ? `${engineName(row.engine)} ${label}` : `r${row.revision}`;
 }
@@ -1183,8 +1207,7 @@ function doctorRow(component) {
       // Not a dead end and not a lie: it says what is happening, and clicking it
       // brings the log back up if the panel was closed.
       button.textContent = starting ? 'Starting…' : 'Installing…';
-      button.onclick = () =>
-        watch(busy.id, `${component.label} — ${component.fix}`);
+      button.onclick = () => watch(busy.stream, component.label);
       row.classList.add('busy');
     } else {
       button.classList.add('accent');
@@ -1192,10 +1215,11 @@ function doctorRow(component) {
       button.onclick = async () => {
         button.disabled = true;
         try {
-          const { job } = await post('/api/doctor-install', {
+          const { stream } = await post('/api/doctor-install', {
             component: component.id,
+            streamLabel: component.label,
           });
-          watch(job, `${component.label} — ${component.fix}`);
+          watch(stream, component.label);
         } catch (error) {
           // A refused install used to leave a dead button and no explanation.
           showJobFailure(
@@ -1323,6 +1347,9 @@ function bootingDone() {
 
 function render() {
   const rows = [...state.versions, ...state.extra].map(decorate);
+  // Before renderLogTabs below: the tab marks read this to tell a container that
+  // is up from a container job that has ended.
+  noteLiveRows(rows);
   // What the engine filter lets through. The shelf counts, the era jumps and the
   // summary all describe this rather than the whole shelf - with Firefox picked,
   // "5 installed" above a single visible Firefox build is just wrong.
@@ -1343,6 +1370,8 @@ function render() {
   renderDoctor();
   renderStatusBar();
   renderLogTabs();
+  // After the strip, which is what sets tabsShown.
+  if (!$('log-panel').hidden) renderLogHead();
 
   $('list').hidden = false;
 
@@ -1785,14 +1814,14 @@ function renderActions(container, row) {
     } else if (row.status === 'downloading' && percent != null) {
       action.append(iconSpan('down-circle'), `${percent}%`);
       action.title = 'Show what this is doing';
-      action.onclick = () => watch(row.busy.id, jobName(row.busy));
+      action.onclick = () => watch(row.busy.stream, row.name);
     } else {
       action.append(
         iconSpan(row.status === 'downloading' ? 'down-circle' : 'clock'),
         `${capitalise(word)}…`,
       );
       action.title = 'Show what this is doing';
-      action.onclick = () => watch(row.busy.id, jobName(row.busy));
+      action.onclick = () => watch(row.busy.stream, row.name);
     }
   } else if (row.running) {
     // A disabled "Running" button is a dead end; closing the window is the other
@@ -1843,11 +1872,12 @@ function renderActions(container, row) {
     action.onclick = async () => {
       action.disabled = true;
       try {
-        const { job } = await post('/api/docker', {
+        const { stream } = await post('/api/docker', {
           selector: row.dockerSelector,
           action: 'stop',
+          ...streamBody(row),
         });
-        watch(job, `Stopping Docker · ${row.name}`);
+        watch(stream, row.name);
       } catch (error) {
         showJobFailure(`Stopping Docker · ${row.name}`, error.message);
         action.disabled = false;
@@ -1959,11 +1989,12 @@ function renderActions(container, row) {
 async function start(button, row) {
   button.disabled = true;
   try {
-    const { job } = await post('/api/launch', {
+    const { stream } = await post('/api/launch', {
       selector: row.selector,
       ...launchOptions(),
+      ...streamBody(row),
     });
-    watch(job, row.name);
+    watch(stream, row.name);
   } catch (error) {
     showJobFailure(row.name, error.message);
     button.disabled = false;
@@ -2021,17 +2052,21 @@ async function raiseNative(button, row) {
 // whole desktop and takes none of them - so this is deliberately its own path
 // rather than a flag on start().
 async function startDocker(button, row) {
-  return startDockerBy(button, row.dockerSelector, row.name);
+  return startDockerBy(button, row.dockerSelector, row.name, streamBody(row));
 }
 
 // Keyed by selector rather than by the row object, because the caller that
 // starts a container does not always have one - the row menu passes a selector it
 // read off the row minutes earlier.
-async function startDockerBy(button, selector, name) {
+async function startDockerBy(button, selector, name, stream = {}) {
   button.disabled = true;
   try {
-    const { job } = await post('/api/docker', { selector, action: 'start' });
-    watch(job, `Docker · ${name}`);
+    const { stream: key } = await post('/api/docker', {
+      selector,
+      action: 'start',
+      ...stream,
+    });
+    watch(key, name);
   } catch (error) {
     showJobFailure(`Docker · ${name}`, error.message);
     button.disabled = false;
@@ -2077,7 +2112,9 @@ function toggleMenu(container, row) {
   // Delete Docker image / Download and launch natively" - a delete in the middle
   // of the menu, between two entries that belong next to each other, while the
   // other three deletes sat under a rule at the end.
-  const groups = { native: [], docker: [], danger: [] };
+  // Four groups: the row's own log at the top, then the native route, then the
+  // Docker one, then everything destructive behind a rule at the bottom.
+  const groups = { log: [], native: [], docker: [], danger: [] };
   let group = 'native';
 
   const item = (glyph, label, handler, danger = false) => {
@@ -2094,6 +2131,20 @@ function toggleMenu(container, row) {
     // delete, and grouping it with its route would put one above the rule.
     groups[danger ? 'danger' : group].push(button);
   };
+
+  // The row's log, where there is one. A version that is downloading has it on
+  // the button in front of this menu, but an installed one and a running one had
+  // no route to their own output at all: the only way in was to have been
+  // watching when it happened, and the panel is closed the rest of the time.
+  const logKey = streamKeyOf(row);
+  const held = logStreams.get(logKey);
+  if (held) {
+    group = 'log';
+    item('terminal', 'View log', async () => {
+      watch(logKey, row.name);
+    });
+    group = 'native';
+  }
 
   // Within a group: the entry that runs the version first, the fetch-only one
   // under it. The heavier action is the one being looked for - fetch-only is the
@@ -2112,11 +2163,12 @@ function toggleMenu(container, row) {
       ? 'Launch natively anyway'
       : 'Download and launch natively';
     item('play', label, async () => {
-      const { job } = await post('/api/launch', {
+      const { stream } = await post('/api/launch', {
         selector,
         ...launchOptions(),
+        ...streamBody(row),
       });
-      watch(job, row.name);
+      watch(stream, row.name);
     });
   }
 
@@ -2124,11 +2176,12 @@ function toggleMenu(container, row) {
   // row's button, so the other cannot be a dead end.
   if (row.dockerAvailable && row.dockerRunning && row.installed) {
     item('play', 'Launch natively as well', async () => {
-      const { job } = await post('/api/launch', {
+      const { stream } = await post('/api/launch', {
         selector,
         ...launchOptions(),
+        ...streamBody(row),
       });
-      watch(job, row.name);
+      watch(stream, row.name);
     });
   }
 
@@ -2137,8 +2190,11 @@ function toggleMenu(container, row) {
   // used to be there and the job it started died in the log.
   if (!row.installed && row.supported && !row.nativeGone) {
     item('download', 'Download only', async () => {
-      const { job } = await post('/api/install', { selector });
-      watch(job, `Installing ${row.name}`);
+      const { stream } = await post('/api/install', {
+        selector,
+        ...streamBody(row),
+      });
+      watch(stream, row.name);
     });
   }
 
@@ -2160,11 +2216,12 @@ function toggleMenu(container, row) {
       }
       // Last in its group: it is the way out of the route, not a way into it.
       item('stop', 'Stop the container', async () => {
-        const { job } = await post('/api/docker', {
+        const { stream } = await post('/api/docker', {
           selector: docker,
           action: 'stop',
+          ...streamBody(row),
         });
-        watch(job, `Stopping Docker · ${row.name}`);
+        watch(stream, row.name);
       });
     } else {
       // Not when the row's own button already is this: on a Docker-first row the
@@ -2176,11 +2233,12 @@ function toggleMenu(container, row) {
             ? 'Launch in Docker (noVNC)'
             : 'Get & launch in Docker',
           async () => {
-            const { job } = await post('/api/docker', {
+            const { stream } = await post('/api/docker', {
               selector: docker,
               action: 'start',
+              ...streamBody(row),
             });
-            watch(job, `Docker · ${row.name}`);
+            watch(stream, row.name);
           },
         );
       }
@@ -2192,11 +2250,12 @@ function toggleMenu(container, row) {
       // "Download only" and "Get the container only" behind the same icon.
       if (!row.dockerImage) {
         item('cube', 'Get the container only', async () => {
-          const { job } = await post('/api/docker', {
+          const { stream } = await post('/api/docker', {
             selector: docker,
             action: 'build',
+            ...streamBody(row),
           });
-          watch(job, `Building Docker image · ${row.name}`);
+          watch(stream, row.name);
         });
       }
     }
@@ -2216,8 +2275,11 @@ function toggleMenu(container, row) {
           label: 'Reset profile',
         });
         if (!go) return;
-        const { job } = await post('/api/clean', { selector });
-        watch(job, `Resetting profile · ${row.name}`);
+        const { stream } = await post('/api/clean', {
+          selector,
+          ...streamBody(row),
+        });
+        watch(stream, row.name);
       },
       true,
     );
@@ -2231,8 +2293,11 @@ function toggleMenu(container, row) {
           label: 'Delete browser',
         });
         if (!go) return;
-        const { job } = await post('/api/remove', { selector });
-        watch(job, `Removing ${row.name}`);
+        const { stream } = await post('/api/remove', {
+          selector,
+          ...streamBody(row),
+        });
+        watch(stream, row.name);
       },
       true,
     );
@@ -2246,11 +2311,12 @@ function toggleMenu(container, row) {
           label: 'Delete both',
         });
         if (!go) return;
-        const { job } = await post('/api/remove', {
+        const { stream } = await post('/api/remove', {
           selector,
           withProfile: true,
+          ...streamBody(row),
         });
-        watch(job, `Removing ${row.name}`);
+        watch(stream, row.name);
       },
       true,
     );
@@ -2271,11 +2337,12 @@ function toggleMenu(container, row) {
           label: 'Delete image',
         });
         if (!go) return;
-        const { job } = await post('/api/docker', {
+        const { stream } = await post('/api/docker', {
           selector: docker,
           action: 'purge',
+          ...streamBody(row),
         });
-        watch(job, `Removing Docker image · ${row.name}`);
+        watch(stream, row.name);
       },
       true,
     );
@@ -2285,10 +2352,12 @@ function toggleMenu(container, row) {
   // nothing but deletes - an installed version with no container route - would
   // otherwise open with a line across the top.
   const safe = [...groups.native, ...groups.docker];
-  for (const button of safe) menu.append(button);
-  if (groups.danger.length) {
-    if (safe.length) menu.append(document.createElement('hr'));
-    for (const button of groups.danger) menu.append(button);
+  let written = false;
+  for (const part of [groups.log, safe, groups.danger]) {
+    if (!part.length) continue;
+    if (written) menu.append(document.createElement('hr'));
+    for (const button of part) menu.append(button);
+    written = true;
   }
 
   container.append(menu);
@@ -2308,7 +2377,7 @@ function toggleMenu(container, row) {
 function activeJob() {
   const running = state ? state.jobs : [];
   return (
-    running.find((job) => job.id === watching) ||
+    running.find((job) => job.stream === watchKey) ||
     running.find((job) => job.kind !== 'launch') ||
     running[0] ||
     null
@@ -2376,7 +2445,10 @@ async function sampleJobs() {
     : [];
   await Promise.all(
     running.map(async (job) => {
-      if (job.id === watching) return; // pollJob is already reading this one
+      // Only while the panel is open, because that is the only time the log
+      // pump is running - a closed panel over the watched stream left the row
+      // with no percentage at all.
+      if (job.stream === watchKey && !$('log-panel').hidden) return;
       try {
         noteJob(job, (await api(`/api/job/${job.id}`)).output);
       } catch {
@@ -2385,7 +2457,11 @@ async function sampleJobs() {
     }),
   );
   for (const id of [...jobInfo.keys()]) {
-    if (id !== watching && !running.some((job) => job.id === id))
+    const kept = watchKey && logStreams.get(watchKey);
+    if (
+      !(kept && kept.job && kept.job.id === id) &&
+      !running.some((job) => job.id === id)
+    )
       jobInfo.delete(id);
   }
   for (const id of [...stopping]) {
@@ -2428,13 +2504,63 @@ function noteJob(job, output) {
 }
 
 /* ---------- job log ----------
-   Several versions can be busy at once - two browsers open while a third
-   downloads - so the panel is a switcher over the running jobs rather than one
-   slot that whichever job started last takes over. */
+   One log per target, not one per job. Several versions can be busy at once - two
+   browsers open while a third downloads - so the panel is a switcher, and the
+   thing it switches between is a *stream*: everything that has ever run against
+   one row of the shelf, in order, with a divider between runs.
+
+   That is the difference from what this was. Tabs used to be jobs, so cancelling
+   a download and starting it again opened a second tab and left the first one
+   holding the only record of what went wrong; six of them fitted and the seventh
+   pushed the oldest off the end; and none of it outlived a reload, because the
+   strip was built out of a Map in this file. The server owns the streams now, the
+   page reads the list off the state document, and closing a tab hides it here
+   rather than throwing anything away. */
+
+// key -> {key, label, lines: [], total, mark, job, updated, local, status}
+//   lines  what this window holds of the stream, as text
+//   total  the absolute line number after the last one it holds
+const logStreams = new Map();
+let watchKey = null; // stream shown in the panel
+let logTimer = null;
+let logBusy = false; // a read of the watched stream is in flight
+let logFailures = 0; // consecutive failed reads of it
+
+const LOG_WATCH_KEY = 'engineshelf.logWatch';
+const LOG_OPEN_KEY = 'engineshelf.logOpen';
+const LOG_HIDDEN_KEY = 'engineshelf.logHidden';
+
+// Which log a row's jobs write to. Not the selector: a version's native build and
+// its container are two ways of running the same row, addressed by two different
+// selectors - Chromium's container runs a Linux revision this host never installs
+// - and filing them apart gave one version two logs. The catalog id is the one
+// thing that is the same for both and does not change when a milestone resolves
+// to a revision.
+const streamKeyOf = (row) =>
+  `${row.engine}:${String((row.raw && row.raw.id) ?? row.selector ?? '?')
+    .replace(/[^0-9A-Za-z.:_-]/g, '-')
+    .slice(0, 60)}`;
+
+// Spread into the body of anything that starts a job. The server files output
+// under this and hands the key back, so nothing here has to guess it.
+const streamBody = (row) => ({
+  stream: streamKeyOf(row),
+  streamLabel: row.name,
+});
 
 function setLogOpen(open) {
   $('log-panel').hidden = !open;
   $('log-btn-label').textContent = open ? 'Hide log' : 'Show log';
+  writeStored(LOG_OPEN_KEY, open ? '1' : '0');
+  if (!open) {
+    stopLogPump();
+    return;
+  }
+  // The strip measures itself to decide what fits, which it cannot do until the
+  // panel it lives in has a width - so opening is what draws it.
+  renderLogTabs();
+  renderLog();
+  pumpLog();
 }
 
 /* ---------- the log panel's height ----------
@@ -2503,222 +2629,808 @@ function setLogHeight(px, remember = true) {
     event.preventDefault();
   });
 
-  // A window that shrinks below what the stored height allows.
+  // A window that shrinks below what the stored height allows, and a strip whose
+  // fold moves because the panel got narrower.
   window.addEventListener('resize', () => {
     const now = out.getBoundingClientRect().height;
     if (now > logHeightMax()) setLogHeight(logHeightMax(), false);
+    if (!panel.hidden) renderLogTabs();
   });
 })();
 
-// Kept in one place because three callers add to it: watch(), the state poll for
-// jobs this window did not start, and the log panel when a job it is showing ends.
-function remember(job) {
-  const had = jobSeen.get(job.id);
-  jobSeen.set(job.id, {
-    id: job.id,
-    kind: job.kind,
-    revision: job.revision,
-    // A label from the state is better than the one watch() guessed, and a
-    // guessed one is better than nothing.
-    label: job.label || (had && had.label) || '',
-    done: Boolean(job.done),
-  });
-  // Newest first, oldest dropped: the strip is one line and 40 downloads into a
-  // session the first one is not what anybody is looking for.
-  while (jobSeen.size > JOB_TABS) {
-    const oldest = jobSeen.keys().next().value;
-    if (oldest === watching) break;
-    jobSeen.delete(oldest);
+/* ---------- the stream list ---------- */
+
+function makeStream(key, label) {
+  const had = logStreams.get(key);
+  if (had) {
+    if (label) had.label = label;
+    return had;
+  }
+  const stream = {
+    key,
+    label: label || key,
+    lines: [],
+    total: 0,
+    mark: 0,
+    job: null,
+    updated: 0,
+    local: false,
+    status: '',
+  };
+  logStreams.set(key, stream);
+  return stream;
+}
+
+// The manager's list, merged in rather than swapped for: a stream being read
+// right now already holds lines this does not carry.
+function noteStreams(list) {
+  const seen = new Set();
+  for (const entry of asArray(list)) {
+    if (!entry || !entry.key) continue;
+    seen.add(entry.key);
+    const stream = makeStream(entry.key, entry.label);
+    stream.job = entry.job || null;
+    stream.updated = entry.updated || stream.updated;
+    // A page that has just loaded knows the size of every log and the contents
+    // of none, so the one it opens asks from the start.
+    if (!stream.lines.length) stream.total = 0;
+  }
+  // Evicted by a manager that has been up a week - and with the stream gone,
+  // the note saying its tab was put away is worth nothing either.
+  for (const key of [...logStreams.keys()]) {
+    const stream = logStreams.get(key);
+    if (!stream.local && !seen.has(key)) logStreams.delete(key);
+  }
+  let pruned = false;
+  for (const key of Object.keys(hidden)) {
+    if (!logStreams.has(key)) {
+      delete hidden[key];
+      pruned = true;
+    }
+  }
+  if (pruned) saveHidden();
+  if (watchKey && !logStreams.has(watchKey)) watchKey = null;
+
+  // An open panel with a log on the strip and nothing picked is a dead end, and
+  // it is where a tab coming back out of hiding lands.
+  if (!$('log-panel').hidden && !watchKey) {
+    const first = tabKeys()[0];
+    if (first) {
+      watchKey = first;
+      writeStored(LOG_WATCH_KEY, first);
+      logFailures = 0;
+      pumpLog(); // draws the body; renderLogTabs follows from the refresh
+      return;
+    }
+  }
+
+  // Something started on the log this window is showing - most often in the
+  // other window onto the same manager. The pump stops when a run ends, so it
+  // has to be started again rather than left waiting for a click.
+  if (!logTimer && !logBusy && !$('log-panel').hidden && watchKey) {
+    const stream = logStreams.get(watchKey);
+    if (stream && isRunning(stream)) pumpLog();
   }
 }
+
+// The job the shelf's rows are looking at, mapped back to the log it writes to.
+const streamOfJob = (job) => (job && job.stream) || null;
+
+// A job in flight. Not the same as the version being up: see isLive below.
+const isRunning = (stream) =>
+  Boolean(stream) && Boolean(stream.job) && stream.job.status === 'running';
+
+// Anything going on at all - a job in flight, a native window open, or a
+// container up. This is what decides whether a tab can be closed, because a
+// container's job ends as soon as the desktop answers: measured off the job, a
+// running container was "idle", offered a cross, and could be closed for good
+// while the browser inside it was still on screen.
+function isLive(stream) {
+  if (isRunning(stream)) return true;
+  const live = stream && streamLive.get(stream.key);
+  return Boolean(live && (live.running || live.dockerRunning));
+}
+
+const endWord = (job) =>
+  job.status === 'stopped'
+    ? 'stopped'
+    : job.status !== 'done'
+      ? `failed (exit ${job.code})`
+      : // "Docker stop" succeeding means the container is off, and reading that
+        // back as "finished" is what made a stopped container and a completed
+        // build look like the same outcome.
+        job.kind === 'docker' && job.action === 'stop'
+        ? 'stopped'
+        : 'finished';
+
+const watchedLabel = () => {
+  const stream = watchKey ? logStreams.get(watchKey) : null;
+  if (stream) return stream.label;
+  // "No job yet" would be a claim about the manager's work, and against one too
+  // old to keep logs the page has no idea. The status line says which it is.
+  if (!managerLogs) return '';
+  // Counted against what is on the strip, not against what the manager holds: a
+  // panel whose every tab has been put away read "pick a log above" over an
+  // empty strip.
+  return tabsShown.length ? '' : 'No job yet';
+};
+
+/* ---------- closing a tab ----------
+   Closing is not throwing the log away. The job keeps running, the manager keeps
+   writing, and the tab comes back the next time something runs against that
+   version - with everything that was there before it still above the divider.
+
+   What is remembered is the job that was newest on the stream when it was closed,
+   so "something ran against it again" means a *different job*, not another line
+   from the run that was already going. Measured in lines, closing the tab of a
+   live download was a button that undid itself before the finger was off it -
+   which is why the cross used to be withheld from a tab with anything going on,
+   and withholding it was the wrong half of the problem to fix. */
+
+let hidden = {};
+
+(function readHidden() {
+  try {
+    const held = JSON.parse(readStored(LOG_HIDDEN_KEY) || '{}');
+    if (held && typeof held === 'object') hidden = held;
+  } catch {
+    hidden = {};
+  }
+})();
+
+const saveHidden = () => writeStored(LOG_HIDDEN_KEY, JSON.stringify(hidden));
+
+// The job a stream is on, as the closed-set records it. '' for a stream nothing
+// has run on yet, which any first job then differs from.
+const jobMark = (stream) => (stream.job ? String(stream.job.id) : '');
+
+function isHidden(stream) {
+  const at = hidden[stream.key];
+  if (at === undefined) return false;
+  if (jobMark(stream) !== at) {
+    delete hidden[stream.key];
+    saveHidden();
+    return false;
+  }
+  return true;
+}
+
+function hideStream(key) {
+  const stream = logStreams.get(key);
+  if (!stream) return;
+  if (stream.local) {
+    // A failure this page wrote itself: there is no stream on the manager behind
+    // it and nothing will ever be appended, so hiding it is closing it.
+    logStreams.delete(key);
+  } else {
+    hidden[key] = jobMark(stream);
+    saveHidden();
+  }
+  if (watchKey === key) {
+    watchKey = tabsShown.find((other) => other !== key) || null;
+    writeStored(LOG_WATCH_KEY, watchKey || '');
+    logFailures = 0;
+  }
+  renderLogTabs();
+  renderLog();
+  pumpLog();
+}
+
+function hideFinishedStreams() {
+  for (const stream of [...logStreams.values()]) {
+    if (isLive(stream)) continue;
+    if (stream.local) logStreams.delete(stream.key);
+    else hidden[stream.key] = jobMark(stream);
+  }
+  saveHidden();
+  if (!watchKey || !logStreams.has(watchKey) || hidden[watchKey] !== undefined) {
+    watchKey = [...logStreams.values()].find(isLive)?.key || null;
+    writeStored(LOG_WATCH_KEY, watchKey || '');
+  }
+  renderLogTabs();
+  renderLog();
+  pumpLog();
+}
+
+/* ---------- tabs ----------
+   The strip is a fixed width, so the tabs that do not fit go behind a +N chip
+   rather than scrolling out of reach or - as they used to - pushing the oldest
+   one off the end and out of existence. Order is this window's own: newest
+   stream on the left, and anything picked out of the overflow list moves to the
+   front. */
+
+const tabOrder = []; // stream keys, left to right
+let tabsShown = []; // what the last render actually put on the strip
+
+// stream key -> {running, dockerRunning}: whether that version has a native
+// window up, and whether its container is up. Read off the shelf's own rows,
+// because the job cannot say. A container's job exits the moment the desktop
+// answers - that is what "Docker start" *is* - so its log's last job has been
+// "done" for as long as the container has been running, and the tab wore a tick
+// beside a native browser that was pulsing away next to it.
+const streamLive = new Map();
+
+function noteLiveRows(rows) {
+  streamLive.clear();
+  for (const row of rows) {
+    const key = streamKeyOf(row);
+    const had = streamLive.get(key);
+    streamLive.set(key, {
+      running: Boolean(row.running) || Boolean(had && had.running),
+      dockerRunning:
+        Boolean(row.dockerRunning) || Boolean(had && had.dockerRunning),
+      // What it takes to stop that container from the panel. Not the row's own
+      // selector: Chromium's container runs a Linux revision this host never
+      // installs, and that is the one the launcher answers to.
+      dockerSelector: row.dockerSelector || (had && had.dockerSelector) || null,
+      name: row.name || (had && had.name) || '',
+    });
+  }
+}
+
+function tabKeys() {
+  const live = new Set();
+  for (const stream of logStreams.values()) {
+    if (!isHidden(stream)) live.add(stream.key);
+  }
+  for (const key of [...tabOrder]) {
+    if (!live.has(key)) tabOrder.splice(tabOrder.indexOf(key), 1);
+  }
+  // Newest first, and the order otherwise left alone: a strip that re-sorts
+  // itself every second is a strip you cannot click.
+  for (const key of live) {
+    if (!tabOrder.includes(key)) tabOrder.unshift(key);
+  }
+  return tabOrder;
+}
+
+/* ---------- what a tab says it is doing ----------
+   A coloured dot cannot tell downloading from unpacking from up from finished
+   from failed - and with a dozen tabs on the strip that is exactly what has to
+   be readable at a glance. So each tab carries the glyph for its own state, and
+   the ones that mean "still going" move. */
+
+function tabMark(stream) {
+  const live = streamLive.get(stream.key) || null;
+  const job = stream.job;
+
+  // Work in progress speaks first: a download or an unpack is what the tab is
+  // there for, and it is happening whatever else is already up.
+  if (job && job.status === 'running') {
+    const info = jobInfo.get(job.id) || null;
+    const phase = info ? info.phase : null;
+    if (phase === 'downloading')
+      return { glyph: 'download', state: 'downloading' };
+    if (phase === 'open') return { glyph: 'play', state: 'running' };
+    // Nothing downloading and nothing up, so the glyph says which kind of work
+    // it is instead: an unpack, a delete, a profile reset, a container starting.
+    if (job.kind === 'remove') return { glyph: 'trash', state: 'working' };
+    if (job.kind === 'clean') return { glyph: 'reset', state: 'working' };
+    if (job.kind === 'docker') return { glyph: 'cube', state: 'working' };
+    return { glyph: 'spinner', state: 'working' };
+  }
+
+  // No job, but the version may well be up. Both routes get the same colour and
+  // the same beat - up is up - and their own glyph, because which one is up is
+  // the thing you came to the strip to find out.
+  if (live && live.running) return { glyph: 'play', state: 'running' };
+  if (live && live.dockerRunning) return { glyph: 'cube', state: 'running' };
+
+  if (!job) return { glyph: 'terminal', state: 'idle' };
+  if (job.status === 'stopped') return { glyph: 'stop', state: 'idle' };
+  if (job.status !== 'done') return { glyph: 'warn', state: 'bad' };
+  // A stop that succeeded is not "finished", it is "off" - which is the same
+  // thing the square already says over a native browser that was told to close.
+  // Both wore the tick before this, and only one of them deserved it.
+  if (job.kind === 'docker' && job.action === 'stop')
+    return { glyph: 'stop', state: 'idle' };
+  return { glyph: 'ok', state: 'done' };
+}
+
+// The one sentence for what a log's version is doing: the tab's tooltip and the
+// status beside the panel's title are the same answer in two places.
+function streamState(stream) {
+  const live = streamLive.get(stream.key) || null;
+  const job = stream.job;
+  if (job && job.status === 'running') {
+    const info = jobInfo.get(job.id) || null;
+    if (info && info.phase === 'open') return 'running';
+    return info && info.detail
+      ? `${workWord(job, info)} · ${info.detail}`
+      : `${workWord(job, info)}…`;
+  }
+  if (live && live.running && live.dockerRunning)
+    return 'running natively and in Docker';
+  if (live && live.running) return 'running';
+  if (live && live.dockerRunning) return 'running in Docker';
+  if (!job) return stream.status || 'nothing running';
+  return endWord(job);
+}
+
+const tabTitle = (stream) => `${stream.label} — ${streamState(stream)}`;
+
+function stateMark(stream) {
+  const mark = tabMark(stream);
+  const glyph = document.createElement('span');
+  glyph.className = 'mark';
+  glyph.dataset.state = mark.state;
+  glyph.innerHTML = icon(mark.glyph);
+  return glyph;
+}
+
+function makeTab(stream) {
+  const tab = document.createElement('div');
+  tab.className = `log-tab${stream.key === watchKey ? ' is-on' : ''}`;
+
+  const pick = document.createElement('button');
+  pick.type = 'button';
+  pick.className = 'pick';
+
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = stream.label;
+
+  pick.append(stateMark(stream), name);
+  pick.title = tabTitle(stream);
+  if (stream.key !== watchKey) pick.onclick = () => watch(stream.key);
+  tab.append(pick);
+
+  // On every tab, including one with a download in flight or a browser up: the
+  // strip is the thing being tidied, and closing a tab stops and deletes nothing.
+  const shut = document.createElement('button');
+  shut.type = 'button';
+  shut.className = 'x';
+  shut.innerHTML = icon('x');
+  shut.title = closeHint(stream);
+  shut.setAttribute('aria-label', `Close the log for ${stream.label}`);
+  shut.onclick = (event) => {
+    event.stopPropagation();
+    hideStream(stream.key);
+  };
+  tab.append(shut);
+  return tab;
+}
+
+// Said differently over something still going: there the tab is being put away
+// out from under work that carries on without it, and the status bar is where it
+// carries on being visible.
+const closeHint = (stream) =>
+  isLive(stream)
+    ? `Close this log. ${stream.label} carries on - the status bar keeps it, and ` +
+      'the tab comes back the next time something runs against this version.'
+    : `Close this log. ${stream.label} keeps everything it has written; the tab ` +
+      'comes back if something runs against this version again.';
 
 function renderLogTabs() {
   const tabs = $('log-tabs');
   tabs.textContent = '';
+  // The overflow list is anchored to a chip this is about to rebuild, so it
+  // cannot outlive it.
+  if (openMenu && openMenu.dataset.owner === OVERFLOW_OWNER) closePopovers();
 
-  const live = state ? state.jobs : [];
-  for (const job of live) remember(job);
-  // Running first, then finished, each newest first - so the thing that is
-  // actually happening is never behind something that already happened.
-  const seen = [...jobSeen.values()].reverse();
-  const running = new Set(live.map((job) => job.id));
-  const list = [
-    ...seen.filter((job) => running.has(job.id)),
-    ...seen.filter((job) => !running.has(job.id)),
-  ].map((job) => ({ ...job, kind: running.has(job.id) ? job.kind : 'done' }));
+  // Whatever is running is a stream whether or not the state document has been
+  // read since it started - a job the other window began, most often.
+  for (const job of state ? state.jobs : []) {
+    if (job.stream) makeStream(job.stream, null).job = job;
+  }
 
-  // With one job there is nothing to switch between, so it reads as a title.
-  $('log-title').hidden = list.length > 1;
-  $('log-title').textContent = list.length > 1 ? '' : watchedTitle;
-  tabs.hidden = list.length < 2;
-  if (list.length < 2) return;
+  const keys = tabKeys();
+  // With one log there is nothing to switch between, so it reads as a title.
+  const single = keys.length < 2;
+  $('log-title').hidden = !single;
+  $('log-title').textContent = single ? watchedLabel() : '';
+  tabs.hidden = single;
+  // Before anything is measured: it is what frees the head's spare room up for
+  // the strip to be measured against.
+  $('log-panel').classList.toggle('has-tabs', !single);
+  $('log-clear').hidden =
+    keys.filter((key) => !isLive(logStreams.get(key))).length < 2;
+  if (single) {
+    tabsShown = keys.slice();
+    return;
+  }
+  // A strip with no width cannot work out what fits. setLogOpen draws it again
+  // the moment the panel is up.
+  if ($('log-panel').hidden) {
+    tabsShown = keys.slice();
+    return;
+  }
 
-  for (const job of list) {
-    const info = jobInfo.get(job.id) || null;
-    const tab = document.createElement('button');
-    tab.type = 'button';
-    tab.className = `log-tab${job.id === watching ? ' is-on' : ''}`;
+  const room = tabs.clientWidth;
+  const built = keys.map((key) => makeTab(logStreams.get(key)));
+  for (const tab of built) tabs.append(tab);
 
-    const dot = document.createElement('span');
-    dot.className = 'dot';
-    dot.dataset.state =
-      job.kind === 'done'
-        ? 'idle'
-        : info && info.phase === 'open'
-          ? 'running'
-          : info && info.phase === 'downloading'
-            ? 'downloading'
-            : 'working';
+  // Measured rather than counted: tabs are as wide as the names on them, and the
+  // strip is as wide as the panel head leaves it.
+  const widths = built.map((tab) => tab.offsetWidth + TAB_GAP);
+  let fits = keys.length;
+  if (widths.reduce((sum, width) => sum + width, 0) > room) {
+    // The chip has to fit too, and it is only there if something overflows.
+    let used = TAB_CHIP;
+    fits = 0;
+    while (fits < keys.length && used + widths[fits] <= room) {
+      used += widths[fits];
+      fits += 1;
+    }
+    fits = Math.max(1, fits);
+  }
+
+  // The tab being read is never the one that gets folded away: if it has drifted
+  // past the fold it comes to the front, the same move picking it out of the
+  // overflow list makes. One pass only - it is at index 0 the second time.
+  if (watchKey && keys.indexOf(watchKey) >= fits) {
+    toFront(watchKey);
+    renderLogTabs();
+    return;
+  }
+
+  tabsShown = keys.slice(0, fits);
+  for (let at = fits; at < built.length; at += 1) built[at].remove();
+  if (fits < keys.length) tabs.append(overflowChip(keys.slice(fits)));
+}
+
+const TAB_GAP = 5; // matches the strip's gap in styles.css
+const TAB_CHIP = 54; // what the +N chip needs, gap included
+
+function toFront(key) {
+  const at = tabOrder.indexOf(key);
+  if (at < 0) return;
+  tabOrder.splice(at, 1);
+  tabOrder.unshift(key);
+}
+
+// The tabs that did not fit. Picking one moves it to the front of the strip,
+// which folds the last one that did fit into this list in its place - so
+// everything stays reachable in one press and the strip never scrolls.
+function overflowChip(rest) {
+  const chip = document.createElement('div');
+  chip.className = 'log-more';
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'pick';
+  button.textContent = `+${rest.length}`;
+  button.title = `${rest.length} more log${rest.length === 1 ? '' : 's'}`;
+  button.setAttribute('aria-label', `Show ${rest.length} more logs`);
+  button.onclick = (event) => {
+    event.stopPropagation();
+    const again = openMenu && openMenu.dataset.owner === OVERFLOW_OWNER;
+    closePopovers();
+    if (again) return;
+    openMenu = openOverflowMenu(button, rest);
+  };
+
+  chip.append(button);
+  return chip;
+}
+
+const OVERFLOW_OWNER = 'log-overflow';
+
+// The strip clips whatever is inside it - it has to, or the tabs that were
+// folded away would still be on screen - so the list hangs off the panel and is
+// lined up with the chip by hand.
+function openOverflowMenu(button, rest) {
+  const panel = $('log-panel');
+  const menu = buildOverflowMenu(rest);
+  menu.dataset.owner = OVERFLOW_OWNER;
+  panel.append(menu);
+
+  const chip = button.getBoundingClientRect();
+  const box = panel.getBoundingClientRect();
+  menu.style.left = `${Math.max(
+    8,
+    Math.min(chip.left - box.left, box.width - menu.offsetWidth - 8),
+  )}px`;
+  // Upwards without asking: the panel is docked to the bottom of the window, so
+  // there is never room below the strip.
+  menu.style.bottom = `${box.bottom - chip.top + 6}px`;
+  return menu;
+}
+
+function buildOverflowMenu(rest) {
+  const menu = document.createElement('div');
+  menu.className = 'menu log-menu';
+
+  for (const key of rest) {
+    const stream = logStreams.get(key);
+    if (!stream) continue;
+
+    const row = document.createElement('button');
+    row.type = 'button';
 
     const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = jobName(job);
+    name.className = 'grow';
+    name.textContent = stream.label;
 
-    tab.append(dot, name);
-    tab.title =
-      job.kind === 'done' ? `${jobName(job)} — finished` : jobTitle(job, info);
-    if (job.id !== watching) tab.onclick = () => watch(job.id, jobName(job));
-    tabs.append(tab);
+    const shut = document.createElement('span');
+    shut.className = 'x';
+    shut.setAttribute('role', 'button');
+    shut.innerHTML = icon('x');
+    shut.title = closeHint(stream);
+    shut.onclick = (event) => {
+      event.stopPropagation();
+      closePopovers();
+      hideStream(key);
+    };
+
+    row.append(stateMark(stream), name, shut);
+    row.title = tabTitle(stream);
+    row.onclick = () => {
+      closePopovers();
+      toFront(key);
+      watch(key);
+    };
+    menu.append(row);
   }
+  return menu;
 }
 
-function watch(jobId, title) {
-  remember({ id: jobId, kind: 'job', revision: null, label: title });
-  watching = jobId;
-  watchedTitle = title;
-  pollFailures = 0;
-  setLogOpen(true);
-  setLogCancel(null);
-  $('log-status').textContent = 'running…';
-  $('log-out').textContent = '';
+/* ---------- watching one ---------- */
+
+function watch(key, label) {
+  if (!key) return;
+  makeStream(key, label);
+  // Asking to see a log brings its tab back. Without this, "View log" on a row
+  // whose tab had been put away opened the log with no tab to return to it by -
+  // so viewing a second one read as the first having been closed, when in truth
+  // neither had a tab and only the second was on screen.
+  if (hidden[key] !== undefined) {
+    delete hidden[key];
+    saveHidden();
+  }
+  watchKey = key;
+  logFailures = 0;
+  writeStored(LOG_WATCH_KEY, key);
+  if ($('log-panel').hidden) {
+    setLogOpen(true); // draws the strip and the body, and starts the pump
+    return;
+  }
   renderLogTabs();
-  pollJob();
+  renderLog();
+  pumpLog();
 }
 
-// The panel is where a long download is actually watched, so it is also where
-// it has to be possible to call one off: the row's own button is as often as not
-// scrolled out of sight behind it.
-function setLogCancel(job, info) {
-  const button = $('log-cancel');
-  const offer =
-    Boolean(job) && job.status === 'running' && CANCELLABLE.has(job.kind);
-  button.hidden = !offer;
-  if (!offer) return;
-  // A launch job is a download first and a browser afterwards, and the same
-  // request ends either - but "Cancel" over a browser that is already up reads
-  // as though something were being thrown away.
-  const up = Boolean(info) && info.phase === 'open';
-  const going = stopping.has(job.id);
-  // The same two glyphs the rows use, and for the same reason: a cross calls
-  // off work that has not finished, the square shuts down something that is
-  // already up. One button doing both had to say which it was.
-  $('log-cancel-icon').innerHTML = icon(up ? 'stop' : 'x');
-  $('log-cancel-label').textContent = going
-    ? up
-      ? 'Stopping…'
-      : 'Cancelling…'
-    : up
-      ? 'Stop'
-      : 'Cancel';
-  button.disabled = going;
-  button.onclick = () =>
-    cancelJob(job.id, `${up ? 'Stopping' : 'Cancelling'} ${jobName(job)}`);
+/* ---------- reading it ----------
+   Line numbers rather than the whole buffer: a container build is thousands of
+   lines and this is asked for four times a second while one runs. */
+
+function stopLogPump() {
+  clearTimeout(logTimer);
+  logTimer = null;
 }
 
-async function pollJob() {
-  if (!watching) return;
-  const jobId = watching;
-  let job;
+async function pumpLog() {
+  stopLogPump();
+  if ($('log-panel').hidden || !watchKey) return;
+  const key = watchKey;
+  const stream = logStreams.get(key);
+  if (!stream || stream.local) return; // nothing on the manager to read
+
+  let answer;
+  logBusy = true;
   try {
-    job = await api(`/api/job/${jobId}`);
+    answer = await api(`/api/log/${encodeURIComponent(key)}?since=${stream.total}`);
   } catch (error) {
-    if (watching !== jobId) return;
+    logBusy = false;
+    if (watchKey !== key) return;
     // Giving up quietly is what made a server-side error look like a job that
     // ran forever: "running…", no log, no clue. One hiccup is worth retrying;
     // four in a row is worth saying out loud.
-    if (++pollFailures < 4) {
-      setTimeout(pollJob, 700);
+    if (++logFailures < 4) {
+      logTimer = setTimeout(pumpLog, 700);
       return;
     }
-    $('log-status').textContent = 'cannot read this job';
-    $('log-out').textContent =
-      `${error.message}\n\nThe job itself may well be running - this is the manager ` +
-      'failing to read its output. The version list still updates, and the launcher ' +
-      'writes its own log under the EngineShelf home directory.';
+    stream.status = 'cannot read this log';
+    stream.lines = [
+      String(error.message),
+      '',
+      'The job itself may well be running - this is the manager failing to read its',
+      'output. The version list still updates, and the launcher writes its own log',
+      'under the EngineShelf home directory.',
+    ];
+    renderLog();
     return;
   }
-  if (watching !== jobId) return;
-  pollFailures = 0;
+  logBusy = false;
+  if (watchKey !== key) return;
+  logFailures = 0;
 
-  const log = $('log-out');
-  const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
-  // curl draws its progress bar with carriage returns; keep only the last frame.
-  log.textContent = (job.output || '')
-    .split('\n')
-    .map((line) => line.split('\r').pop())
-    .join('\n');
-  if (atBottom) log.scrollTop = log.scrollHeight;
+  // `first` above what was asked for means the buffer wrapped past it, so what
+  // is held here no longer joins onto what came back.
+  if (answer.first > stream.total) stream.lines = [];
+  stream.lines.push(...asArray(answer.lines));
+  stream.total = answer.total;
+  stream.mark = answer.mark;
+  stream.label = answer.label || stream.label;
+  stream.updated = answer.updated || stream.updated;
 
-  const info = noteJob(job, job.output);
+  const before = stream.job;
+  stream.job = answer.job || null;
+  if (stream.job) {
+    // The phase and the meter come off the current run, not off the whole
+    // stream: a cancelled download left "ready." in the buffer above the retry.
+    const held = stream.total - stream.lines.length;
+    noteJob(stream.job, stream.lines.slice(Math.max(0, stream.mark - held)).join('\n'));
+  }
 
-  const status = $('log-status');
-  setLogCancel(job, info);
-  if (job.status === 'running') {
-    status.textContent =
-      info.phase === 'open'
-        ? 'running'
-        : info.detail
-          ? `${workWord(job, info)} · ${info.detail}`
-          : `${workWord(job, info)}…`;
+  renderLog();
+
+  if (isRunning(stream)) {
     renderStatusBar();
     repaintIfMoved();
-    setTimeout(pollJob, 700);
-  } else {
-    status.textContent =
-      job.status === 'done'
-        ? 'finished'
-        : job.status === 'stopped'
-          ? 'stopped'
-          : `failed (exit ${job.code})`;
-    jobInfo.delete(jobId);
-    if (job.status === 'done')
-      flash(`${$('log-title').textContent} — finished`);
+    logTimer = setTimeout(pumpLog, 700);
+    return;
+  }
+  // The run being watched has ended. Nothing more arrives on this stream until
+  // something starts it again, and the refresh loop is what notices that - so
+  // the pump stops here rather than idling at 700ms.
+  if (before && before.status === 'running') {
+    if (stream.job && stream.job.status === 'done')
+      flash(`${stream.label} — finished`);
+    jobInfo.delete(before.id);
     refresh();
   }
 }
 
-// A request that failed before a job existed still has to be visible somewhere,
-// and the log panel is where the user is already looking for output.
-function showJobFailure(title, message) {
-  watching = null;
-  watchedTitle = title;
-  setLogOpen(true);
-  setLogCancel(null);
-  renderLogTabs();
-  $('log-title').textContent = title;
-  $('log-status').textContent = 'failed';
-  $('log-out').textContent = message;
+// The title, the status and the Cancel button. Its own function because the body
+// below is only worth repainting when there is new output, while these three
+// change with the shelf: a container coming down is not a line in a log, so the
+// panel went on reading "running in Docker" over a container that had stopped
+// while the tab beside it had already gone grey.
+function renderLogHead() {
+  const stream = watchKey ? logStreams.get(watchKey) : null;
+  if (logStreams.size < 2) $('log-title').textContent = watchedLabel();
+  if (!stream) {
+    $('log-status').textContent = !managerLogs
+      ? 'this manager is older than the page'
+      : tabsShown.length
+        ? 'pick a log above'
+        : 'output from installs, launches and clean-ups shows up here';
+    setLogAction(null);
+    return;
+  }
+  setLogAction(stream);
+  $('log-status').textContent = streamState(stream);
 }
 
-$('log-close').onclick = () => {
-  watching = null;
-  watchedTitle = '';
-  setLogOpen(false);
-};
+function renderLog() {
+  const stream = watchKey ? logStreams.get(watchKey) : null;
+  const out = $('log-out');
+  const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 20;
+
+  if (!stream) {
+    out.textContent = managerLogs
+      ? ''
+      : 'The manager answering this page was started before the page was updated, ' +
+        'so\nit keeps no logs for the page to read.\n\n' +
+        'Quit EngineShelf and open it again. Nothing is lost that was not already\n' +
+        'gone: the output of a job lives in the process that ran it.';
+  } else {
+    // curl draws its progress bar with carriage returns; keep only the last frame.
+    out.textContent = stream.lines
+      .map((line) => line.split('\r').pop())
+      .join('\n');
+    if (atBottom) out.scrollTop = out.scrollHeight;
+  }
+  renderLogHead();
+}
+
+// The panel is where a long download is actually watched, so it is also where it
+// has to be possible to call one off: the row's own button is as often as not
+// scrolled out of sight behind it.
+//
+// And where a container has to be stoppable. A native browser keeps its launch
+// job for as long as its window is up, so there was always a job here to signal;
+// a container's job ends the moment the desktop answers, so the panel over a
+// running container had no button at all - while the panel over a running
+// browser, one row away, had Stop.
+function setLogAction(stream) {
+  const button = $('log-cancel');
+  const glyph = $('log-cancel-icon');
+  const label = $('log-cancel-label');
+  const job = stream && stream.job;
+  const live = stream ? streamLive.get(stream.key) || null : null;
+  const running = Boolean(job) && job.status === 'running';
+
+  const show = (name, text, enabled, handler) => {
+    button.hidden = false;
+    glyph.innerHTML = icon(name);
+    label.textContent = text;
+    button.disabled = !enabled;
+    button.onclick = enabled ? handler : null;
+  };
+
+  // A stop already under way is not something to offer to call off: interrupting
+  // `docker stop` is how a container ends up with a locked profile volume.
+  if (running && job.kind === 'docker' && job.action === 'stop')
+    return show('clock', 'Stopping…', false, null);
+
+  if (running && CANCELLABLE.has(job.kind)) {
+    // A launch job is a download first and a browser afterwards, and the same
+    // request ends either - but "Cancel" over a browser that is already up reads
+    // as though something were being thrown away.
+    const info = jobInfo.get(job.id) || null;
+    const up = Boolean(info) && info.phase === 'open';
+    const going = stopping.has(job.id);
+    // The same two glyphs the rows use, and for the same reason: a cross calls
+    // off work that has not finished, the square shuts down something that is
+    // already up. One button doing both had to say which it was.
+    return show(
+      up ? 'stop' : 'x',
+      going ? (up ? 'Stopping…' : 'Cancelling…') : up ? 'Stop' : 'Cancel',
+      !going,
+      () => cancelJob(job.id, `${up ? 'Stopping' : 'Cancelling'} ${jobName(job)}`),
+    );
+  }
+
+  // Nothing in flight, but the container is up. Stopping it is a request rather
+  // than a signal, and it opens a job of its own on this same log - so the button
+  // becomes "Stopping…" above by itself on the next refresh.
+  if (live && live.dockerRunning && live.dockerSelector) {
+    return show('stop', 'Stop', true, async () => {
+      show('clock', 'Stopping…', false, null);
+      try {
+        await post('/api/docker', {
+          selector: live.dockerSelector,
+          action: 'stop',
+          stream: stream.key,
+          streamLabel: live.name || stream.label,
+        });
+      } catch (error) {
+        flash(error.message, 'warn');
+        setLogAction(stream);
+        return;
+      }
+      refresh();
+    });
+  }
+
+  button.hidden = true;
+}
+
+// A request that failed before a job existed still has to be visible somewhere,
+// and the log panel is where the user is already looking for output. Its own
+// stream, marked local: there is nothing on the manager to read, and nothing
+// will ever be appended to it.
+function showJobFailure(title, message) {
+  const key = `#${title}`;
+  const stream = makeStream(key, title);
+  stream.local = true;
+  stream.job = null;
+  stream.status = 'failed';
+  stream.lines = String(message).split('\n');
+  delete hidden[key];
+  toFront(key);
+  watchKey = key;
+  writeStored(LOG_WATCH_KEY, key);
+  if ($('log-panel').hidden) {
+    setLogOpen(true);
+    return;
+  }
+  renderLogTabs();
+  renderLog();
+}
+
+$('log-close').onclick = () => setLogOpen(false);
+$('log-clear').onclick = hideFinishedStreams;
 
 $('log-btn').onclick = () => {
-  const open = $('log-panel').hidden;
-  setLogOpen(open);
-  if (!open) return;
-  const job = activeJob();
-  if (!watching && job) {
-    watch(job.id, jobName(job));
-  } else if (!watching) {
-    watchedTitle = 'No job yet';
-    renderLogTabs();
-    $('log-status').textContent =
-      'output from installs, launches and clean-ups shows up here';
+  if (!$('log-panel').hidden) {
+    setLogOpen(false);
+    return;
   }
+  // Nothing is un-hidden here on purpose. A log you closed is closed: it comes
+  // back when something writes to it again, and not because the panel was asked
+  // for. Anything that is *still running* was never hidden in the first place -
+  // isHidden lets a running stream through - so "show me what is logging" is
+  // already what this does.
+  if (!watchKey || !logStreams.has(watchKey)) {
+    // Whatever is running, else the log something last happened on.
+    const job = activeJob();
+    watchKey = streamOfJob(job) || tabKeys()[0] || null;
+    writeStored(LOG_WATCH_KEY, watchKey || '');
+  }
+  setLogOpen(true);
 };
 
 /* ---------- toast ---------- */
@@ -2758,14 +3470,39 @@ function askConfirm({ title, body, label }) {
 }
 
 
+// Undefined from a manager too old to send it at all, which is not the same as
+// false: that one is left alone rather than accused of either behaviour.
+//
+// False now means one thing only. Serving on after the window closes used to be a
+// mode you could ask for, and asking for it left the browsers and containers the
+// manager had started running with it; the mode is gone, so a manager still
+// answering false is one that was started before it went.
+function noteAutoQuit(auto, grace) {
+  const note = $('foot-keep');
+  if (auto !== false) {
+    note.hidden = true;
+    return;
+  }
+  if (!note.hidden) return;
+  note.hidden = false;
+  note.innerHTML = icon('warn');
+  note.append('Stays running when closed');
+  note.title =
+    'This manager goes on serving after its window closes, and leaves the ' +
+    'browsers and containers it started running with it. That mode has been ' +
+    'removed, so a manager still in it was started before it went. Quit it and ' +
+    'open EngineShelf again' +
+    (grace
+      ? ` - the new one closes everything ${grace}s after its window goes.`
+      : '.');
+}
+
 /* ---------- controls ---------- */
 
 $('job-more').onclick = () => {
-  setLogOpen(true);
-  if (!watching) {
-    const job = activeJob();
-    if (job) watch(job.id, jobName(job));
-  }
+  const job = activeJob();
+  if (streamOfJob(job)) watch(job.stream, jobName(job));
+  else setLogOpen(true);
   renderLogTabs();
 };
 
@@ -2902,7 +3639,15 @@ async function refresh() {
     row.installed = true;
     row.extra = true;
   }
+  // Absent entirely, not merely empty: that is what tells an old manager from a
+  // new one with nothing in it yet.
+  managerLogs = Array.isArray(next.logs);
+  next.logs = asArray(next.logs);
   state = next;
+  // The strip is the manager's list of logs, not this window's memory of what it
+  // started - which is what makes it survive a reload and show what the other
+  // window is doing.
+  noteStreams(next.logs);
   await sampleJobs();
   // The clock is set from what this just found: a shelf with a download on it
   // is worth a second, an idle one is not.
@@ -2976,6 +3721,21 @@ async function refresh() {
 
   await refresh();
 
+  // The panel, and the log it was showing, survive a reload. The output was
+  // always on the server; what did not survive was this page's idea of which
+  // logs existed, so a refresh in the middle of a download lost sight of it.
+  const wanted = readStored(LOG_WATCH_KEY);
+  // Not one that was put away: hiding a tab and reloading used to bring its log
+  // back as the panel's contents while its tab stayed off the strip.
+  if (wanted && logStreams.has(wanted) && !isHidden(logStreams.get(wanted)))
+    watchKey = wanted;
+  if (readStored(LOG_OPEN_KEY) === '1') {
+    if (!watchKey) watchKey = tabKeys()[0] || null;
+    renderLogTabs();
+    setLogOpen(true);
+    renderLog();
+  }
+
   // The heartbeat that tells the server this window still exists. Deliberately
   // not folded into the refresh above: that one pauses while a menu or a dialog
   // is open, which is long enough for the server to decide nobody is home.
@@ -2991,6 +3751,11 @@ async function refresh() {
     } catch {
       return; // the next one will do
     }
+    // A manager that goes on running when its window closes - along with every
+    // browser and container it started. No current one does; one old enough to
+    // still be able to is exactly the thing someone needs told before they close
+    // the window rather than after.
+    noteAutoQuit(beat.autoQuit, beat.grace);
     if (beat.revision === undefined || beat.revision === jobRevision) return;
     const first = jobRevision === null;
     jobRevision = beat.revision;

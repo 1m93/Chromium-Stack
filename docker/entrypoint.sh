@@ -40,7 +40,12 @@ x11vnc -display "$DISPLAY" -forever -shared -nopw -quiet -bg >/dev/null 2>&1
 autocutsel -selection CLIPBOARD >/dev/null 2>&1 &
 autocutsel -selection PRIMARY >/dev/null 2>&1 &
 
-websockify --web=/usr/share/novnc 6080 localhost:5900 >/dev/null 2>&1 &
+# Through novnc-serve.py rather than the websockify CLI: it is that plus one
+# response header. Every container's desktop is http://localhost:6080, and
+# websockify serves noVNC's 2021 file dates with no Cache-Control at all - so a
+# browser pins core/ from the first container it ever opened and links a rebuilt
+# ui.js against it. See the file for the exact failure.
+novnc-serve --web=/usr/share/novnc 6080 localhost:5900 >/dev/null 2>&1 &
 
 mkdir -p /data/profile
 

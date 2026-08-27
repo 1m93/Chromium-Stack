@@ -22,7 +22,6 @@ param(
     [int]$Port = 7411,
     [switch]$NoOpen,       # start the server without opening anything
     [switch]$Tab,          # a tab in the default browser instead of a window
-    [switch]$KeepAlive,    # keep serving after the window closes
     [switch]$New           # start another manager even if one is running
 )
 
@@ -1020,7 +1019,7 @@ $GraceSeconds = 12
 
 $script:LastSeen   = $null     # last authorised request from a page
 $script:Shell      = $null     # the browser process hosting the window, if ours
-$script:AutoQuit   = $true     # quit when the window is gone
+$script:AutoQuit   = $true     # kept only so /api/ping can still answer it
 $script:QuitReason = $null     # set by the watchdog, read by the serve loop
 
 function Find-AppBrowser {
@@ -1452,10 +1451,6 @@ try {
         Set-Content -Path $StateFile -Encoding UTF8
 } catch { }
 
-# Nothing was opened, so there is no window whose closing could mean anything;
-# this is the shape a script or a remote session asks for, and it waits.
-$script:AutoQuit = -not ($KeepAlive -or $NoOpen)
-
 if (-not $NoOpen -and -not $Tab) { $script:Shell = Open-AppWindow $url }
 elseif (-not $NoOpen)            { Start-Process $url | Out-Null }
 
@@ -1465,8 +1460,14 @@ Write-Host "  Files: $Root"
 if ($script:Shell) {
     Write-Host "  Closing the window quits the manager, the browsers it opened"
     Write-Host "  and any Docker containers it started."
-} elseif (-not $script:AutoQuit) {
-    Write-Host "  Press Ctrl-C to stop the manager."
+} elseif ($NoOpen) {
+    # No window at all, so the first page to connect is what gets watched and its
+    # silence is what ends the run. There is no longer a mode that serves on
+    # regardless, so a script driving this API keeps it alive only for as long as
+    # it keeps calling.
+    Write-Host "  Nothing opened. Once something connects, the manager quits"
+    Write-Host "  ${GraceSeconds}s after it stops answering - along with the browsers"
+    Write-Host "  and containers it started."
 } else {
     # No window of our own: the page's heartbeat is the only thing that can say
     # it is still there, so say what silence will be taken to mean.
@@ -1496,7 +1497,6 @@ try {
             # had no chance to say anything yet. Without this, shutting a laptop
             # lid for a minute took the manager and everything it was running.
             if ($slept -gt 5) { $script:LastSeen = $now; continue }
-            if (-not $script:AutoQuit) { continue }
             if ($script:Shell) {
                 # We own the window, so its process ending is the signal - and
                 # the only one. A window that is covered by another app is

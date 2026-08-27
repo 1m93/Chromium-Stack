@@ -178,7 +178,9 @@ window onto the same shelf. **On Windows and Linux** it is a Chromium-family bro
 session; opening the launcher again there gives you another window onto the same manager
 rather than a second one. Without such a browser installed it falls back to a tab, and then
 it is the tab closing that ends the session, twelve seconds later. `--tab` asks for that on
-purpose; `--keep-alive` leaves the server running whatever the window does.
+purpose. There is no way to leave the server running once its window is gone: a manager
+that outlived its window also outlived the browsers and containers it had started, and
+nothing on the page said so.
 
 > [!NOTE]
 > **Nothing listens outside your machine.** The server binds to `127.0.0.1` and every

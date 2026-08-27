@@ -54,6 +54,12 @@ COPY clipboard.js /usr/share/novnc/app/clipboard.js
 COPY novnc-clipboard.sh /tmp/novnc-clipboard.sh
 RUN sh /tmp/novnc-clipboard.sh && rm /tmp/novnc-clipboard.sh
 
+# websockify plus one response header. Without it the desktop's own files are
+# cached by the browser for years against a shared http://localhost:6080, and a
+# rebuilt image links its new ui.js against somebody else's cached core/.
+COPY novnc-serve.py /usr/local/bin/novnc-serve
+RUN chmod +x /usr/local/bin/novnc-serve
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

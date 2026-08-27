@@ -71,9 +71,12 @@ stage_tree() {
   # Shared, never obfuscated: data and container-internal plumbing.
   cp "$ROOT/catalog.tsv"            "$dest/"
   cp "$ROOT/gui/icon.svg"           "$dest/gui/"
-  cp "$ROOT/docker/Dockerfile"      "$dest/docker/"
-  cp "$ROOT/docker/entrypoint.sh"   "$dest/docker/"   # runs inside the container
-  cp "$ROOT/docker/clipboard.js"    "$dest/docker/"   # copied into the image by the Dockerfile
+  # The whole of docker/ - it is all container-internal plumbing and none of it is
+  # obfuscated. Named file by file before this, which is how three of the four
+  # Dockerfiles and the script the fourth one COPYs came to be left out: a
+  # released copy could not build a Firefox, Edge or WebKit container at all, and
+  # the Chromium build died on a missing novnc-clipboard.sh.
+  cp "$ROOT/docker/"* "$dest/docker/"
 
   # Served assets: minified (comments + indentation stripped).
   cp "$ROOT/gui/index.html" "$dest/gui/"
