@@ -97,8 +97,8 @@ what is installed, what each one costs in disk.
 
 ### 2 · Pick a version
 
-Click any cell — a year on one axis, an engine on the other. The first launch of a version
-downloads it, 90–400 MB and a few minutes, once. Every launch after that is instant.
+Scroll, search, or narrow to one engine, then press the button on its row. The first launch
+of a version downloads it, 90–400 MB and a few minutes, once. Every launch after is instant.
 
 </td>
 <td width="33%" valign="top">
@@ -113,13 +113,13 @@ launcher window when you are done.
 </table>
 
 <p align="center">
-  <img src="assets/screenshot-manager.png" width="100%" alt="The EngineShelf manager: a grid with years down the side and Chromium, Firefox, Edge and WebKit across the top, each under its own mark, installed versions outlined in green with their size, and the rest of each year folded behind a plus">
+  <img src="assets/screenshot-manager.png" width="100%" alt="The EngineShelf manager: one shelf holding every release of all four engines, each row led by its engine's own mark — Chromium 152, Firefox 154, a running WebKit 26.5 offering Stop, Edge 151 already installed — with the engines listed down the side and a count of how many of each are on disk">
   <br>
-  <sub>Years down, engines across. Version numbers do not line up between engines —
-  Chromium 120, Firefox 121, Edge 120 and WebKit 17.4 are contemporaries and none of those
-  numbers say so — so this view is arranged by when things shipped. Installed versions are
-  outlined; the rest of a year folds behind a <b>+</b>. The manager opens on the list instead
-  — same shelf, one release per row, with the search, the filters and the per-version menu.</sub>
+  <sub>Every release of all four engines on one shelf, newest first, each row under its own
+  mark. Version numbers do not line up between engines — Chromium 120, Firefox 121, Edge 120
+  and WebKit 17.4 are contemporaries and none of those numbers say so — so the rows are
+  ordered by when things shipped, which puts contemporaries next to each other. Narrow to one
+  engine down the left, or search by version, date or feature.</sub>
 </p>
 
 > [!TIP]
@@ -151,7 +151,7 @@ One page, served locally, with everything on it.
 | **A shared URL for every launch** | Set it once at the top; every version opens there. |
 | **Window size and graphics** | Fix the viewport for a layout check, or force hardware acceleration on or off. |
 | **Per-row menu** | Download without launching, run that version in Docker, reset its profile, or delete it. |
-| **Two views of one shelf** | The list it opens on — every release of all four engines, one per row, with the actions — or a grid of years × engines for comparing across them. |
+| **Two views of one shelf** | The list it opens on — every release of all four engines, one per row, with the actions — or the grid below, for comparing across engines. |
 | **Grouped by era** | In the list, rows sit under the years they belong to, four engines interleaved by release date, with what each era brought — jump straight to one, or sort by age or disk used. |
 | **Search and filters** | Narrow to one engine, or search by version, revision, release date or feature — `:has()`, `dvh`, `flex gap` — or by what is installed, running, or stuck on Rosetta. |
 | **Add by revision** | Any build in the Chromium snapshot archive, not just the catalogued milestones. |
@@ -160,6 +160,15 @@ One page, served locally, with everything on it.
 | **Honest disk accounting** | A running total split between browsers, profiles and Docker images, so it is obvious when to clear something out. |
 | **Light or dark** | Follows the system theme, or pin it either way from the header. |
 | **Closes like an app** | Closing the window stops the manager, the browsers it launched and the containers it started — with a confirmation first if any of them are running. Nothing is left holding a port or a gigabyte. |
+
+<p align="center">
+  <img src="assets/screenshot-matrix.png" width="100%" alt="The same shelf as a grid: years down the side, Chromium, Firefox, Edge and WebKit across the top under their own marks, installed versions outlined in green with their size, and the rest of each year folded behind a plus">
+  <br>
+  <sub><b>By year</b>, the other view. Four engines release on their own schedules and number
+  their releases four different ways, so the only axis they share is when a build shipped —
+  which is what makes “what was current when Chromium 120 was” answerable at a glance.
+  Installed versions are outlined; the rest of a year folds behind a <b>+</b>.</sub>
+</p>
 
 **Closing the window quits everything.** The manager is the app, not a page that outlives it:
 close it and the server stops, the browsers it launched close, and any Docker container it
@@ -197,8 +206,8 @@ publishes. They differ a lot, and it is worth knowing before you go looking:
 |---|---|---|---|
 | **Chromium** | 2017 · milestone 60 | the Chromium snapshot archive | nothing is pruned — any revision in the archive works, not just catalogued ones |
 | **Firefox** | 2017 · Firefox 57 | `ftp.mozilla.org`, every release ever shipped | old builds trust only the certificate authorities they shipped with, so EngineShelf turns on the OS trust store for them — without that, a 2019 Firefox rejects most of today's HTTPS |
-| **Edge** | 2021 on Linux · about six months on macOS and Windows | the package pool, and Microsoft's enterprise feed | the mac and Windows downloads carry a per-file GUID that cannot be constructed, so only what the feed still lists can be fetched at all |
-| **WebKit** | 2021 | Playwright's build CDN | builds are deleted over time, and for older OS releases a different revision is pinned — so a version can still exist for Linux while no macOS archive of it was ever published |
+| **Edge** | 2021 in a container · about six months natively on macOS and Windows | the Linux package pool, and Microsoft's enterprise feed | the mac and Windows downloads carry a per-file GUID that cannot be constructed, so natively only what the feed still lists can be fetched. The pool has kept every Linux build since 2021, which is what [the Docker edition](#docker-edition) uses — `./engineshelf-docker.sh start edge:95` is the only way to open one that old |
+| **WebKit** | 2021 | Playwright's build CDN | builds are deleted over time, and for older OS releases a different revision is pinned — so a version can still exist for Linux while no macOS archive of it was ever published. When that happens the container is the way in |
 
 <sub>Edge is Chromium underneath, so it is not a second engine — what it adds is Edge's own
 Tracking Prevention defaults and a build that matches the WebView2 runtime Windows kiosks
@@ -341,39 +350,60 @@ in 74 leaves 120 untouched, and neither goes near your everyday browser.
 The manager is a front end for the CLI — both do the same things, so they cannot drift apart.
 
 ```bash
-./engineshelf.sh catalog                    # versions available for this machine
+./engineshelf.sh catalog                    # the whole shelf, all four engines
 ./engineshelf.sh list                       # what is installed, with disk usage
-./engineshelf.sh run 74                     # install if needed, then launch
+./engineshelf.sh run 74                     # a bare number is Chromium
+./engineshelf.sh run firefox:115            # any engine, by name
+./engineshelf.sh run edge:151               # a bare major is enough
+./engineshelf.sh run webkit:26.5            # or a Playwright revision: webkit:2336
+./engineshelf.sh run firefox:esr            # whichever ESR is current
 ./engineshelf.sh run 120 localhost:4173     # launch 120 on a URL
-./engineshelf.sh run 638880                 # launch a raw snapshot revision
-./engineshelf.sh install 90                 # download without launching
-./engineshelf.sh remove 90                  # delete a downloaded browser
-./engineshelf.sh clean 90                   # reset that version's profile
+./engineshelf.sh run 638880                 # a raw Chromium snapshot revision
+./engineshelf.sh install firefox:128        # download without launching
+./engineshelf.sh remove edge:151            # delete a downloaded browser
+./engineshelf.sh clean webkit:26.5          # reset that version's profile
 ./engineshelf.sh doctor                     # check dependencies
 ./engineshelf.sh gui                        # open the manager
 ```
 
+Every command takes the same selector: `engine:version`, or a bare number for Chromium.
+Firefox and Edge take a bare major (`firefox:115`) or an exact build (`edge:151.0.4129.107`);
+WebKit takes a Safari version (`webkit:26.5`) or the Playwright revision that pins it exactly
+(`webkit:2336`), which is what `catalog` prints, because several builds call themselves 26.5.
+For Chromium alone a bare number is a milestone (`74`) or a snapshot revision (`638880`) —
+milestones are small and revisions are six digits or more, so there is nothing to
+disambiguate.
+
 Flags for `run`: `--size 1280x800`, `--gpu` / `--no-gpu`, `--no-restart`, and anything after
-`--` goes straight to Chromium. `<version>` is a milestone (`74`) or a snapshot revision
-(`638880`) — milestones are small and revisions are six digits or more, so there is nothing
-to disambiguate. Windows runs the same commands through `.\engineshelf.ps1`.
+`--` is passed to the browser. Windows runs the same commands through `.\engineshelf.ps1`.
 
 ---
 
 ## Docker edition
 
 Runs the **Linux x86_64** build in a container and shows its desktop in a tab of your normal
-browser, over noVNC. It never touches Rosetta, so on Apple Silicon it sidesteps the
-crash described under [Good to know → Stability on Apple Silicon](#good-to-know).
+browser, over noVNC. All four engines, same commands as the native launcher:
 
 ```bash
-./engineshelf-docker.sh start 74      # build if needed, run, open the desktop
+./engineshelf-docker.sh start 74           # build if needed, run, open the desktop
+./engineshelf-docker.sh start firefox:52
+./engineshelf-docker.sh start edge:95      # only route to an Edge this old, on any host
+./engineshelf-docker.sh start webkit:16.4
 ./engineshelf-docker.sh stop 74
 ./engineshelf-docker.sh logs 74
-./engineshelf-docker.sh rebuild 74    # rebuild the image from scratch
-./engineshelf-docker.sh list          # containers and images
-./engineshelf-docker.sh purge 74      # delete that version's image
+./engineshelf-docker.sh rebuild 74         # rebuild the image from scratch
+./engineshelf-docker.sh list               # containers and images
+./engineshelf-docker.sh purge 74           # delete that version's image
 ```
+
+It is worth being clear about when this earns its gigabyte, because it is different per engine:
+
+| | Why a container |
+|---|---|
+| **Chromium** | It never touches Rosetta, so on Apple Silicon it sidesteps the crash under [Stability](#good-to-know). |
+| **Edge** | **The only route to an old one.** The enterprise feed that serves mac and Windows holds about six months; the Linux apt pool has kept every build since 2021. Natively, `edge:95` cannot be had at any price. |
+| **WebKit** | Playwright stopped publishing macOS archives for the older revisions, and never published some at all. The Linux ones are still there. |
+| **Firefox** | The least necessary — Firefox installs natively everywhere. Reach for it when a 2017 build will not start against a 2026 OS, or when you want the Linux rendering rather than your own. |
 
 Each version gets its own image, container, profile volume and port, so several can run side
 by side. Windows uses `.\engineshelf-docker.ps1` with the same commands.
@@ -391,8 +421,8 @@ by side. Windows uses `.\engineshelf-docker.ps1` with the same commands.
 - **On Apple Silicon** the container is emulated, so it is noticeably slower than the native
   launcher. Fine for a careful pass over a screen, tiring for a long session.
 - **Viewport.** The browser fills the virtual screen (1440×900 by default; change `SCREEN`
-  in `docker/Dockerfile`), and Chromium's warning infobars are suppressed so they do not eat
-  viewport height and skew a layout check.
+  in the `SCREEN` line of that engine's Dockerfile), and the Chromium-family warning
+  infobars are suppressed so they do not eat viewport height and skew a layout check.
 - **First start builds an image** for that version — several minutes under x86 emulation.
   After that the launcher reuses it.
 - **The desktop is published on `127.0.0.1` only.** It has no password and a real browser
@@ -656,10 +686,14 @@ tools/sync-landing.py                 bring docs/index.html into step with catal
 tools/check-phases.mjs                assert the manager still understands what the
                                       CLI prints, for all four engines
 docker/Dockerfile                     Chromium + Xvfb + fluxbox + x11vnc + noVNC
-docker/Dockerfile.webkit              the same desktop around a Playwright WebKit
+docker/Dockerfile.firefox             the same desktop around a Linux Firefox
+docker/Dockerfile.edge                ...and around an Edge .deb from the pool
+docker/Dockerfile.webkit              ...and around a Playwright WebKit
 docker/entrypoint.sh                  brings up X and supervises the browser
 docker/clipboard.js                   loaded into the noVNC page: bridges the
                                       container's clipboard and your own
+docker/novnc-clipboard.sh             wires that file in at build time; one copy,
+                                      shared by all four images
 assets/icon.svg, icon-small.svg       icon sources: full detail, and reduced for
                                       small sizes where detail turns to mush
 assets/icon.ico, icon-512.png         generated, for Windows and Linux
@@ -727,7 +761,11 @@ reports especially welcome.
 
 <p align="center">
   <img src="assets/icon-512.png" alt="" width="64" height="64"><br>
-  <sub>Built by <a href="https://github.com/1m93">@1m93</a>. Chromium builds come from the
+  <sub>Built by <a href="https://github.com/1m93">@1m93</a>. Firefox builds come from
+  <a href="https://ftp.mozilla.org/pub/firefox/releases/">Mozilla</a>, Edge from
+  <a href="https://packages.microsoft.com/repos/edge/">Microsoft</a>, WebKit from
+  <a href="https://playwright.dev">Playwright</a>'s build CDN;<br>
+  Chromium builds come from the
   <a href="https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html">Chromium snapshot archive</a>;<br>
   this project only downloads and launches them.</sub>
 </p>

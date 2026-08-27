@@ -1,0 +1,70 @@
+# Firefox with the same minimal X desktop, reachable over noVNC.
+#
+# Firefox does install natively on all three platforms, so this is not the only
+# way to reach it the way it is for Edge. What it is for: the old ones. Firefox
+# 51 is a 2017 build, and a 2017 build against a 2026 macOS is the same bet that
+# fails for old Chromium - the container is a Linux of the right vintage's
+# choosing rather than an OS nine years newer than the binary.
+#
+# FIREFOX_URL and FIREFOX_VERSION come from engineshelf-docker.sh, which resolves
+# them through lib/engines.sh with the platform forced to linux-x86_64 - the same
+# code that already knows Mozilla switched from bzip2 to xz partway through, so
+# this does not have to.
+FROM --platform=linux/amd64 debian:bookworm-slim
+
+ARG FIREFOX_URL
+ARG FIREFOX_VERSION=unknown
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    DISPLAY=:0 \
+    SCREEN=1440x900x24 \
+    ENGINE=firefox
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates wget bzip2 xz-utils \
+    xvfb x11vnc fluxbox novnc websockify \
+    autocutsel xclip \
+    # Firefox's own runtime dependencies, old builds and new. libdbus-glib is
+    # the one people miss: without it the binary exits immediately and silently,
+    # which reads as "the container did nothing".
+    libgtk-3-0 libdbus-glib-1-2 libxt6 libasound2 libx11-xcb1 libxtst6 \
+    libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libcairo2 \
+    libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libgbm1 libxkbcommon0 \
+    # GTK loads its own theme assets through gdk-pixbuf and the Adwaita ones are
+    # SVG, so without the loader and the mime database it cannot read them.
+    # Measured in this image before they were added: "Could not load a pixbuf
+    # from .../check-symbolic.svg" on every start, and checkboxes and radio
+    # buttons drawn wrong - a poor state for a browser whose whole job is showing
+    # you what a layout really looks like.
+    librsvg2-common shared-mime-info adwaita-icon-theme \
+    # Firefox asks for a session bus and grumbles for the rest of the run when
+    # there is not one.
+    dbus-x11 \
+    # fonts, including CJK, so non-Latin pages are not rendered as boxes
+    fonts-liberation fonts-noto-cjk fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+
+# `tar -xaf` picks the decompressor from the file, which is what lets one line
+# take both the .tar.bz2 of the old releases and the .tar.xz of the new ones.
+RUN set -e; \
+    test -n "$FIREFOX_URL" || { echo "FIREFOX_URL was not set" >&2; exit 1; }; \
+    wget -q -O /tmp/firefox.tar "$FIREFOX_URL"; \
+    tar -xaf /tmp/firefox.tar -C /opt; \
+    rm -f /tmp/firefox.tar; \
+    test -x /opt/firefox/firefox
+
+# Kept in the environment so the container can say which build it is running.
+ENV FIREFOX_VERSION=${FIREFOX_VERSION}
+
+COPY clipboard.js /usr/share/novnc/app/clipboard.js
+COPY novnc-clipboard.sh /tmp/novnc-clipboard.sh
+RUN sh /tmp/novnc-clipboard.sh && rm /tmp/novnc-clipboard.sh
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# 6080 = noVNC over HTTP, 5900 = plain VNC for a native VNC client
+EXPOSE 6080 5900
+VOLUME /data
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

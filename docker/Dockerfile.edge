@@ -1,0 +1,64 @@
+# Microsoft Edge with the same minimal X desktop, reachable over noVNC.
+#
+# This one is not a convenience. Edge's mac and Windows downloads come from the
+# enterprise feed, which holds about six months and gates every file behind a
+# per-file GUID - so on those two platforms the native launcher genuinely cannot
+# reach Edge 95, or 114, or anything else that has rolled off. The Linux apt pool
+# has kept every .deb since 2021 at a URL you can construct, so this image is the
+# only way to open an old Edge at all, on any host.
+#
+# EDGE_URL and EDGE_VERSION come from engineshelf-docker.sh, which resolves them
+# through lib/engines.sh with the platform forced to Linux_x64 - the same code
+# path and the same pool listing the native launcher uses, so the two cannot
+# disagree about which .deb is version 114.
+FROM --platform=linux/amd64 debian:bookworm-slim
+
+ARG EDGE_URL
+ARG EDGE_VERSION=unknown
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    DISPLAY=:0 \
+    SCREEN=1440x900x24 \
+    ENGINE=edge
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates wget \
+    xvfb x11vnc fluxbox novnc websockify \
+    # autocutsel bridges PRIMARY and CLIPBOARD through the cut buffer, because
+    # which one a Chromium build reads depends on how the paste was asked for.
+    autocutsel \
+    # xclip so the clipboard can be inspected from `docker exec` when a paste
+    # does not arrive; it is 60 kB and saves guessing.
+    xclip \
+    # fonts, including CJK, so non-Latin pages are not rendered as boxes
+    fonts-liberation fonts-noto-cjk fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+
+# Installed with apt rather than `dpkg -i`, so the .deb's own Depends are
+# resolved instead of left broken - Edge pulls in a different set of libraries
+# depending on how old the build is, and pinning that list here would go stale
+# with every version this image is asked to run.
+RUN set -e; \
+    test -n "$EDGE_URL" || { echo "EDGE_URL was not set" >&2; exit 1; }; \
+    wget -q -O /tmp/edge.deb "$EDGE_URL"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends /tmp/edge.deb; \
+    rm -f /tmp/edge.deb /etc/apt/sources.list.d/microsoft-edge.list; \
+    rm -rf /var/lib/apt/lists/*; \
+    test -x /opt/microsoft/msedge/msedge
+
+# Kept in the environment so the container can say which build it is running.
+ENV EDGE_VERSION=${EDGE_VERSION}
+
+COPY clipboard.js /usr/share/novnc/app/clipboard.js
+COPY novnc-clipboard.sh /tmp/novnc-clipboard.sh
+RUN sh /tmp/novnc-clipboard.sh && rm /tmp/novnc-clipboard.sh
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# 6080 = noVNC over HTTP, 5900 = plain VNC for a native VNC client
+EXPOSE 6080 5900
+VOLUME /data
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -614,7 +614,10 @@ function Invoke-Catalog {
     # cached here, so the list keeps growing without a new release of this tool.
     Update-NewMilestones
     Write-Host ""
-    Write-Host "Available Chromium versions (host: $HostPlatform)" -ForegroundColor White
+    Write-Host "Available versions (host: $HostPlatform)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Chromium " -ForegroundColor White -NoNewline
+    Write-Host "$($CatalogOrder.Count) catalogued milestones; any other snapshot revision works too" -ForegroundColor DarkGray
     Write-Host ""
     foreach ($m in $CatalogOrder) {
         $version = $CatalogVersions[$m].Version
@@ -628,10 +631,68 @@ function Invoke-Catalog {
         Write-Host ("  {0,-6} {1,-16} r{2,-9} " -f $m, $version, $rev) -NoNewline
         Write-Host $state -ForegroundColor $colour
     }
+    foreach ($engine in $Engines) {
+        if ($engine -ne 'chromium') { Show-EngineShelf $engine }
+    }
     Write-Host ""
-    Write-Host "Install and run:  .\engineshelf.ps1 run <version>" -ForegroundColor DarkGray
+    Write-Host "Install and run:  .\engineshelf.ps1 run <version>   .\engineshelf.ps1 run firefox:115   .\engineshelf.ps1 run webkit:26.5" -ForegroundColor DarkGray
     if (Test-Path $CacheFile) {
         Write-Host "Milestones newer than this release are resolved live and cached in $CacheFile" -ForegroundColor DarkGray
+    }
+}
+
+<#
+  One engine's shelf, a line per year.
+
+  Chromium gets the long form above because its identity is a snapshot revision,
+  and the version, the revision and the platform are three different things you
+  may need. The other three name their build after their own version, so the
+  version is the whole answer - and there are nearly two hundred of them, which
+  as one line each is a wall nobody reads.
+#>
+function Show-EngineShelf {
+    param([string]$engine)
+
+    # The cache is read after the shipped catalog and wins, which is the
+    # precedence everything else here uses.
+    $rows = @{}
+    foreach ($path in @($script:Catalog, $script:CacheFile)) {
+        if (-not (Test-Path $path)) { continue }
+        foreach ($line in Get-Content $path) {
+            $f = $line -split "`t"
+            if ($f.Count -lt 6 -or $f[0] -ne 'S' -or $f[1] -ne $engine) { continue }
+            $rows[$f[3]] = @{ year = [int]$f[2]; id = $f[3]; label = $f[4]; date = $f[5] }
+        }
+    }
+    if ($rows.Count -eq 0) { return }
+
+    $all = @($rows.Values | Sort-Object -Property { $_.date } -Descending)
+    $years = @($all | ForEach-Object { $_.year } | Sort-Object -Unique -Descending)
+    $name = $EngineNames[$engine]
+
+    Write-Host ""
+    Write-Host "$name " -ForegroundColor White -NoNewline
+    Write-Host "$($all.Count) releases, $($years[-1]) - $($years[0])" -ForegroundColor DarkGray
+
+    # WebKit reuses one Safari version across many builds - five releases all
+    # call themselves 17.4 - so printing labels would list the same word five
+    # times and only one of them could be asked for. Where labels are not unique
+    # the build's own id is printed, because that is what resolves.
+    $distinct = @($all | ForEach-Object { $_.label } | Sort-Object -Unique).Count
+    $byLabel = ($distinct -eq $all.Count)
+    if (-not $byLabel) {
+        Write-Host "  shown by build, because $name reuses a version across builds" -ForegroundColor DarkGray
+    }
+
+    foreach ($year in $years) {
+        Write-Host ("  {0,-6}" -f $year) -NoNewline
+        foreach ($row in $all) {
+            if ($row.year -ne $year) { continue }
+            $shown = if ($byLabel) { $row.label } else { $row.id }
+            Write-Host "  $shown" -NoNewline -ForegroundColor $(
+                if (Test-Installed (Get-EngineKey $engine $row.id)) { 'Green' } else { 'Gray' })
+        }
+        Write-Host ""
     }
 }
 

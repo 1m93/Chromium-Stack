@@ -3,7 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>EngineShelf — run old versions of Chromium, Firefox, Edge and WebKit</title>
+    <title>
+      EngineShelf — run old versions of Chromium, Firefox, Edge and WebKit
+    </title>
     <meta
       name="description"
       content="Launch any version of Chromium, Firefox, Edge or WebKit as a real desktop browser — DevTools, tabs, profiles. Free and self-contained for macOS, Windows and Linux."
@@ -91,6 +93,14 @@
         --ok: #3fbd7d;
         --warn: #e0a03c;
         --danger: #f0665f;
+        /* One tint per engine, the same four the manager uses. WebKit is violet
+           rather than Safari's blue on purpose: Chromium already owns blue here,
+           and at icon size a blue globe beside the blue pinwheel reads as the
+           same mark twice. */
+        --e-chromium: #4f97f5;
+        --e-firefox: #ff8a4c;
+        --e-edge: #2ec5b6;
+        --e-webkit: #a78bfa;
         --shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.75);
         --mono:
           ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
@@ -111,6 +121,10 @@
         --ok: #1d9a5a;
         --warn: #c2790a;
         --danger: #cf3b3b;
+        --e-chromium: #1a73e8;
+        --e-firefox: #e8590c;
+        --e-edge: #0d9488;
+        --e-webkit: #7c5cf0;
         --shadow: 0 24px 60px -28px rgba(18, 20, 26, 0.22);
       }
       * {
@@ -1291,6 +1305,35 @@
             <path d="M3.3 12.4 12 16.9l8.7-4.5" />
             <path d="M3.3 16.6 12 21.1l8.7-4.5" />
           </symbol>
+          <!-- The four engine marks, the same drawings the manager uses so the
+               page and the app name them the same way. Chromium's pinwheel,
+               Firefox's flame, Edge's "e", and a globe for WebKit - a globe
+               rather than Safari's compass, for the reason in the note above
+               about what WebKit is and is not. -->
+          <symbol id="i-chromium" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="12" cy="12" r="3.6" />
+            <path d="M12 15.6V21M8.88 10.2 4.2 7.5M15.12 10.2l4.68-2.7" />
+          </symbol>
+          <symbol id="i-firefox" viewBox="0 0 24 24">
+            <path
+              d="M12 21.2c-3.8 0-6.8-2.9-6.8-6.5 0-4.5 4.1-6.1 4.1-9.7 0-.9-.2-1.7-.6-2.4 3.3.8 5.5 3.3 5.5 6.2 0 1.3-.5 2.4-1.4 3.1.9-.3 1.7-.9 2.2-1.7 1.2 1.4 1.9 3 1.9 4.5 0 3.6-3 6.5-6.9 6.5z"
+            />
+            <path
+              d="M12 21.2c-1.9 0-3.4-1.5-3.4-3.3 0-2.3 2.2-3 2.2-5.2 2.4 1 4.6 3 4.6 5.2 0 1.8-1.5 3.3-3.4 3.3z"
+            />
+          </symbol>
+          <symbol id="i-edge" viewBox="0 0 24 24">
+            <path d="M19.6 16.4A8.6 8.6 0 1 1 20.5 11.4H8.6" />
+            <path
+              d="M8.6 11.4C5.3 11.4 3 13.7 3 16.4c0 2.9 2.6 4.9 6.4 4.9 2.6 0 5-.9 6.6-2.3"
+            />
+          </symbol>
+          <symbol id="i-webkit" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18" />
+            <ellipse cx="12" cy="12" rx="4.2" ry="9" />
+          </symbol>
           <symbol id="i-zap" viewBox="0 0 24 24">
             <path d="M13.2 2.5 5 13.6h6.1l-1.3 7.9 8.2-11.1h-6.1z" />
           </symbol>
@@ -1411,6 +1454,7 @@
           <a href="#why" style="color: inherit">Why</a>
           <a href="#start" style="color: inherit">Quick start</a>
           <a href="#screens" style="color: inherit">Screens</a>
+          <a href="#engines" style="color: inherit">Engines</a>
           <a href="#shelf" style="color: inherit">Versions</a>
           <a href="#cli" style="color: inherit">CLI</a>
           <a href="#faq" style="color: inherit">Good to know</a>
@@ -1544,6 +1588,16 @@
               border-bottom: 1px solid var(--line);
             "
             >Screens</a
+          >
+          <a
+            href="#engines"
+            style="
+              padding: 13px 2px;
+              font-size: 15.5px;
+              color: var(--ink-2);
+              border-bottom: 1px solid var(--line);
+            "
+            >Engines</a
           >
           <a
             href="#shelf"
@@ -2680,6 +2734,303 @@
           </div>
         </section>
 
+        <section id="engines" style="border-top: 1px solid var(--line)">
+          <div
+            class="sec-wrap"
+            style="max-width: 1160px; margin: 0 auto; padding: 76px 28px"
+          >
+            <div
+              data-reveal
+              style="
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-family: var(--mono);
+                font-size: 11.5px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--ink-3);
+              "
+            >
+              <svg class="ic" aria-hidden="true"><use href="#i-layers" /></svg
+              ><span>Four browsers, three engines</span>
+            </div>
+            <h2
+              data-reveal
+              style="
+                margin: 14px 0 0;
+                max-width: 30ch;
+                font-size: clamp(26px, 3.2vw, 38px);
+                line-height: 1.14;
+                letter-spacing: -0.028em;
+                font-weight: 660;
+                text-wrap: balance;
+              "
+            >
+              Every engine that still ships on the desktop.
+            </h2>
+            <p
+              data-reveal
+              style="
+                margin: 16px 0 0;
+                max-width: 62ch;
+                font-size: 16px;
+                line-height: 1.65;
+                color: var(--ink-2);
+              "
+            >
+              How far back each one reaches is not a choice anyone made here —
+              it is however much its vendor still publishes, and they differ a
+              lot. Worth knowing before you go looking.
+            </p>
+
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
+                gap: 16px;
+                margin-top: 40px;
+              "
+            >
+              <div
+                data-reveal
+                style="
+                  border: 1px solid var(--line);
+                  border-radius: 14px;
+                  background: var(--panel);
+                  padding: 22px 22px 24px;
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <svg
+                    class="ic"
+                    aria-hidden="true"
+                    style="font-size: 26px; color: var(--e-chromium)"
+                  >
+                    <use href="#i-chromium" />
+                  </svg>
+                  <strong style="font-size: 17px; letter-spacing: -0.01em"
+                    >Chromium</strong
+                  >
+                </div>
+                <div
+                  style="
+                    margin-top: 14px;
+                    font-family: var(--mono);
+                    font-size: 12px;
+                    color: var(--e-chromium);
+                  "
+                >
+                  back to 2017 &middot; milestone 60
+                </div>
+                <p
+                  style="
+                    margin: 10px 0 0;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: var(--ink-2);
+                  "
+                >
+                  Every build in the Chromium snapshot archive, which prunes
+                  nothing — so any revision works, not just the catalogued
+                  milestones.
+                </p>
+                <p
+                  style="
+                    margin: 12px 0 0;
+                    padding-top: 12px;
+                    border-top: 1px solid var(--line);
+                    font-size: 13px;
+                    line-height: 1.6;
+                    color: var(--ink-3);
+                  "
+                >
+                  On Apple Silicon the pre-2021 builds have no arm64 archive and
+                  go through Rosetta, where they crash at random. The container
+                  edition runs the Linux build instead.
+                </p>
+              </div>
+              <div
+                data-reveal
+                style="
+                  border: 1px solid var(--line);
+                  border-radius: 14px;
+                  background: var(--panel);
+                  padding: 22px 22px 24px;
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <svg
+                    class="ic"
+                    aria-hidden="true"
+                    style="font-size: 26px; color: var(--e-firefox)"
+                  >
+                    <use href="#i-firefox" />
+                  </svg>
+                  <strong style="font-size: 17px; letter-spacing: -0.01em"
+                    >Firefox</strong
+                  >
+                </div>
+                <div
+                  style="
+                    margin-top: 14px;
+                    font-family: var(--mono);
+                    font-size: 12px;
+                    color: var(--e-firefox);
+                  "
+                >
+                  back to 2017 &middot; Firefox 57
+                </div>
+                <p
+                  style="
+                    margin: 10px 0 0;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: var(--ink-2);
+                  "
+                >
+                  Every release Mozilla has ever shipped is still on
+                  <span style="font-family: var(--mono); font-size: 12.5px"
+                    >ftp.mozilla.org</span
+                  >, including each ESR line.
+                </p>
+                <p
+                  style="
+                    margin: 12px 0 0;
+                    padding-top: 12px;
+                    border-top: 1px solid var(--line);
+                    font-size: 13px;
+                    line-height: 1.6;
+                    color: var(--ink-3);
+                  "
+                >
+                  An old Firefox trusts only the certificate authorities it
+                  shipped with, so EngineShelf turns on the OS trust store for
+                  it — without that, a 2019 build rejects most of today&rsquo;s
+                  HTTPS.
+                </p>
+              </div>
+              <div
+                data-reveal
+                style="
+                  border: 1px solid var(--line);
+                  border-radius: 14px;
+                  background: var(--panel);
+                  padding: 22px 22px 24px;
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <svg
+                    class="ic"
+                    aria-hidden="true"
+                    style="font-size: 26px; color: var(--e-edge)"
+                  >
+                    <use href="#i-edge" />
+                  </svg>
+                  <strong style="font-size: 17px; letter-spacing: -0.01em"
+                    >Edge</strong
+                  >
+                </div>
+                <div
+                  style="
+                    margin-top: 14px;
+                    font-family: var(--mono);
+                    font-size: 12px;
+                    color: var(--e-edge);
+                  "
+                >
+                  back to 2021 in a container
+                </div>
+                <p
+                  style="
+                    margin: 10px 0 0;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: var(--ink-2);
+                  "
+                >
+                  Chromium underneath, so not a fifth engine — what it adds is
+                  Edge&rsquo;s own Tracking Prevention defaults and a build
+                  matching the WebView2 runtime Windows kiosks ship.
+                </p>
+                <p
+                  style="
+                    margin: 12px 0 0;
+                    padding-top: 12px;
+                    border-top: 1px solid var(--line);
+                    font-size: 13px;
+                    line-height: 1.6;
+                    color: var(--ink-3);
+                  "
+                >
+                  Microsoft&rsquo;s enterprise feed holds about six months and
+                  gates every file behind a per-file GUID, so natively that is
+                  all mac and Windows can reach. The Linux package pool has kept
+                  every build since 2021, which is what the container uses.
+                </p>
+              </div>
+              <div
+                data-reveal
+                style="
+                  border: 1px solid var(--line);
+                  border-radius: 14px;
+                  background: var(--panel);
+                  padding: 22px 22px 24px;
+                "
+              >
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <svg
+                    class="ic"
+                    aria-hidden="true"
+                    style="font-size: 26px; color: var(--e-webkit)"
+                  >
+                    <use href="#i-webkit" />
+                  </svg>
+                  <strong style="font-size: 17px; letter-spacing: -0.01em"
+                    >WebKit</strong
+                  >
+                </div>
+                <div
+                  style="
+                    margin-top: 14px;
+                    font-family: var(--mono);
+                    font-size: 12px;
+                    color: var(--e-webkit);
+                  "
+                >
+                  back to 2021
+                </div>
+                <p
+                  style="
+                    margin: 10px 0 0;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: var(--ink-2);
+                  "
+                >
+                  The engine Safari is built on, from Playwright&rsquo;s build
+                  CDN — the closest thing to Safari that can be downloaded.
+                </p>
+                <p
+                  style="
+                    margin: 12px 0 0;
+                    padding-top: 12px;
+                    border-top: 1px solid var(--line);
+                    font-size: 13px;
+                    line-height: 1.6;
+                    color: var(--ink-3);
+                  "
+                >
+                  Not Safari: a minimal shell around the engine, with no Safari
+                  interface or media stack. It catches a CSS property Safari has
+                  not shipped; it will not reproduce anything specific to Safari
+                  itself.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section
           id="shelf"
           style="
@@ -2706,7 +3057,7 @@
               "
             >
               <svg class="ic" aria-hidden="true"><use href="#i-layers" /></svg
-              ><span>The version shelf</span>
+              ><span>Chromium, in depth</span>
             </div>
             <h2
               data-reveal
@@ -2720,7 +3071,7 @@
                 text-wrap: balance;
               "
             >
-              Every version on the shelf, verified against the live archive.
+              Every Chromium milestone, verified against the live archive.
             </h2>
             <p
               data-reveal
@@ -2732,8 +3083,11 @@
                 color: var(--ink-2);
               "
             >
-              And any other snapshot revision works too. Drag the scrubber, or
-              click a year.
+              Chromium gets its own scrubber because it is the one engine whose
+              archive prunes nothing: every milestone since 2017 is here, and so
+              is any other snapshot revision in between. The other three are on
+              the same shelf, arranged the same way — their indexes just do not
+              go back as far. Drag it, or click a year.
             </p>
 
             <div data-reveal style="margin-top: 46px">
@@ -3481,9 +3835,8 @@
                 "
               >
                 Runs the Linux x86_64 build in a container and shows its desktop
-                in a tab of your normal browser, over noVNC. It never touches
-                Rosetta, so on Apple Silicon it sidesteps the stack-profiler
-                crash.
+                in a tab of your normal browser, over noVNC. All four engines,
+                the same commands as the native launcher.
               </p>
               <p
                 data-reveal
@@ -3516,39 +3869,35 @@
               "
             >
               <div>
-                <span style="color: var(--ink-3)"
-                  >./engineshelf-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">start 74</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./engineshelf-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
+                <span style="color: var(--ink)">start edge:95</span>
+              </div>
+              <div>
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
+                <span style="color: var(--ink)">start firefox:52</span>
+              </div>
+              <div>
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">stop 74</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./engineshelf-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">logs 74</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./engineshelf-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">rebuild 74</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./engineshelf-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">list</span>
               </div>
               <div>
-                <span style="color: var(--ink-3)"
-                  >./engineshelf-docker.sh</span
-                >
+                <span style="color: var(--ink-3)">./engineshelf-docker.sh</span>
                 <span style="color: var(--ink)">purge 74</span>
               </div>
               <p
@@ -3556,6 +3905,26 @@
                   margin: 16px 0 0;
                   padding-top: 16px;
                   border-top: 1px solid var(--line);
+                  font-family: var(--sans);
+                  font-size: 13.5px;
+                  line-height: 1.6;
+                  color: var(--ink-3);
+                "
+              >
+                <strong style="color: var(--ink-2); font-weight: 600"
+                  >Why it earns its gigabyte differs per engine.</strong
+                >
+                For Chromium it never touches Rosetta, so on Apple Silicon it
+                sidesteps the stack-profiler crash. For Edge it is the only
+                route to an old build at all — the feed that serves mac and
+                Windows holds about six months, while the Linux package pool has
+                kept every build since 2021. For WebKit, Playwright deleted the
+                older macOS archives and never published some; the Linux ones
+                are still there.
+              </p>
+              <p
+                style="
+                  margin: 12px 0 0;
                   font-family: var(--sans);
                   font-size: 13.5px;
                   line-height: 1.6;
@@ -5000,26 +5369,51 @@
           writeCache(MS);
         }
 
+        /* Copied from what these commands actually print, not written to look
+           like it. The previous set was invented - "Launching Chromium 74",
+           "74  r638880  142 MB" - and none of it matched a real run, which is
+           the sort of thing someone notices the first time they try it. */
         const CLI = [
           {
             cmd: './engineshelf.sh catalog',
-            out: 'Available Chromium versions (host: Mac_Arm)',
+            out:
+              'Available versions (host: Mac_Arm)\n\n' +
+              'Firefox  104 releases, 2017 - 2026\n' +
+              '  2026    154  153  152  151  150  149  148  147',
           },
           {
-            cmd: './engineshelf.sh run 74',
-            out: 'Downloading r638880 — 142 MB\nLaunching Chromium 74',
+            cmd: './engineshelf.sh run firefox:115',
+            out:
+              'Downloading Firefox 115.0 (mac, one time only)\n' +
+              'Extracting...\n' +
+              'v Firefox 115.0 ready.\n\n' +
+              '  > Firefox 115.0 (mac)',
           },
           {
             cmd: './engineshelf.sh run 120 localhost:4173',
-            out: 'Launching Chromium 120 → localhost:4173',
+            out:
+              '  > Chromium 120.0.6099.0 (Mac_Arm)\n' +
+              '  > http://localhost:4173',
           },
           {
             cmd: './engineshelf.sh list',
-            out: '74   r638880    142 MB  +18 MB profile\n120  r1217378   168 MB   +6 MB profile',
+            out:
+              'Chromium  120.0.6099.0   Mac_Arm        272 MB browser   16 MB profile\n' +
+              'Firefox   115.0          mac            359 MB browser   29 MB profile\n' +
+              'WebKit    26.5           mac-26-arm64   294 MB browser    0 MB profile',
+          },
+          {
+            cmd: './engineshelf-docker.sh start edge:95',
+            out:
+              'Edge 95.0.1020.40 in Docker (Linux x86_64 95.0.1020.40)\n\n' +
+              '  > http://localhost:6080/vnc.html?autoconnect=1&resize=scale',
           },
           {
             cmd: './engineshelf.sh doctor',
-            out: 'curl ok · unzip ok · python3 ok · rosetta ok',
+            out:
+              '  curl        ok           required\n' +
+              '  Python 3    ok           recommended\n' +
+              '  Docker      ok           optional',
           },
         ];
 

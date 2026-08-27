@@ -49,11 +49,13 @@ mkdir -p /data/profile
 # out of it, sees a machine that is not this one, and refuses to start rather than
 # risk two browsers on one profile; that left a version permanently unstartable
 # after one hard stop, a reboot or a crash.
-# Chromium only: WebKit's MiniBrowser keeps no such lock and has no profile flag.
-if [ "${ENGINE:-chromium}" = "chromium" ]; then
-  rm -f /data/profile/SingletonLock /data/profile/SingletonCookie \
-        /data/profile/SingletonSocket
-fi
+# Chromium and Edge, which is Chromium: WebKit's MiniBrowser keeps no such lock
+# and has no profile flag, and Firefox's own lock is a symlink it clears itself.
+case "${ENGINE:-chromium}" in
+  chromium|edge)
+    rm -f /data/profile/SingletonLock /data/profile/SingletonCookie \
+          /data/profile/SingletonSocket ;;
+esac
 
 # Fill the virtual screen exactly. --start-maximized leaves a gap under fluxbox,
 # and every pixel of viewport matters when the point is checking layout.
@@ -72,6 +74,32 @@ case "${ENGINE:-chromium}" in
     # which is per-image already - and none of the Chromium switches below exist
     # for it. It also has no window-size flag; fluxbox and the Xvfb screen decide.
     BROWSER_ARGS=()
+    ;;
+  firefox)
+    BROWSER_NAME="Firefox"
+    BROWSER_BIN=/opt/firefox/firefox
+    # -profile takes one dash, and -no-remote stops a second launch from being
+    # handed to the first instance instead of starting one. No window-size flag
+    # worth having: fluxbox and the Xvfb screen decide, as they do for WebKit.
+    BROWSER_ARGS=(-profile /data/profile -no-remote)
+    ;;
+  edge)
+    BROWSER_NAME="Edge"
+    BROWSER_BIN=/opt/microsoft/msedge/msedge
+    # Edge is Chromium, so it takes the Chromium switches - including the ones
+    # that stop it from eating viewport height with infobars.
+    BROWSER_ARGS=(
+      --user-data-dir=/data/profile
+      --no-first-run
+      --no-default-browser-check
+      --no-sandbox
+      --test-type
+      --disable-background-networking
+      --disable-component-update
+      --disable-features=TranslateUI,msEdgeWelcomePage
+      --window-position=0,0
+      "--window-size=${WIDTH},${HEIGHT}"
+    )
     ;;
   *)
     BROWSER_NAME="Chromium"
@@ -93,9 +121,15 @@ case "${ENGINE:-chromium}" in
     ;;
 esac
 
+# Chromium and WebKit images are built from a revision, Firefox's and Edge's from
+# a version. Whichever this image carries is what it says: it used to print
+# "Firefox r?" for the two that have no revision, which reads like a fault.
+BUILD_ID="${REVISION:+r$REVISION}"
+BUILD_ID="${BUILD_ID:-${FIREFOX_VERSION:-${EDGE_VERSION:-?}}}"
+
 # The port printed here is the one inside the container; the launcher publishes
 # it on a free host port and prints that, which is the URL to open.
-echo "$BROWSER_NAME r${REVISION:-?} is up on container port 6080 (/vnc.html?autoconnect=1&resize=scale)"
+echo "$BROWSER_NAME $BUILD_ID is up on container port 6080 (/vnc.html?autoconnect=1&resize=scale)"
 echo "To reach a dev server on your machine use http://host.docker.internal:<port>"
 echo "Clipboard: the host's copy and paste shortcuts work in the browser tab."
 

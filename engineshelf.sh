@@ -678,7 +678,7 @@ META
 
 # ---------- commands ----------
 cmd_catalog() {
-  local milestone version platform build revision state new
+  local milestone version platform build revision state new engine
   # Anything Chrome has shipped since this copy was packaged gets resolved and
   # cached here, so the list keeps growing without a new release of this tool.
   new="$(discover_new_milestones)"
@@ -686,8 +686,8 @@ cmd_catalog() {
     # shellcheck disable=SC2086
     resolve_missing $new
   fi
-  printf '%s\n' "${B}Available Chromium versions${RST} ${DIM}(host: $(printf '%s' "$HOST_PLATFORMS" | cut -d' ' -f1))${RST}"
-  printf '\n'
+  printf '%s\n' "${B}Available versions${RST} ${DIM}(host: $(printf '%s' "$HOST_PLATFORMS" | cut -d' ' -f1))${RST}"
+  printf '\n%s\n\n' "${B}Chromium${RST} ${DIM}$(catalog_milestones | wc -l | tr -d ' ') catalogued milestones; any other snapshot revision works too${RST}"
   for milestone in $(catalog_milestones); do
     version="$(catalog_version_of "$milestone")"
     platform="$(platform_for_milestone "$milestone")" || { 
@@ -699,9 +699,66 @@ cmd_catalog() {
     if is_installed "$revision"; then state="${GRN}installed${RST}"; else state="${DIM}not installed${RST}"; fi
     printf '  %-6s %-16s r%-9s %-12s %b\n' "$milestone" "$version" "$revision" "$platform" "$state"
   done
-  printf '\n%s\n' "${DIM}Install and run:  $0 run <version>${RST}"
+  for engine in $ENGINES; do
+    [ "$engine" = chromium ] || catalog_engine "$engine"
+  done
+  printf '\n%s\n' "${DIM}Install and run:  $0 run <version>   $0 run firefox:115   $0 run webkit:26.5${RST}"
   [ -f "$CACHE" ] && printf '%s\n' "${DIM}Milestones newer than this release are resolved live and cached in $CACHE${RST}"
   return 0
+}
+
+# One engine's shelf, a line per year.
+#
+# Chromium gets the long form above because its identity is a snapshot revision
+# and the version, the revision and the platform are three different things you
+# may need. The other three name their build after their own version, so the
+# version is the whole answer - and there are 196 of them, which as one line
+# each is a wall nobody reads.
+catalog_engine() {
+  local engine="$1" years year line id label shown count uniq first last rows
+  rows="$(shelf_rows "$engine")"
+  count="$(printf '%s\n' "$rows" | grep -c . || true)"
+  [ "${count:-0}" -gt 0 ] || return 0
+  years="$(printf '%s\n' "$rows" | cut -f2 | sort -run)"
+  first="$(printf '%s\n' "$years" | tail -1)"
+  last="$(printf '%s\n' "$years" | head -1)"
+
+  # WebKit reuses one Safari version across many builds - five releases all call
+  # themselves 17.4 - so printing labels would list the same word five times and
+  # only one of them could be asked for. Where labels are not unique the build's
+  # own id is what gets printed, because that is what resolves.
+  uniq="$(printf '%s\n' "$rows" | cut -f4 | sort -u | grep -c . || true)"
+  printf '\n%s\n' "${B}$(engine_display "$engine")${RST} ${DIM}${count} releases, ${first} - ${last}${RST}"
+  [ "$uniq" = "$count" ] || printf '  %s\n' \
+    "${DIM}shown by build, because $(engine_display "$engine") reuses a version across builds${RST}"
+
+  for year in $years; do
+    line=""
+    # Fed from a variable rather than a pipe: a pipeline runs its body in a
+    # subshell and $line would not survive it.
+    while IFS="$(printf '\t')" read -r _ y id label; do
+      [ "$y" = "$year" ] || continue
+      if [ "$uniq" = "$count" ]; then shown="$label"; else shown="$id"; fi
+      is_installed "$(engine_key "$engine" "$id")" && shown="${GRN}${shown}${RST}"
+      line="$line  $shown"
+    done <<EOF
+$rows
+EOF
+    [ -n "$line" ] && printf '  %-6s%b\n' "$year" "$line"
+  done
+  return 0
+}
+
+# date, year, id, label for one engine, newest first. The cache is read after the
+# shipped catalog and wins, which is the precedence everything else here uses.
+shelf_rows() {
+  local engine="$1" files="$CATALOG"
+  [ -f "$CACHE" ] && files="$files $CACHE"
+  # shellcheck disable=SC2086
+  awk -F'\t' -v e="$engine" '
+    $1=="S" && $2==e { y[$4]=$3; l[$4]=$5; d[$4]=$6 }
+    END { for (k in d) printf "%s\t%s\t%s\t%s\n", d[k], y[k], k, l[k] }
+  ' $files 2>/dev/null | sort -r
 }
 
 cmd_list() {

@@ -71,19 +71,9 @@ ENV GOOGLE_API_KEY=no \
     GOOGLE_DEFAULT_CLIENT_ID=no \
     GOOGLE_DEFAULT_CLIENT_SECRET=no
 
-# The clipboard bridge. noVNC ships a clipboard side panel and nothing else: the
-# host's Cmd-V or Ctrl-V is swallowed by the canvas, so text copied outside the
-# tab could only get in by being pasted into that panel by hand. clipboard.js
-# wires the two clipboards together; it needs the page's RFB object, which ui.js
-# keeps inside an ES module, hence the one-line export onto window.
 COPY clipboard.js /usr/share/novnc/app/clipboard.js
-RUN set -e; \
-    ui=/usr/share/novnc/app/ui.js; page=/usr/share/novnc/vnc.html; \
-    grep -q '^export default UI;' "$ui" || { echo "noVNC layout changed: no export in ui.js" >&2; exit 1; }; \
-    grep -q 'src="app/ui.js"' "$page" || { echo "noVNC layout changed: no ui.js tag in vnc.html" >&2; exit 1; }; \
-    sed -i 's|^export default UI;|window.UI = UI;   /* EngineShelf: app/clipboard.js needs the live RFB object */\nexport default UI;|' "$ui"; \
-    sed -i 's|<script type="module" crossorigin="anonymous" src="app/ui.js"></script>|&\n    <script src="app/clipboard.js" defer></script>|' "$page"; \
-    grep -q 'app/clipboard.js' "$page"
+COPY novnc-clipboard.sh /tmp/novnc-clipboard.sh
+RUN sh /tmp/novnc-clipboard.sh && rm /tmp/novnc-clipboard.sh
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

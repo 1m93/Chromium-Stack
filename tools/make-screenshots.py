@@ -191,9 +191,11 @@ STAGE = """
 SHOTS = (
     ("jobs-dark", "docs/assets", "screenshot-jobs.png", "?sort=new&shot=dark", True),
     ("jobs-light", "docs/assets", "screenshot-jobs-light.png", "?sort=new&shot=light", True),
-    # No job log over the matrix: the grid is the whole point of that one, and
-    # the panel covers a third of it.
-    ("matrix", "assets", "screenshot-manager.png", "?view=matrix&shot=dark", False),
+    # The README's hero. The list, because that is what the manager opens on -
+    # and no job log over it, because the point of this one is the shelf itself.
+    ("list", "assets", "screenshot-manager.png", "?sort=new&shot=dark&nolog=1", False),
+    # The grid, shown further down where the two views are compared.
+    ("matrix", "assets", "screenshot-matrix.png", "?view=matrix&shot=dark", False),
 )
 
 
@@ -232,7 +234,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             page = page.replace(
                 '<script src="app.js"></script>',
                 THEME.replace("__SCHEME__", scheme) + '<script src="app.js"></script>')
-            if "view=matrix" not in self.path:
+            if "view=matrix" not in self.path and "nolog=1" not in self.path:
                 page = page.replace("</body>", STAGE + "</body>")
             return self._send(page.encode(), "text/html")
         name = os.path.normpath(path.lstrip("/"))

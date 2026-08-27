@@ -1,14 +1,17 @@
 #
 # EngineShelf - Docker edition (Windows)
 #
-# Runs the Linux x86_64 build of a Chromium version inside a container and shows
-# its desktop in a tab of your normal browser.
+# Runs the Linux x86_64 build of a version inside a container and shows its
+# desktop in a tab of your normal browser. All four engines.
 #
-#   .\engineshelf-docker.ps1 start 74     # build if needed, run, open the desktop
-#   .\engineshelf-docker.ps1 stop 74      # stop the container
-#   .\engineshelf-docker.ps1 logs 74      # follow its log
-#   .\engineshelf-docker.ps1 list         # what is running
-#   .\engineshelf-docker.ps1 rebuild 74   # rebuild the image from scratch
+#   .\engineshelf-docker.ps1 start 74         # build if needed, run, open it
+#   .\engineshelf-docker.ps1 start edge:95    # the only route to an Edge this old
+#   .\engineshelf-docker.ps1 start firefox:52
+#   .\engineshelf-docker.ps1 start webkit:16.4
+#   .\engineshelf-docker.ps1 stop 74          # stop the container
+#   .\engineshelf-docker.ps1 logs 74          # follow its log
+#   .\engineshelf-docker.ps1 list             # what is running
+#   .\engineshelf-docker.ps1 rebuild 74       # rebuild the image from scratch
 #
 # Each version gets its own image, container, profile volume and port, so several
 # can run side by side.
@@ -26,6 +29,9 @@ $ProgressPreference = 'SilentlyContinue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Catalog   = Join-Path $ScriptDir 'catalog.tsv'
 . (Join-Path $ScriptDir 'lib\preflight.ps1')
+# Where Firefox's and Edge's Linux downloads are resolved from - the same code
+# the native launcher runs, rather than a second copy of each vendor's URLs.
+. (Join-Path $ScriptDir 'lib\engines.ps1')
 $DockerDir = Join-Path $ScriptDir 'docker'
 $BasePort  = 6080
 
@@ -57,9 +63,24 @@ function Test-Docker {
 # selector naming a Windows revision still resolves to the right image.
 function Resolve-DockerTarget {
     param([string]$Raw)
-    if (-not $Raw) { Die "Which version? e.g. 74. Try: .\engineshelf.ps1 catalog" }
-    $token = $Raw -replace '^[MmRr]', ''
-    if ($token -notmatch '^\d+$') { Die "Not a version or revision: $Raw" }
+    if (-not $Raw) {
+        Die "Which version? A bare number is Chromium: 74. Otherwise name the engine:
+   firefox:52   edge:95   webkit:16.4   chromium:120
+   Try: .\engineshelf.ps1 catalog"
+    }
+
+    $engine = 'chromium'; $token = $Raw
+    if ($Raw.Contains(':')) {
+        $parts = $Raw.Split(':', 2)
+        $engine = $parts[0].ToLower(); $token = $parts[1]
+    }
+    if ($Engines -notcontains $engine) {
+        Die "Unknown engine: $engine. Known: $($Engines -join ' ')"
+    }
+    if ($engine -ne 'chromium') { return Resolve-DockerOther $engine $token }
+
+    $token = $token -replace '^[MmRr]', ''
+    if ($token -notmatch '^\d+$') { Die "Not a Chromium version or revision: $Raw" }
 
     $lines = Get-Content $Catalog
     $milestone = $null
@@ -72,7 +93,11 @@ function Resolve-DockerTarget {
         }
         if (-not $milestone) {
             # An uncatalogued revision: assume the caller means that exact build.
-            return @{ Milestone = '?'; Version = "r$token"; Revision = $token }
+            return @{
+                Engine = 'chromium'; Milestone = '?'; Version = "r$token"
+                Revision = $token; Key = $token; BuildId = "r$token"
+                Dockerfile = 'Dockerfile'; BuildArgs = @("REVISION=$token")
+            }
         }
     }
 
@@ -84,7 +109,150 @@ function Resolve-DockerTarget {
     }
     if (-not $revision) { Die "No Linux x86_64 build of Chromium $milestone in the catalog." }
     if (-not $version) { $version = "r$revision" }
-    return @{ Milestone = $milestone; Version = $version; Revision = $revision }
+    return @{
+        Engine = 'chromium'; Milestone = $milestone; Version = $version
+        Revision = $revision
+        # Chromium's image, container and volume have always been named after the
+        # bare revision, so that stays its key - renaming it would orphan every
+        # image already built.
+        Key = $revision; BuildId = "r$revision"
+        Dockerfile = 'Dockerfile'; BuildArgs = @("REVISION=$revision")
+    }
+}
+
+<#
+  The other three engines.
+
+  WebKit is addressed by Playwright revision, which is platform-independent, so
+  it only has to be looked up in the shelf. Firefox and Edge are addressed by
+  version and need a download URL, which is resolved through lib/engines.ps1
+  with the platform forced to Linux - the same code and the same pool listing the
+  native launcher uses, so the two cannot disagree about which file is version 114.
+
+  Worth saying plainly why Edge is here: the enterprise feed that serves mac and
+  Windows holds about six months, so natively this host cannot reach Edge 114 or
+  95 at any price. The Linux apt pool has kept every .deb since 2021. For an old
+  Edge this image is not an alternative, it is the only route.
+#>
+function Resolve-DockerOther {
+    param([string]$engine, [string]$token)
+
+    if ($engine -eq 'webkit') {
+        $revision = $null
+        if ($token -match '^\d+$' -and [int64]$token -ge 1000) {
+            $revision = $token
+        } else {
+            foreach ($line in Get-Content $Catalog) {
+                $f = $line -split "`t"
+                if ($f[0] -eq 'S' -and $f[1] -eq 'webkit' -and ($f[4] -eq $token -or $f[3] -eq $token)) {
+                    $revision = $f[3]
+                }
+            }
+        }
+        if (-not $revision) {
+            Die "No WebKit build known as $token.
+   WebKit versions come from the shelf. Refresh it with:
+       python3 tools/discover.py --write"
+        }
+        $label = "r$revision"
+        foreach ($line in Get-Content $Catalog) {
+            $f = $line -split "`t"
+            if ($f[0] -eq 'S' -and $f[1] -eq 'webkit' -and $f[3] -eq $revision) { $label = $f[4] }
+        }
+        return @{
+            Engine = 'webkit'; Milestone = '?'; Version = $label; Revision = $revision
+            Key = "webkit-$revision"; BuildId = "r$revision"
+            Dockerfile = 'Dockerfile.webkit'
+            BuildArgs = @("REVISION=$revision", 'WEBKIT_PLATFORM=ubuntu-22.04')
+        }
+    }
+
+    $sel = if ($engine -eq 'firefox') { Resolve-FirefoxLinux $token } else { Resolve-EdgeLinux $token }
+    $prefix = if ($engine -eq 'firefox') { 'FIREFOX' } else { 'EDGE' }
+    return @{
+        Engine = $engine; Milestone = '?'; Version = $sel.Version; Revision = ''
+        Key = "$engine-$($sel.Version)"; BuildId = $sel.Version
+        Dockerfile = "Dockerfile.$engine"
+        BuildArgs = @("${prefix}_URL=$($sel.Url)", "${prefix}_VERSION=$($sel.Version)")
+    }
+}
+
+<#
+  Firefox's Linux tarball.
+
+  lib/engines.ps1 cannot answer this: it only ever builds the Windows URL,
+  because Windows is the only host it runs on. The container is Linux whatever
+  the host is, so the Linux URL has to be built here - the same two candidates
+  lib/engines.sh tries, in the same order. Mozilla moved from bzip2 to xz partway
+  through and the server is what decides which one exists.
+#>
+function Resolve-FirefoxLinux {
+    param([string]$Token)
+    $version = $Token
+    if ($Token -match '^(?<major>\d*)[eE][sS][rR]$') {
+        $version = Resolve-FirefoxEsr $Matches['major']
+        if (-not $version) { Die "Could not find the ESR release for $Token." }
+    } elseif ($Token -match '^\d+$') {
+        $version = "$Token.0"          # a bare major: 115 -> 115.0
+    }
+    foreach ($ext in @('tar.xz', 'tar.bz2')) {
+        $url = "$MozReleases/$version/linux-x86_64/en-US/firefox-$version.$ext"
+        if (Test-UrlExists $url) { return @{ Version = $version; Url = $url } }
+    }
+    Die "No Linux build of Firefox $version at ftp.mozilla.org.
+   Check the version exists: $MozReleases/"
+}
+
+<#
+  Edge's Linux .deb, from the apt pool.
+
+  This is the whole reason an Edge container exists. Microsoft's enterprise feed
+  serves mac and Windows, holds about six months, and gates every file behind a
+  per-file GUID - so lib/engines.ps1 refuses Edge outright, correctly, because
+  nothing on Windows can be shelved. The pool has kept every .deb since 2021 at a
+  URL that can be constructed, so this is the only route to an old Edge from any
+  host.
+#>
+function Resolve-EdgeLinux {
+    param([string]$Token)
+    $pool = 'https://packages.microsoft.com/repos/edge/pool/main/m/microsoft-edge-stable'
+    try {
+        $index = Invoke-WebRequest -Uri "$pool/" -TimeoutSec 30 -UseBasicParsing
+    } catch {
+        Die "Could not read Microsoft's package pool: $($_.Exception.Message)"
+    }
+    $found = @([regex]::Matches([string]$index.Content,
+                 'microsoft-edge-stable_([0-9.]+)-1_amd64\.deb') |
+               ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    # A bare milestone matches on the first field; anything with a dot has to
+    # match exactly. Newest wins, compared field by field rather than as text.
+    $wanted = @($found | Where-Object {
+        if ($Token.Contains('.')) { $_ -eq $Token } else { ($_ -split '\.')[0] -eq $Token }
+    } | Sort-Object { [version]$_ })
+    if ($wanted.Count -eq 0) {
+        Die "Edge $Token is not in Microsoft's Linux package pool.
+   It lists $($found.Count) builds. See $pool/"
+    }
+    $version = $wanted[-1]
+    return @{ Version = $version; Url = "$pool/microsoft-edge-stable_$version-1_amd64.deb" }
+}
+
+# What to call this engine in a sentence.
+function Get-DockerLabel {
+    param($engine)
+    $name = $EngineNames[$engine]
+    if ($name) { return $name }
+    return 'Chromium'
+}
+
+# One build, however many --build-arg this engine needs.
+function Invoke-Build {
+    param($target, [string]$image, [string[]]$extra)
+    $argv = @('build') + $extra + @('--platform', 'linux/amd64',
+        '-f', (Join-Path $DockerDir $target.Dockerfile))
+    foreach ($a in $target.BuildArgs) { $argv += @('--build-arg', $a) }
+    $argv += @('-t', $image, $DockerDir)
+    & docker @argv
 }
 
 # These three names are the whole contract between this script and the manager:
@@ -153,23 +321,23 @@ function Invoke-Start {
     param($target, [bool]$ForceBuild)
     Test-Docker
 
-    $image     = Get-ImageName $target.Revision
-    $container = Get-ContainerName $target.Revision
-    $volume    = Get-VolumeName $target.Revision
+    $image     = Get-ImageName $target.Key
+    $container = Get-ContainerName $target.Key
+    $volume    = Get-VolumeName $target.Key
 
     $running = docker ps --format '{{.Names}}' 2>$null
     if ($running -contains $container) {
-        $port = Get-RunningPort $target.Revision
+        $port = Get-RunningPort $target.Key
         $url = "http://localhost:$port/vnc.html?autoconnect=1&resize=scale"
         Write-Host ""
-        Write-Host "  > Chromium $($target.Version) is already running  $url" -ForegroundColor Green
+        Write-Host "  > $(Get-DockerLabel $target.Engine) $($target.Version) is already running  $url" -ForegroundColor Green
         Start-Process $url | Out-Null
         return
     }
     docker rm -f $container 2>&1 | Out-Null
 
     Write-Host ""
-    Write-Host "  Chromium $($target.Version) in Docker (Linux_x64 r$($target.Revision))" -ForegroundColor White
+    Write-Host "  $(Get-DockerLabel $target.Engine) $($target.Version) in Docker (Linux x86_64 $($target.BuildId))" -ForegroundColor White
     Write-Host ""
 
     # Build only when the image is missing or a rebuild was asked for: a
@@ -180,11 +348,11 @@ function Invoke-Start {
 
     if ($ForceBuild) {
         Write-Host "  Rebuilding the image from scratch..." -ForegroundColor DarkGray
-        docker build --no-cache --platform linux/amd64 --build-arg "REVISION=$($target.Revision)" -t $image $DockerDir
+        Invoke-Build $target $image @('--no-cache')
         if ($LASTEXITCODE -ne 0) { Die "Image build failed." }
     } elseif (-not $haveImage) {
         Write-Host "  First run for this version: building the image. Several minutes, once." -ForegroundColor DarkGray
-        docker build --platform linux/amd64 --build-arg "REVISION=$($target.Revision)" -t $image $DockerDir
+        Invoke-Build $target $image @()
         if ($LASTEXITCODE -ne 0) { Die "Image build failed." }
     }
 
@@ -210,14 +378,14 @@ function Invoke-Start {
         Start-Sleep -Seconds 1
     }
     Write-Host ""
-    if (-not $ok) { Die "No answer on port $port. Check: .\engineshelf-docker.ps1 logs $($target.Revision)" }
+    if (-not $ok) { Die "No answer on port $port. Check: .\engineshelf-docker.ps1 logs $($target.Key)" }
 
     Write-Host ""
     Write-Host "  > $url" -ForegroundColor Green
     Write-Host "  Copy and paste work across the tab in both directions." -ForegroundColor DarkGray
     Write-Host "  To reach a dev server on this machine, type" -ForegroundColor DarkGray
     Write-Host "  http://host.docker.internal:4173 in the Chromium address bar." -ForegroundColor DarkGray
-    Write-Host "  Stop it with: .\engineshelf-docker.ps1 stop $($target.Milestone)" -ForegroundColor DarkGray
+    Write-Host "  Stop it with: .\engineshelf-docker.ps1 stop $Selector" -ForegroundColor DarkGray
     Write-Host ""
     Start-Process $url | Out-Null
 }
@@ -228,7 +396,7 @@ switch -Regex ($Command) {
     '^(stop|down)$' {
         $target = Resolve-DockerTarget $Selector
         Test-Docker
-        $container = Get-ContainerName $target.Revision
+        $container = Get-ContainerName $target.Key
         # SIGTERM before SIGKILL, so the browser inside gets to close its
         # profile. A container removed outright left a lock in the profile volume
         # that stopped the next start of this version dead; the entrypoint clears
@@ -237,17 +405,17 @@ switch -Regex ($Command) {
         if ($live -contains $container) {
             docker stop -t 12 $container 2>&1 | Out-Null
             docker rm -f $container 2>&1 | Out-Null
-            Write-Ok "Stopped Chromium $($target.Version)."
+            Write-Ok "Stopped $(Get-DockerLabel $target.Engine) $($target.Version)."
         } else {
             docker rm -f $container 2>&1 | Out-Null
-            Write-Host "Chromium $($target.Version) was not running." -ForegroundColor DarkGray
+            Write-Host "$(Get-DockerLabel $target.Engine) $($target.Version) was not running." -ForegroundColor DarkGray
         }
         break
     }
     '^logs$' {
         $target = Resolve-DockerTarget $Selector
         Test-Docker
-        docker logs -f (Get-ContainerName $target.Revision)
+        docker logs -f (Get-ContainerName $target.Key)
         break
     }
     '^(list|ls|ps)$' {
@@ -264,12 +432,12 @@ switch -Regex ($Command) {
     '^purge$' {
         $target = Resolve-DockerTarget $Selector
         Test-Docker
-        docker rm -f (Get-ContainerName $target.Revision) 2>&1 | Out-Null
-        docker rmi -f (Get-ImageName $target.Revision) 2>&1 | Out-Null
+        docker rm -f (Get-ContainerName $target.Key) 2>&1 | Out-Null
+        docker rmi -f (Get-ImageName $target.Key) 2>&1 | Out-Null
         if ($Rest -contains '--with-profile') {
-            docker volume rm -f (Get-VolumeName $target.Revision) 2>&1 | Out-Null
+            docker volume rm -f (Get-VolumeName $target.Key) 2>&1 | Out-Null
         }
-        Write-Ok "Removed the Docker image for Chromium $($target.Version)."
+        Write-Ok "Removed the Docker image for $(Get-DockerLabel $target.Engine) $($target.Version)."
         break
     }
     default {

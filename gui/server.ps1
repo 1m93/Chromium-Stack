@@ -465,11 +465,11 @@ function Get-ShelfRow {
         # index at launch time, so until then there is nothing honest to print.
         $row.platformDir = $null
         $row.supported = $true
-        # WebKit is the other engine with a container, and its image is tagged
-        # with the same key its build directory uses - so the row can see it.
-        if ($engine -eq 'webkit') {
-            $row.docker = Get-DockerRow $row.key $docker $row.selector
-        }
+        # All four engines have a container now, and for these three its image
+        # is tagged with the same key the build directory uses - so the row can
+        # see it without a second lookup. Chromium is the exception above: its
+        # container runs a Linux revision this host never installs.
+        $row.docker = Get-DockerRow $row.key $docker $row.selector
     }
 
     $local = $null
@@ -606,9 +606,7 @@ function Get-State {
         } else {
             $row.id = $key.Substring($engine.Length + 1)
             $row.selector = "$engine`:$($row.id)"
-            if ($engine -eq 'webkit') {
-                $row.docker = Get-DockerRow $key $docker $row.selector
-            }
+            $row.docker = Get-DockerRow $key $docker $row.selector
         }
         [void]$extra.Add($row)
     }
@@ -1121,13 +1119,11 @@ function Invoke-Route {
             if (@('start', 'stop', 'rebuild', 'purge') -notcontains $action) {
                 Send-Json $Stream @{ error = 'bad action' } 400; return
             }
-            # Chromium and WebKit are the two engines with a container.
-            # engineshelf-docker.ps1 has no idea what firefox:115 would mean, and
-            # would fail with the reason buried in a job log.
+            # Every engine has a container. An unknown one still gets refused
+            # here rather than in a job log nobody has open.
             $dockerEngine = if ($selector.Contains(':')) { $selector.Split(':', 2)[0] } else { 'chromium' }
-            if ($dockerEngine -ne 'chromium' -and $dockerEngine -ne 'webkit') {
-                $shown = $EngineNames[$dockerEngine]; if (-not $shown) { $shown = $dockerEngine }
-                Send-Json $Stream @{ error = "Docker runs Chromium and WebKit; $shown has no container." } 400
+            if ($Engines -notcontains $dockerEngine) {
+                Send-Json $Stream @{ error = "Unknown engine: $dockerEngine" } 400
                 return
             }
             $cliArgs = @($action, $selector)

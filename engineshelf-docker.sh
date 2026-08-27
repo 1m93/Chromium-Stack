@@ -41,6 +41,13 @@ else
   B=''; DIM=''; RED=''; GRN=''; RST=''
 fi
 die() { printf '%s\n' "${RED}x  $*${RST}" >&2; exit 1; }
+warn() { printf '%s\n' "${DIM}!  $*${RST}" >&2; }
+
+# Sourced after those, so the coloured versions above are the ones it uses. This
+# is where Firefox's and Edge's Linux downloads are resolved from - the same code
+# the native launcher runs, rather than a second copy of each vendor's URLs.
+# shellcheck source=lib/engines.sh
+. "$SCRIPT_DIR/lib/engines.sh"
 
 OS="$(uname -s)"
 
@@ -85,17 +92,15 @@ Which version? A bare number is Chromium: 74. Otherwise name the engine:
     *)   engine="chromium";   token="$raw" ;;
   esac
   engine="$(printf '%s' "$engine" | tr '[:upper:]' '[:lower:]')"
+  # Only Firefox and Edge are handed a resolved download; this runs under
+  # `set -u`, so it has to exist for the other two as well.
+  DOCKER_URL=""
 
   case "$engine" in
     chromium) ;;
     webkit)   resolve_webkit_docker "$token"; return 0 ;;
-    firefox|edge)
-      die "\
-$engine has no container image, on purpose.
-   Its own downloads run natively on every platform this tool supports, so an
-   image would cost a gigabyte and buy nothing. Use the native launcher:
-       ./engineshelf.sh run $engine:$token" ;;
-    *) die "Unknown engine: $engine. Containers exist for chromium and webkit." ;;
+    firefox|edge) resolve_linux_docker "$engine" "$token"; return 0 ;;
+    *) die "Unknown engine: $engine. Known: $ENGINES" ;;
   esac
 
   token="${token#[MmRr]}"
@@ -156,21 +161,85 @@ No WebKit build known as $token.
   DOCKER_VERSION="${DOCKER_VERSION:-r$revision}"
 }
 
+# Firefox and Edge, resolved against their Linux downloads.
+#
+# The URL is not built here. lib/engines.sh already knows that Mozilla switched
+# from bzip2 to xz partway through and that Edge's Linux builds come from the apt
+# pool rather than the enterprise feed - so it is asked, with the platform forced,
+# and it answers. Two copies of that knowledge is how the container and the
+# native launcher would come to disagree about which file is version 114.
+#
+# Worth saying plainly why Edge is here at all: the enterprise feed that serves
+# mac and Windows holds about six months, so on those hosts the native launcher
+# cannot reach Edge 114 or 95 at any price. The apt pool has kept every .deb
+# since 2021. For old Edge this image is not an alternative, it is the only route.
+resolve_linux_docker() {
+  local engine="$1" token="$2" platform
+  case "$engine" in
+    firefox) platform="linux-x86_64" ;;
+    edge)    platform="Linux_x64" ;;
+  esac
+
+  # Scoped to this one call: everything after it must see the host's own answer
+  # again, or `list` would start describing a machine nobody is running.
+  ENGINE_PLATFORM_OVERRIDE="$platform" resolve_engine "$engine" "$token"
+  ENGINE_PLATFORM_OVERRIDE=""
+
+  DOCKER_ENGINE="$engine"
+  DOCKER_ID="$SEL_ID"
+  DOCKER_KEY="$engine-$SEL_ID"
+  DOCKER_MILESTONE="?"
+  DOCKER_REVISION=""
+  DOCKER_VERSION="$SEL_VERSION"
+  DOCKER_URL="$SEL_URL"
+}
+
 # Which Dockerfile builds this engine, and what it needs told. Chromium and WebKit
 # share the desktop and the entrypoint; they share nothing else, which is why they
 # are two files rather than one with branches.
 engine_dockerfile() {
   case "$1" in
-    webkit) printf '%s\n' "Dockerfile.webkit" ;;
-    *)      printf '%s\n' "Dockerfile" ;;
+    webkit)  printf '%s\n' "Dockerfile.webkit" ;;
+    firefox) printf '%s\n' "Dockerfile.firefox" ;;
+    edge)    printf '%s\n' "Dockerfile.edge" ;;
+    *)       printf '%s\n' "Dockerfile" ;;
   esac
 }
 
 engine_label() {
   case "$1" in
-    webkit) printf 'WebKit\n' ;;
-    *)      printf 'Chromium\n' ;;
+    webkit)  printf 'WebKit\n' ;;
+    firefox) printf 'Firefox\n' ;;
+    edge)    printf 'Edge\n' ;;
+    *)       printf 'Chromium\n' ;;
   esac
+}
+
+# What each Dockerfile needs told. Chromium and WebKit are addressed by revision
+# and build their own URL; the other two are handed the one already resolved.
+engine_build_args() {
+  case "$1" in
+    firefox) printf '%s\n' "FIREFOX_URL=$DOCKER_URL" "FIREFOX_VERSION=$DOCKER_VERSION" ;;
+    edge)    printf '%s\n' "EDGE_URL=$DOCKER_URL" "EDGE_VERSION=$DOCKER_VERSION" ;;
+    *)       printf '%s\n' "REVISION=$DOCKER_ID" ;;
+  esac
+}
+
+# One build, however many --build-arg the engine needs. Fed through a while-read
+# rather than word splitting, because a URL is one argument even if it ever grew
+# a character the shell would split on.
+build_image() {
+  local image="$1"; shift
+  local args=() line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    args+=(--build-arg "$line")
+  done <<EOF
+$(engine_build_args "$DOCKER_ENGINE")
+EOF
+  docker build "$@" --platform linux/amd64 \
+    -f "$DOCKER_DIR/$(engine_dockerfile "$DOCKER_ENGINE")" \
+    "${args[@]}" -t "$image" "$DOCKER_DIR"
 }
 
 # These three names are the whole contract between this script and the manager:
@@ -250,7 +319,7 @@ open_url() {
 
 # ---------- commands ----------
 cmd_start() {
-  local force_build="${2:-0}" image container volume port url
+  local build force_build="${2:-0}" image container volume port url
   resolve "${1:-}"
   ensure_docker
 
@@ -270,21 +339,24 @@ cmd_start() {
   docker rm -f "$container" >/dev/null 2>&1 || true
 
   echo ""
-  echo "  ${B}$(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION in Docker${RST} ${DIM}(Linux x86_64 r$DOCKER_ID)${RST}"
+  # "r1217362" is a Chromium snapshot revision and a WebKit Playwright revision;
+  # for the other two the id is the version, and printing "r95.0.1020.40" made it
+  # look like a fourth kind of number.
+  case "$DOCKER_ENGINE" in
+    chromium|webkit) build="r$DOCKER_ID" ;;
+    *)               build="$DOCKER_ID" ;;
+  esac
+  echo "  ${B}$(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION in Docker${RST} ${DIM}(Linux x86_64 $build)${RST}"
   echo ""
 
   # Build only when the image is missing or a rebuild was asked for: under x86
   # emulation a from-scratch build is an eight-minute wait.
   if [ "$force_build" = "1" ]; then
     echo "  ${DIM}Rebuilding the image from scratch...${RST}"
-    docker build --no-cache --platform linux/amd64 \
-      -f "$DOCKER_DIR/$(engine_dockerfile "$DOCKER_ENGINE")" \
-      --build-arg "REVISION=$DOCKER_ID" -t "$image" "$DOCKER_DIR" || die "Image build failed."
+    build_image "$image" --no-cache || die "Image build failed."
   elif ! docker image inspect "$image" >/dev/null 2>&1; then
     echo "  ${DIM}First run for this version: building the image. Several minutes, once.${RST}"
-    docker build --platform linux/amd64 \
-      -f "$DOCKER_DIR/$(engine_dockerfile "$DOCKER_ENGINE")" \
-      --build-arg "REVISION=$DOCKER_ID" -t "$image" "$DOCKER_DIR" || die "Image build failed."
+    build_image "$image" || die "Image build failed."
   fi
 
   start_container "$image" "$container" "$volume" || die "Could not start the container."

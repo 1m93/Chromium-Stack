@@ -618,10 +618,11 @@ def shelf_row(engine, release, installed, builds, hosts, notes, docker):
         # index at launch time, so until then there is nothing honest to print.
         row["platformDir"] = None
         row["supported"] = True
-        # WebKit is the other engine with a container, and its image is tagged
-        # with the same key its build directory uses - so the row can see it.
-        if engine == "webkit":
-            row["docker"] = docker_row(row["key"], docker, row["selector"])
+        # All four engines have a container now, and for these three its image
+        # is tagged with the same key the build directory uses - so the row can
+        # see it without a second lookup. Chromium is the exception above: its
+        # container runs a Linux revision this host never installs.
+        row["docker"] = docker_row(row["key"], docker, row["selector"])
 
     local = installed.get(row["key"]) if row["key"] else None
     row["installed"] = local is not None
@@ -680,8 +681,7 @@ def build_state():
                 else revision, docker)
         else:
             row["selector"] = "%s:%s" % (engine, key[len(engine) + 1:])
-            if engine == "webkit":
-                row["docker"] = docker_row(key, docker, row["selector"])
+            row["docker"] = docker_row(key, docker, row["selector"])
         extra.append(row)
 
     # Summed over every engine, not over the rows above: those are Chromium's
@@ -1152,15 +1152,11 @@ class Handler(BaseHTTPRequestHandler):
             action = str(body.get("action", "start"))
             if action not in ("start", "stop", "rebuild", "purge"):
                 return self._json({"error": "bad action"}, 400)
-            # Chromium and WebKit are the two engines with a container.
-            # engineshelf-docker.sh has no idea what firefox:115 would mean, and
-            # would fail with the reason buried in a job log.
+            # Every engine has a container. An unknown one still gets refused
+            # here rather than in a job log nobody has open.
             engine = selector.split(":", 1)[0] if ":" in selector else "chromium"
-            if engine not in ("chromium", "webkit"):
-                return self._json(
-                    {"error": "Docker runs Chromium and WebKit; "
-                              "%s has no container." % ENGINE_NAMES.get(engine, engine)},
-                    400)
+            if engine not in ENGINES:
+                return self._json({"error": "Unknown engine: %s" % engine}, 400)
             argv = ["bash", DOCKER_CLI, action, selector]
             # An image is a gigabyte, so removing one has to be possible from the
             # shelf; otherwise the only way to get that disk back is raw docker.

@@ -20,6 +20,16 @@
 # is still the bare revision, so an existing ~/.engineshelf keeps working and
 # nothing has to be re-downloaded.
 
+# Four small things every function below leans on. Historically they came from
+# whichever script sourced this file, which is an unwritten contract - and it
+# broke the moment the container launcher needed to resolve a download too. A
+# caller that already has its own, coloured versions keeps them: these only fill
+# a gap, they never take over.
+command -v info    >/dev/null 2>&1 || info() { printf '%s\n' "$*"; }
+command -v warn    >/dev/null 2>&1 || warn() { printf '%s\n' "!  $*" >&2; }
+command -v die     >/dev/null 2>&1 || die()  { printf '%s\n' "x  $*" >&2; exit 1; }
+command -v net_get >/dev/null 2>&1 || net_get() { curl -fsS -m 30 "$1" 2>/dev/null || true; }
+
 ENGINES="chromium firefox edge webkit"
 
 engine_known() {
@@ -43,6 +53,14 @@ engine_display() {
 # they end up in URLs and catalog rows.
 engine_platforms() {
   local engine="$1" os arch
+  # The container launcher needs the Linux answer while running on a Mac, and it
+  # needs it from here rather than rebuilding each vendor's URLs itself - that
+  # duplication is how the two would come to disagree about where Firefox 115
+  # lives. Set by engineshelf-docker.sh around one resolve, never by the CLI.
+  if [ -n "${ENGINE_PLATFORM_OVERRIDE:-}" ]; then
+    printf '%s\n' "$ENGINE_PLATFORM_OVERRIDE"
+    return 0
+  fi
   os="$(uname -s)"; arch="$(uname -m)"
   case "$engine:$os:$arch" in
     # Apple Silicon runs the native arm64 snapshot or the x86_64 one under

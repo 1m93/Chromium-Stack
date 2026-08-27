@@ -67,13 +67,8 @@ RUN wget -q -O /tmp/webkit.zip \
     && test -x /opt/webkit/pw_run.sh
 
 COPY clipboard.js /usr/share/novnc/app/clipboard.js
-RUN set -e; \
-    ui=/usr/share/novnc/app/ui.js; page=/usr/share/novnc/vnc.html; \
-    grep -q '^export default UI;' "$ui" || { echo "noVNC layout changed: no export in ui.js" >&2; exit 1; }; \
-    grep -q 'src="app/ui.js"' "$page" || { echo "noVNC layout changed: no ui.js tag in vnc.html" >&2; exit 1; }; \
-    sed -i 's|^export default UI;|window.UI = UI;   /* EngineShelf: app/clipboard.js needs the live RFB object */\nexport default UI;|' "$ui"; \
-    sed -i 's|<script type="module" crossorigin="anonymous" src="app/ui.js"></script>|&\n    <script src="app/clipboard.js" defer></script>|' "$page"; \
-    grep -q 'app/clipboard.js' "$page"
+COPY novnc-clipboard.sh /tmp/novnc-clipboard.sh
+RUN sh /tmp/novnc-clipboard.sh && rm /tmp/novnc-clipboard.sh
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
