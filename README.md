@@ -155,7 +155,7 @@ One page, served locally, with everything on it.
 | **Per-row menu** | Download without launching, run that version in Docker, reset its profile, or delete it. |
 | **Two views of one shelf** | The list it opens on — every release of all four engines, one per row, with the actions — or the grid below, for comparing across engines. |
 | **Grouped by era** | In the list, rows sit under the years they belong to, four engines interleaved by release date, with what each era brought — jump straight to one, or sort by age or disk used. |
-| **Search and filters** | Narrow to one engine, or search by version, revision, release date, or by **any feature a version was first to support** — type `aspect-ratio` and get Chromium 88 and Firefox 89 — or by what is installed, running, or stuck on Rosetta. |
+| **Search and filters** | Narrow to one engine, or search by version, revision, release date, or by **any feature a version was first to support** — type `aspect-ratio` and get Chromium 88 and Firefox 89 — or by what is installed or running. |
 | **Any revision at all** | Every build in the Chromium snapshot archive is runnable, not just the catalogued milestones — from the CLI, which takes a bare position as a selector. |
 | **System check** | Tells you what is missing before it matters, with buttons that install it. |
 | **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job when several are in flight. |

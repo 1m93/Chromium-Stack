@@ -167,7 +167,7 @@ const asked = (name, allowed) => {
 };
 
 const view = {
-  filter: asked('filter', ['all', 'installed', 'running', 'rosetta']) || 'all',
+  filter: asked('filter', ['all', 'installed', 'running']) || 'all',
   engine: asked('engine', ENGINE_ORDER.concat('all')) || 'all',
   query: '',
   // Read before the sort dropdown is built, so its label agrees with the order
@@ -638,16 +638,15 @@ function decorate(row) {
   // the shelf does not have until a launch resolves it. The server says false
   // here both for a verified Mac-only row and for a milestone old enough that no
   // arm64 build exists - so a row can say Rosetta before anything is downloaded.
+  //
+  // Which is the same thing as "translated": an x86_64 build on an Apple Silicon
+  // machine. Translation is where every failure this shelf knows about lives -
+  // the GPU-process crash and the profiler crash are both only there, and the
+  // startup abort that kills the oldest Chromium is a 2019 allocator meeting this
+  // year's libsystem_malloc, a macOS problem the Linux build in a container does
+  // not have. So the container is the recommended route for all of them, and the
+  // row says so before anything is downloaded rather than after it went wrong.
   const rosetta = row.native === false;
-
-  // An x86_64 build on an Apple Silicon machine, whichever engine. Translation is
-  // where every failure this shelf knows about lives - the GPU-process crash and
-  // the profiler crash are both only here, and the startup abort that kills the
-  // oldest Chromium is a 2019 allocator meeting this year's libsystem_malloc,
-  // which is a macOS problem the Linux build in a container does not have. So the
-  // container is the recommended route for all of them, and the row says so
-  // before anything is downloaded rather than after it has gone wrong.
-  const translated = rosetta;
 
   // The vendor no longer serves this one: Microsoft's feed keeps about six months
   // of Edge, Playwright deletes the older macOS WebKit archives. Nothing native
@@ -735,13 +734,12 @@ function decorate(row) {
     // the button in front of them. The native launcher never goes away - it
     // moves one click, into the menu beside it.
     nativeGone,
-    translated,
     dockerOnly:
       dockerAvailable &&
       (row.supported === false ||
         row.knownBad === true ||
         nativeGone ||
-        translated),
+        rosetta),
     name: label ? `${engineName(engine)} ${label}` : version,
     features: feats,
     noteFull,
@@ -972,7 +970,7 @@ function nativeRoute(row) {
         'menu; the container is the route that works.',
     ];
   }
-  if (row.translated) {
+  if (row.rosetta) {
     // Chromium's is the one with a number on it. For the other engines the same
     // translation path is there and no rate has been measured, so this says that
     // rather than borrowing Chromium's figure.
@@ -1331,7 +1329,6 @@ function render() {
     // counts as installed here even with nothing in the builds directory.
     installed: scoped.filter((row) => row.onDisk).length,
     running: scoped.filter((row) => row.status === 'running').length,
-    rosetta: scoped.filter((row) => row.rosetta).length,
   };
 
   renderChrome(rows, scoped, counts);
@@ -1345,7 +1342,6 @@ function render() {
   const visible = scoped.filter((row) => {
     if (view.filter === 'installed' && !row.onDisk) return false;
     if (view.filter === 'running' && row.status !== 'running') return false;
-    if (view.filter === 'rosetta' && !row.rosetta) return false;
     return !query || row.search.includes(query);
   });
 
@@ -1494,9 +1490,6 @@ function renderChrome(rows, scoped, counts) {
   for (const slot of document.querySelectorAll('[data-count]')) {
     slot.textContent = counts[slot.dataset.count];
   }
-  // Rosetta only exists on Apple Silicon; elsewhere the filter would always be empty.
-  $('filter-rosetta').hidden = counts.rosetta === 0;
-
   // Which engines are on the shelf, and how much of each is here.
   $('engines-group').hidden = false;
   renderEngineFilters(rows);
