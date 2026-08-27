@@ -12,6 +12,7 @@
 #   .\engineshelf-docker.ps1 logs 74          # follow its log
 #   .\engineshelf-docker.ps1 list             # what is running
 #   .\engineshelf-docker.ps1 rebuild 74       # rebuild the image from scratch
+#   .\engineshelf-docker.ps1 clean 74         # reset its profile, keep the image
 #
 # Each version gets its own image, container, profile volume and port, so several
 # can run side by side.
@@ -491,6 +492,17 @@ switch -Regex ($Command) {
         Write-Host ""
         break
     }
+    '^clean$' {
+        # The other side of `engineshelf.ps1 clean`: the profile goes, the image
+        # stays. A volume in use cannot be removed and the container holding it
+        # is this version's own, so that goes first.
+        $target = Resolve-DockerTarget $Selector
+        Test-Docker
+        docker rm -f (Get-ContainerName $target.Key) 2>&1 | Out-Null
+        docker volume rm -f (Get-VolumeName $target.Key) 2>&1 | Out-Null
+        Write-Ok "Profile reset for $(Get-DockerLabel $target.Engine) $($target.Version) in Docker."
+        break
+    }
     '^purge$' {
         $target = Resolve-DockerTarget $Selector
         Test-Docker
@@ -510,6 +522,7 @@ switch -Regex ($Command) {
         Write-Host "  .\engineshelf-docker.ps1 stop <version>"
         Write-Host "  .\engineshelf-docker.ps1 logs <version>"
         Write-Host "  .\engineshelf-docker.ps1 rebuild <version>"
+        Write-Host "  .\engineshelf-docker.ps1 clean <version>"
         Write-Host "  .\engineshelf-docker.ps1 purge <version> [--with-profile]"
         Write-Host "  .\engineshelf-docker.ps1 list"
         Write-Host ""

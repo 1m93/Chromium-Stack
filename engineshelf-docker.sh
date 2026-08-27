@@ -22,6 +22,7 @@
 #   ./engineshelf-docker.sh logs 74             # follow its log
 #   ./engineshelf-docker.sh list                # what is running
 #   ./engineshelf-docker.sh rebuild 74          # rebuild the image from scratch
+#   ./engineshelf-docker.sh clean 74            # reset its profile, keep the image
 #   ./engineshelf-docker.sh purge 74            # delete that version's image
 #
 # Each version gets its own image, container, profile volume and port, so several
@@ -485,6 +486,18 @@ cmd_list() {
 
 # Docker images are the other place disk quietly disappears, so make them
 # removable from here too rather than sending people to raw docker commands.
+cmd_clean() {
+  resolve "${1:-}"
+  ensure_docker
+  # The other side of `engineshelf.sh clean`: the profile goes, the image stays.
+  # A volume in use cannot be removed and the container holding it is this
+  # version's own, so that goes first - leaving the image alone is the whole
+  # difference between this and purge below.
+  docker rm -f "$(container_name "$DOCKER_KEY")" >/dev/null 2>&1 || true
+  docker volume rm -f "$(volume_name "$DOCKER_KEY")" >/dev/null 2>&1 || true
+  echo "${GRN}v${RST} Profile reset for $(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION in Docker."
+}
+
 cmd_purge() {
   resolve "${1:-}"
   ensure_docker
@@ -513,6 +526,7 @@ case "$COMMAND" in
   stop|down)     cmd_stop "${1:-}" ;;
   logs)          cmd_logs "${1:-}" ;;
   list|ls|ps)    cmd_list ;;
+  clean)         cmd_clean "${1:-}" ;;
   purge)         cmd_purge "${1:-}" "${2:-}" ;;
   ''|-h|--help)  usage ;;
   *)             die "Unknown command: $COMMAND (try --help)" ;;

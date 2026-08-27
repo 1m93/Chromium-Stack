@@ -2085,7 +2085,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/docker":
             action = str(body.get("action", "start"))
-            if action not in ("start", "build", "stop", "rebuild", "purge"):
+            if action not in ("start", "build", "stop", "rebuild",
+                              "clean", "purge"):
                 return self._json({"error": "bad action"}, 400)
             # Every engine has a container. An unknown one still gets refused
             # here rather than in a job log nobody has open.

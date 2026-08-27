@@ -244,7 +244,23 @@ const WORK_WORD = {
 // Which jobs the manager offers to interrupt. A download or an image build is
 // minutes of work with nothing lost by calling it off; a delete or a profile
 // reset is over in a moment and cutting one short leaves half a directory.
+/* ---------- what can be called off ----------
+   Fetching and building are minutes of work, and the only way out of either used
+   to be quitting the manager. A delete or a profile reset is over in a moment,
+   and half a deleted directory is worse than waiting for it - which is why
+   `remove` and `clean` are not in here.
+
+   The Docker side has to draw the same line: `docker` is one kind covering every
+   verb, so "Delete Docker image" wore a cancel while "Delete browser" did not,
+   and they are the same act on the two routes. Stopping is excluded for a second
+   reason - interrupting `docker stop` leaves the browser inside holding the lock
+   in its profile volume, which is what made a version permanently unstartable. */
 const CANCELLABLE = new Set(['install', 'launch', 'docker']);
+const DOCKER_FINAL = new Set(['stop', 'clean', 'purge']);
+
+const cancellable = (job) =>
+  CANCELLABLE.has(job.kind) &&
+  !(job.kind === 'docker' && DOCKER_FINAL.has(job.action));
 
 // A docker job says which verb it is rather than falling back to the word
 // "docker": "docker..." over a container coming down read as a noun with an
@@ -254,6 +270,7 @@ const DOCKER_WORD = {
   stop: 'stopping',
   build: 'building',
   rebuild: 'rebuilding',
+  clean: 'resetting',
   purge: 'removing',
 };
 
@@ -378,6 +395,16 @@ const asArray = (value) =>
   Array.isArray(value) ? value : value == null ? [] : [value];
 
 /* ---------- formatting ---------- */
+
+// "349 MB · 12 MB profile", and just "349 MB" when the profile does not round to
+// anything. "0 MB profile" is a phrase about the absence of a thing, and it turns
+// up on every freshly downloaded build - mb() rounds, so a profile directory of a
+// few hundred KB reads as zero too. One helper for both routes' lines, because
+// the Docker one had already stopped saying it and the native one had not.
+function sizeWithProfile(bytes, profile) {
+  const held = mb(profile);
+  return mb(bytes) + (held === '0 MB' ? '' : ` · ${held} profile`);
+}
 
 function mb(bytes) {
   if (!bytes) return '0 MB';
@@ -1253,7 +1280,7 @@ function doctorRow(component) {
             component: component.id,
             streamLabel: component.label,
           });
-          watch(stream, component.label);
+          watch(stream, component.label, { auto: true });
         } catch (error) {
           // A refused install used to leave a dead button and no explanation.
           showJobFailure(
@@ -1795,7 +1822,7 @@ function renderRow(row) {
     row.nativeJob && !row.running
       ? busyWord(row.nativeJob)
       : row.installed
-        ? `${mb(row.sizeBytes)} · ${mb(row.profileBytes)} profile`
+        ? sizeWithProfile(row.sizeBytes, row.profileBytes)
         : '',
   );
   sizeLine(
@@ -1804,8 +1831,7 @@ function renderRow(row) {
     row.dockerJob
       ? busyWord(row.dockerJob)
       : row.dockerImage
-        ? `${mb(row.dockerImage)}` +
-          (row.dockerProfileBytes ? ` · ${mb(row.dockerProfileBytes)} profile` : '')
+        ? sizeWithProfile(row.dockerImage, row.dockerProfileBytes)
         : '',
   );
 
@@ -1914,11 +1940,14 @@ function button(kind, glyph, label, title, handler) {
 /* ---------- the native route ---------- */
 
 function nativeControls(row) {
+  // Work in flight speaks first, and a browser told to close is work in flight:
+  // its launch job runs until the window is actually gone. SIGTERM to the process
+  // group takes a moment, and a button still reading "Stop" invited a second
+  // press.
+  if (row.nativeJob && stopping.has(row.nativeJob.id))
+    return busyControls(row, row.nativeJob);
+
   if (row.running) {
-    // SIGTERM to the process group takes a moment to bring the window down, and
-    // a button still reading "Stop" invited a second press.
-    if (stopping.has(row.job.id))
-      return [button('', 'clock', 'Stopping…', 'Waiting for the browser to close')];
     // Two buttons while it is up. The window is open behind this one and the row
     // had no way back to it: every route to a running version was either Stop or
     // a fresh launch, and a fresh launch of a browser that is already running is
@@ -1936,6 +1965,14 @@ function nativeControls(row) {
 /* ---------- the Docker route ---------- */
 
 function dockerControls(row) {
+  // Work in flight speaks first here too, which is the whole point: `docker stop`
+  // gives the browser inside ten seconds to close, so the container is still up
+  // for all of them. Reading dockerRunning first put Open and Stop back on the
+  // row for that entire window, where native was already saying "Stopping..." -
+  // and a second press sent a second stop. A rebuild and an image delete take the
+  // container down themselves, so neither leaves one there to offer either.
+  if (row.dockerJob) return busyControls(row, row.dockerJob);
+
   if (row.dockerRunning) {
     const out = [];
     // The container is up, so the version is running even though no native
@@ -1961,7 +1998,7 @@ function dockerControls(row) {
               action: 'stop',
               ...streamBody(row),
             });
-            watch(stream, row.name);
+            watch(stream, row.name, { auto: true });
           } catch (error) {
             showJobFailure(`Stopping Docker · ${row.name}`, error.message);
             node.disabled = false;
@@ -1972,61 +2009,69 @@ function dockerControls(row) {
     );
     return out;
   }
-  return row.dockerJob ? busyControls(row, row.dockerJob) : [];
+  return [];
 }
 
 /* ---------- a job in flight, either route ---------- */
 
 function busyControls(row, job) {
   const info = jobInfo.get(job.id) || null;
-  // SIGTERM reaches curl a moment before the job ends, and a button still
-  // offering to cancel invited a second press at exactly the wrong time.
-  if (stopping.has(job.id))
-    return [button('', 'clock', 'Cancelling…', 'Waiting for this to stop')];
-
+  const going = stopping.has(job.id);
+  const up = Boolean(info) && info.phase === 'open';
   const downloading = Boolean(info) && info.phase === 'downloading';
   const percent = info ? info.percent : null;
+
+  // Already on its way out. The word says which of the two it is waiting on -
+  // one request ends a download and a browser that is already up - and there is
+  // no second button beside it, which is what invited a second press: SIGTERM
+  // reaches curl a moment before the job ends.
+  //
   // A download in progress used to leave this saying "Install & launch", which
   // invited a second one while the first was still running.
-  const label =
-    downloading && percent != null
+  const label = going
+    ? up
+      ? 'Stopping…'
+      : 'Cancelling…'
+    : downloading && percent != null
       ? `${percent}%`
       : `${capitalise(workWord(job, info))}…`;
-  const glyph = downloading
-    ? 'down-circle'
-    : job.kind === 'docker'
-      ? 'cube'
-      : 'clock';
-  const out = [
-    button('', glyph, label, 'Show what this is doing',
-      () => watch(job.stream, row.name)),
-  ];
+  const glyph = going
+    ? 'clock'
+    : downloading
+      ? 'down-circle'
+      : job.kind === 'docker'
+        ? 'cube'
+        : 'clock';
 
-  // A download is minutes of network and an image build is longer, and until
-  // this the only way out of either was to quit the manager. Deletes and profile
-  // resets are deliberately not offered: they are over in a moment, and half a
-  // deleted directory is worse than waiting for it. Nor a stop already under
-  // way - interrupting `docker stop` is how a container ends up with a locked
-  // profile volume.
-  if (
-    CANCELLABLE.has(job.kind) &&
-    !(job.kind === 'docker' && job.action === 'stop')
-  ) {
-    const cancel = document.createElement('button');
-    cancel.className = 'btn icon-btn warn';
-    cancel.append(iconSpan('x'));
-    cancel.title =
-      job.kind === 'docker'
-        ? 'Cancel this Docker build'
-        : downloading
-          ? 'Cancel this download'
-          : 'Cancel this install';
-    cancel.onclick = (event) => {
-      event.stopPropagation();
-      cancelJob(job.id, `Cancelling ${row.name}`);
-    };
-    out.push(cancel);
-  }
+  // Every label in flight is a way into the log, stopping ones included: that is
+  // where the answer to "what is it waiting for" is, and half of them used to be
+  // a dead disabled button instead.
+  const out = [
+    button('', glyph, label, 'Show what this is doing', () =>
+      watch(job.stream, row.name),
+    ),
+  ];
+  if (going || !cancellable(job)) return out;
+
+  const cancel = document.createElement('button');
+  cancel.className = 'btn icon-btn warn';
+  cancel.append(iconSpan('x'));
+  // Only the fetching verbs reach here, so the words can be about the actual
+  // one: "Cancel this Docker build" over a container coming up was wrong on both
+  // counts.
+  cancel.title =
+    job.kind === 'docker'
+      ? job.action === 'start'
+        ? 'Cancel this container starting up'
+        : 'Cancel this Docker build'
+      : downloading
+        ? 'Cancel this download'
+        : 'Cancel this install';
+  cancel.onclick = (event) => {
+    event.stopPropagation();
+    cancelJob(job.id, `Cancelling ${row.name}`);
+  };
+  out.push(cancel);
   return out;
 }
 
@@ -2110,7 +2155,7 @@ async function start(button, row) {
       ...launchOptions(),
       ...streamBody(row),
     });
-    watch(stream, row.name);
+    watch(stream, row.name, { auto: true });
   } catch (error) {
     showJobFailure(row.name, error.message);
     button.disabled = false;
@@ -2182,7 +2227,7 @@ async function startDockerBy(button, selector, name, stream = {}) {
       action: 'start',
       ...stream,
     });
-    watch(key, name);
+    watch(key, name, { auto: true });
   } catch (error) {
     showJobFailure(`Docker · ${name}`, error.message);
     button.disabled = false;
@@ -2269,6 +2314,12 @@ function menuPlan(row) {
       if (dockerFree && !row.dockerOnly) plan.push('docker-launch');
       // The other half of "Download only": fill the shelf now, use it later.
       if (dockerFree && !row.dockerImage) plan.push('docker-build');
+      // The CLI has had `rebuild` since the container edition shipped and the
+      // GUI never offered it, so the one thing you have to do after an image
+      // fix - rebuild the images you already have - could only be done from a
+      // terminal. Native's nearest equivalent is delete and fetch again, which
+      // is two entries below.
+      if (dockerFree && row.dockerImage) plan.push('docker-rebuild');
     }
   }
 
@@ -2276,7 +2327,12 @@ function menuPlan(row) {
   // directory that is being written to is the one case where "it is over in a
   // moment" stops being true.
   if (nativeFree && row.installed) plan.push('reset', 'delete-build', 'delete-both');
-  if (dockerFree && row.dockerAvailable && row.dockerImage) plan.push('delete-image');
+  // The Docker side of the same three. Its profile lives in a volume rather than
+  // a directory, and until now nothing in the GUI could reset it or delete it
+  // without also deleting the native build - "Delete everything" was the only
+  // route to the volume, and there was no route at all to resetting it.
+  if (dockerFree && row.dockerAvailable && row.dockerImage)
+    plan.push('docker-reset', 'delete-image', 'delete-image-both');
   if (
     nativeFree &&
     dockerFree &&
@@ -2366,7 +2422,7 @@ function toggleMenu(container, row) {
         ...launchOptions(),
         ...streamBody(row),
       });
-      watch(stream, row.name);
+      watch(stream, row.name, { auto: true });
     });
   }
 
@@ -2379,7 +2435,7 @@ function toggleMenu(container, row) {
         ...launchOptions(),
         ...streamBody(row),
       });
-      watch(stream, row.name);
+      watch(stream, row.name, { auto: true });
     });
   }
 
@@ -2392,7 +2448,7 @@ function toggleMenu(container, row) {
         selector,
         ...streamBody(row),
       });
-      watch(stream, row.name);
+      watch(stream, row.name, { auto: true });
     });
   }
 
@@ -2422,7 +2478,7 @@ function toggleMenu(container, row) {
             action: 'stop',
             ...streamBody(row),
           });
-          watch(stream, row.name);
+          watch(stream, row.name, { auto: true });
         });
       }
     } else {
@@ -2440,7 +2496,7 @@ function toggleMenu(container, row) {
               action: 'start',
               ...streamBody(row),
             });
-            watch(stream, row.name);
+            watch(stream, row.name, { auto: true });
           },
         );
       }
@@ -2457,7 +2513,28 @@ function toggleMenu(container, row) {
             action: 'build',
             ...streamBody(row),
           });
-          watch(stream, row.name);
+          watch(stream, row.name, { auto: true });
+        });
+      }
+      // Not destructive - the image is replaced, the profile volume is kept - so
+      // it belongs with the route's other builds rather than under the rule.
+      if (plan.has('docker-rebuild')) {
+        item('reset', 'Rebuild image', async () => {
+          const go = await askConfirm({
+            title: `Rebuild the Docker image for ${row.name}?`,
+            body:
+              'The image is built again from scratch, which takes several ' +
+              "minutes. The container's profile is kept, so cookies and logins " +
+              'survive. Worth doing when a fix has landed in the image itself.',
+            label: 'Rebuild',
+          });
+          if (!go) return;
+          const { stream } = await post('/api/docker', {
+            selector: docker,
+            action: 'rebuild',
+            ...streamBody(row),
+          });
+          watch(stream, row.name, { auto: true });
         });
       }
     }
@@ -2481,7 +2558,7 @@ function toggleMenu(container, row) {
           selector,
           ...streamBody(row),
         });
-        watch(stream, row.name);
+        watch(stream, row.name, { auto: true });
       },
       true,
     );
@@ -2499,7 +2576,7 @@ function toggleMenu(container, row) {
           selector,
           ...streamBody(row),
         });
-        watch(stream, row.name);
+        watch(stream, row.name, { auto: true });
       },
       true,
     );
@@ -2518,7 +2595,35 @@ function toggleMenu(container, row) {
           withProfile: true,
           ...streamBody(row),
         });
-        watch(stream, row.name);
+        watch(stream, row.name, { auto: true });
+      },
+      true,
+    );
+  }
+
+  // The Docker half of "Reset profile" above. Its profile is a volume, and the
+  // container has to let go of it first - which is what the CLI's `clean` does.
+  if (plan.has('docker-reset')) {
+    item(
+      'reset',
+      "Reset the container's profile",
+      async () => {
+        const go = await askConfirm({
+          title: `Reset the container's profile for ${row.name}?`,
+          body:
+            'Cookies, logins and storage inside the container are deleted, and ' +
+            'the container is taken down to release them. The image stays, so ' +
+            'the next launch starts clean without a rebuild. The native build ' +
+            'and its own profile are untouched.',
+          label: 'Reset profile',
+        });
+        if (!go) return;
+        const { stream } = await post('/api/docker', {
+          selector: docker,
+          action: 'clean',
+          ...streamBody(row),
+        });
+        watch(stream, row.name, { auto: true });
       },
       true,
     );
@@ -2544,7 +2649,38 @@ function toggleMenu(container, row) {
           action: 'purge',
           ...streamBody(row),
         });
-        watch(stream, row.name);
+        watch(stream, row.name, { auto: true });
+      },
+      true,
+    );
+  }
+
+  // The pair native has had all along: "Delete browser" and "Delete browser and
+  // profile". The Docker side had only the first, so the volume could be reached
+  // by "Delete everything" or not at all.
+  if (plan.has('delete-image-both')) {
+    const both = row.dockerImage + row.dockerProfileBytes;
+    item(
+      'trash',
+      `Delete Docker image and profile (${mb(both)})`,
+      async () => {
+        const go = await askConfirm({
+          title: `Delete the Docker image and profile for ${row.name}?`,
+          body:
+            `Frees up to ${mb(both)}, less whatever image layers other ` +
+            'EngineShelf images share. Cookies and logins inside the container ' +
+            'are gone for good, and building the image again takes several ' +
+            'minutes. The native build and its own profile are untouched.',
+          label: 'Delete both',
+        });
+        if (!go) return;
+        const { stream } = await post('/api/docker', {
+          selector: docker,
+          action: 'purge',
+          withProfile: true,
+          ...streamBody(row),
+        });
+        watch(stream, row.name, { auto: true });
       },
       true,
     );
@@ -2592,7 +2728,7 @@ function toggleMenu(container, row) {
           showJobFailure(row.name, failed.reason.message);
           return;
         }
-        watch(streamKeyOf(row), row.name);
+        watch(streamKeyOf(row), row.name, { auto: true });
       },
       true,
     );
@@ -2819,8 +2955,17 @@ let logBusy = false; // a read of the watched stream is in flight
 let logFailures = 0; // consecutive failed reads of it
 
 const LOG_WATCH_KEY = 'engineshelf.logWatch';
-const LOG_OPEN_KEY = 'engineshelf.logOpen';
+const LOG_AUTO_KEY = 'engineshelf.logAuto';
 const LOG_HIDDEN_KEY = 'engineshelf.logHidden';
+
+// Whether the panel is allowed to open itself. It does when work starts - that
+// is what it is for - and stops the moment somebody closes it, until they ask
+// for it again.
+//
+// Remembered, because "until they ask for it again" has to outlive a reload. The
+// panel being open is *not* remembered: the app always opens with it shut, and
+// the first thing that runs brings it up.
+let logAuto = readStored(LOG_AUTO_KEY) !== '0';
 
 // Which log a row's jobs write to. Not the selector: a version's native build and
 // its container are two ways of running the same row, addressed by two different
@@ -2843,10 +2988,15 @@ const streamBody = (row) => ({
   streamLabel: row.name,
 });
 
-function setLogOpen(open) {
+// `byUser` for the cross and the Show log button - the two ways somebody says
+// what they want. Everything else opens it without claiming to know.
+function setLogOpen(open, byUser = false) {
   $('log-panel').hidden = !open;
   $('log-btn-label').textContent = open ? 'Hide log' : 'Show log';
-  writeStored(LOG_OPEN_KEY, open ? '1' : '0');
+  if (byUser) {
+    logAuto = open;
+    writeStored(LOG_AUTO_KEY, open ? '1' : '0');
+  }
   if (!open) {
     stopLogPump();
     return;
@@ -3486,7 +3636,7 @@ function buildOverflowMenu(rest) {
 
 /* ---------- watching one ---------- */
 
-function watch(key, label) {
+function watch(key, label, { auto = false } = {}) {
   if (!key) return;
   makeStream(key, label);
   // Asking to see a log brings its tab back. Without this, "View log" on a row
@@ -3500,8 +3650,16 @@ function watch(key, label) {
   watchKey = key;
   logFailures = 0;
   writeStored(LOG_WATCH_KEY, key);
+  // Work starting asks for the panel; it does not insist. Closed on purpose, it
+  // stays closed - the strip, the row and the status bar all still say what is
+  // going on, and Show log is one press away.
+  if (auto && !logAuto && $('log-panel').hidden) {
+    renderLogTabs();
+    return;
+  }
   if ($('log-panel').hidden) {
-    setLogOpen(true); // draws the strip and the body, and starts the pump
+    // Opening because someone asked is them asking for it back.
+    setLogOpen(true, !auto); // draws the strip and the body, and starts the pump
     return;
   }
   renderLogTabs();
@@ -3658,14 +3816,9 @@ function jobPill(job) {
   pill.append(what);
   pill.title = jobTitle(job, info);
 
-  // Interrupting `docker stop` is how a container ends up with a locked profile
-  // volume, so that one is reported rather than offered.
-  if (
-    !CANCELLABLE.has(job.kind) ||
-    (job.kind === 'docker' && job.action === 'stop')
-  ) {
-    return pill;
-  }
+  // A delete, a profile reset or a stop is reported rather than offered: see
+  // cancellable() for why each of them is over before a button would help.
+  if (!cancellable(job)) return pill;
 
   // A launch job is a download first and a browser afterwards, and the same
   // request ends either - but a cross over a browser that is already up reads as
@@ -3782,12 +3935,12 @@ function showJobFailure(title, message) {
   renderLog();
 }
 
-$('log-close').onclick = () => setLogOpen(false);
+$('log-close').onclick = () => setLogOpen(false, true);
 $('log-clear').onclick = hideFinishedStreams;
 
 $('log-btn').onclick = () => {
   if (!$('log-panel').hidden) {
-    setLogOpen(false);
+    setLogOpen(false, true);
     return;
   }
   // Nothing is un-hidden here on purpose. A log you closed is closed: it comes
@@ -3801,7 +3954,7 @@ $('log-btn').onclick = () => {
     watchKey = streamOfJob(job) || tabKeys()[0] || null;
     writeStored(LOG_WATCH_KEY, watchKey || '');
   }
-  setLogOpen(true);
+  setLogOpen(true, true);
 };
 
 /* ---------- toast ---------- */
@@ -4092,20 +4245,14 @@ async function refresh() {
 
   await refresh();
 
-  // The panel, and the log it was showing, survive a reload. The output was
-  // always on the server; what did not survive was this page's idea of which
-  // logs existed, so a refresh in the middle of a download lost sight of it.
+  // Which log the panel was on survives a reload; the panel being open does not.
+  // The app opens with it shut and the first thing that runs brings it up, so
+  // Show log lands on whatever was last being watched rather than on nothing.
   const wanted = readStored(LOG_WATCH_KEY);
   // Not one that was put away: hiding a tab and reloading used to bring its log
   // back as the panel's contents while its tab stayed off the strip.
   if (wanted && logStreams.has(wanted) && !isHidden(logStreams.get(wanted)))
     watchKey = wanted;
-  if (readStored(LOG_OPEN_KEY) === '1') {
-    if (!watchKey) watchKey = tabKeys()[0] || null;
-    renderLogTabs();
-    setLogOpen(true);
-    renderLog();
-  }
 
   // The heartbeat that tells the server this window still exists. Deliberately
   // not folded into the refresh above: that one pauses while a menu or a dialog
