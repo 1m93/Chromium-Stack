@@ -296,6 +296,61 @@
         border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
         transform: translateY(-3px);
       }
+      /* Engine tabs above the scrubber. Each button carries its own --e, so
+         one rule tints all four and the tint is the same one the manager and
+         the cards above use. */
+      .eng-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 15px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel);
+        color: var(--ink-2);
+        font-family: inherit;
+        font-size: 13.5px;
+        font-weight: 550;
+        letter-spacing: -0.005em;
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          background 0.2s,
+          color 0.2s;
+      }
+      .eng-tab .ic {
+        font-size: 17px;
+        color: var(--e);
+      }
+      .eng-tab .eng-count {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--ink-3);
+        font-weight: 400;
+      }
+      .eng-tab:hover {
+        border-color: color-mix(in srgb, var(--e) 45%, var(--line));
+        color: var(--ink);
+      }
+      .eng-tab[aria-selected='true'] {
+        border-color: color-mix(in srgb, var(--e) 55%, var(--line));
+        background: color-mix(in srgb, var(--e) 13%, transparent);
+        color: var(--ink);
+      }
+      /* The version numbers on the era cards jump the scrubber, so they have to
+         look like something you can press. */
+      .era-jump {
+        border: 0;
+        padding: 0;
+        background: none;
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+        border-bottom: 1px solid transparent;
+      }
+      .era-jump:hover {
+        border-bottom-color: currentColor;
+      }
       .hv-card:hover {
         transform: translateY(-4px);
         border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
@@ -3034,6 +3089,7 @@
         <section
           id="shelf"
           style="
+            --e: var(--e-chromium);
             border-top: 1px solid var(--line);
             border-bottom: 1px solid var(--line);
             background: var(--panel-2);
@@ -3057,7 +3113,7 @@
               "
             >
               <svg class="ic" aria-hidden="true"><use href="#i-layers" /></svg
-              ><span>Chromium, in depth</span>
+              ><span>Four shelves, one scrubber</span>
             </div>
             <h2
               data-reveal
@@ -3071,7 +3127,7 @@
                 text-wrap: balance;
               "
             >
-              Every Chromium milestone, verified against the live archive.
+              Every version each vendor still publishes.
             </h2>
             <p
               data-reveal
@@ -3083,14 +3139,85 @@
                 color: var(--ink-2);
               "
             >
-              Chromium gets its own scrubber because it is the one engine whose
-              archive prunes nothing: every milestone since 2017 is here, and so
-              is any other snapshot revision in between. The other three are on
-              the same shelf, arranged the same way — their indexes just do not
-              go back as far. Drag it, or click a year.
+              How far back a shelf reaches is not a choice anyone made here.
+              Chromium&rsquo;s archive prunes nothing, so every milestone since
+              2017 is on it — and so is any other snapshot revision in between.
+              The other three go back exactly as far as Mozilla, Microsoft and
+              Playwright still host, which is not very far for two of them. Pick
+              an engine, drag the scrubber, or click a year.
             </p>
 
-            <div data-reveal style="margin-top: 46px">
+            <div
+              data-reveal
+              id="engineTabs"
+              role="radiogroup"
+              aria-label="Engine"
+              style="
+                display: flex;
+                flex-wrap: wrap;
+                gap: 9px;
+                margin-top: 30px;
+              "
+            >
+              <button
+                type="button"
+                role="radio"
+                class="eng-tab"
+                data-engine="chromium"
+                aria-checked="true"
+                tabindex="0"
+                style="--e: var(--e-chromium)"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-chromium" /></svg
+                ><span>Chromium</span
+                ><span class="eng-count" data-eng-count></span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                class="eng-tab"
+                data-engine="firefox"
+                aria-checked="false"
+                tabindex="-1"
+                style="--e: var(--e-firefox)"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-firefox" /></svg
+                ><span>Firefox</span
+                ><span class="eng-count" data-eng-count></span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                class="eng-tab"
+                data-engine="edge"
+                aria-checked="false"
+                tabindex="-1"
+                style="--e: var(--e-edge)"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-edge" /></svg
+                ><span>Edge</span
+                ><span class="eng-count" data-eng-count></span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                class="eng-tab"
+                data-engine="webkit"
+                aria-checked="false"
+                tabindex="-1"
+                style="--e: var(--e-webkit)"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-webkit" /></svg
+                ><span>WebKit</span
+                ><span class="eng-count" data-eng-count></span>
+              </button>
+            </div>
+
+            <div data-reveal style="margin-top: 30px">
               <div
                 id="track"
                 tabindex="0"
@@ -3125,7 +3252,7 @@
                     left: 0;
                     top: 20px;
                     height: 2px;
-                    background: var(--accent);
+                    background: var(--e);
                     transition: width 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
                     width: 20%;
                   "
@@ -3152,9 +3279,9 @@
                     height: 20px;
                     margin-left: -10px;
                     border-radius: 50%;
-                    background: var(--accent);
+                    background: var(--e);
                     box-shadow: 0 0 0 6px
-                      color-mix(in srgb, var(--accent) 22%, transparent);
+                      color-mix(in srgb, var(--e) 22%, transparent);
                     transition: left 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
                     pointer-events: none;
                     left: 20%;
@@ -3180,6 +3307,7 @@
 
               <div
                 data-r="two"
+                id="shelfCard"
                 style="
                   display: grid;
                   grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
@@ -3203,7 +3331,8 @@
                       font-variant-numeric: tabular-nums;
                     "
                   >
-                    Chromium <span id="mVer">74</span>
+                    <span id="mEngine">Chromium</span>
+                    <span id="mVer">74</span>
                   </div>
                   <div
                     style="
@@ -3218,8 +3347,10 @@
                     "
                   >
                     <span id="mFull">74.0.3729.0</span>
-                    <span>·</span>
-                    <span>r<span id="mRev">638880</span></span>
+                    <span data-m-sep>·</span>
+                    <!-- Only Chromium is addressed by snapshot revision; for the
+                         others this slot carries the release date instead. -->
+                    <span id="mSecond">r638880</span>
                     <span
                       style="
                         padding: 2px 8px;
@@ -3244,7 +3375,7 @@
                       font-size: 11px;
                       letter-spacing: 0.06em;
                       text-transform: uppercase;
-                      color: var(--accent);
+                      color: var(--e);
                     "
                     id="mYear"
                   >
@@ -3273,7 +3404,7 @@
                       color: var(--ink-2);
                     "
                   >
-                    ./engineshelf.sh run <span id="mCmd">74</span>
+                    <span id="mCmd">./engineshelf.sh run 74</span>
                   </div>
                 </div>
               </div>
@@ -3315,7 +3446,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3359,7 +3490,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3404,7 +3535,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3450,7 +3581,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3496,7 +3627,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -3542,7 +3673,7 @@
                     margin-top: 8px;
                     font-family: var(--mono);
                     font-size: 14px;
-                    color: var(--accent);
+                    color: var(--e);
                   "
                   data-era-versions
                 >
@@ -5223,6 +5354,213 @@
         ];
         /* seed:end */
 
+        /* shelf:begin - regenerated by tools/sync-landing.py from catalog.tsv */
+        const SHELF = {
+          firefox: [
+            '51.0|51|2017-01-24',
+            '52.0|52|2017-03-07',
+            '53.0|53|2017-04-19',
+            '54.0|54|2017-06-13',
+            '55.0|55|2017-08-08',
+            '56.0|56|2017-09-28',
+            '57.0|57|2017-11-14',
+            '58.0|58|2018-01-23',
+            '59.0|59|2018-03-13',
+            '60.0|60|2018-05-09',
+            '61.0|61|2018-06-26',
+            '62.0|62|2018-09-05',
+            '63.0|63|2018-10-23',
+            '64.0|64|2018-12-11',
+            '65.0|65|2019-01-29',
+            '66.0|66|2019-03-19',
+            '67.0|67|2019-05-21',
+            '68.0|68|2019-07-09',
+            '69.0|69|2019-09-03',
+            '70.0|70|2019-10-22',
+            '71.0|71|2019-12-03',
+            '72.0|72|2020-01-07',
+            '73.0|73|2020-02-11',
+            '74.0|74|2020-03-10',
+            '75.0|75|2020-04-07',
+            '76.0|76|2020-05-05',
+            '77.0|77|2020-06-02',
+            '78.0|78|2020-06-30',
+            '79.0|79|2020-07-28',
+            '80.0|80|2020-08-25',
+            '81.0|81|2020-09-22',
+            '82.0|82|2020-10-20',
+            '83.0|83|2020-11-17',
+            '84.0|84|2020-12-15',
+            '85.0|85|2021-01-26',
+            '86.0|86|2021-02-23',
+            '87.0|87|2021-03-23',
+            '88.0|88|2021-04-19',
+            '89.0|89|2021-06-01',
+            '90.0|90|2021-07-13',
+            '91.0|91|2021-08-10',
+            '92.0|92|2021-09-07',
+            '93.0|93|2021-10-05',
+            '94.0|94|2021-11-02',
+            '95.0|95|2021-12-07',
+            '96.0|96|2022-01-11',
+            '97.0|97|2022-02-08',
+            '98.0|98|2022-03-08',
+            '99.0|99|2022-04-05',
+            '100.0|100|2022-05-03',
+            '101.0|101|2022-05-31',
+            '102.0|102|2022-06-28',
+            '103.0|103|2022-07-26',
+            '104.0|104|2022-08-23',
+            '105.0|105|2022-09-20',
+            '106.0|106|2022-10-18',
+            '107.0|107|2022-11-15',
+            '108.0|108|2022-12-13',
+            '109.0|109|2023-01-17',
+            '110.0|110|2023-02-14',
+            '111.0|111|2023-03-14',
+            '112.0|112|2023-04-11',
+            '113.0|113|2023-05-09',
+            '114.0|114|2023-06-06',
+            '115.0|115|2023-07-04',
+            '116.0|116|2023-08-01',
+            '117.0|117|2023-08-29',
+            '118.0|118|2023-09-26',
+            '119.0|119|2023-10-24',
+            '120.0|120|2023-11-21',
+            '121.0|121|2023-12-19',
+            '122.0|122|2024-01-23',
+            '123.0|123|2024-02-20',
+            '124.0|124|2024-03-19',
+            '125.0.1|125|2024-04-16',
+            '126.0|126|2024-05-14',
+            '127.0|127|2024-06-11',
+            '128.0|128|2024-07-09',
+            '129.0|129|2024-08-06',
+            '130.0|130|2024-09-03',
+            '131.0|131|2024-10-01',
+            '132.0|132|2024-10-29',
+            '133.0|133|2024-11-26',
+            '134.0|134|2025-01-07',
+            '135.0|135|2025-02-04',
+            '136.0|136|2025-03-04',
+            '137.0|137|2025-04-01',
+            '138.0|138|2025-04-29',
+            '139.0|139|2025-05-27',
+            '140.0|140|2025-06-24',
+            '141.0|141|2025-07-22',
+            '142.0|142|2025-08-19',
+            '143.0|143|2025-09-16',
+            '144.0|144|2025-10-14',
+            '145.0|145|2025-11-11',
+            '146.0|146|2025-12-09',
+            '147.0|147|2026-01-13',
+            '148.0|148|2026-02-24',
+            '149.0|149|2026-03-24',
+            '150.0|150|2026-04-21',
+            '151.0|151|2026-05-19',
+            '152.0|152|2026-06-16',
+            '153.0|153|2026-07-21',
+            '154.0|154|2026-08-18',
+          ],
+          edge: [
+            '95.0.1020.40|95|2021-10-19',
+            '114.0.1823.82|114|2023-05-30',
+            '115.0.1901.203|115|2023-07-18',
+            '116.0.1938.81|116|2023-08-15',
+            '117.0.2045.55|117|2023-09-12',
+            '118.0.2088.76|118|2023-10-10',
+            '119.0.2151.97|119|2023-10-31',
+            '120.0.2210.144|120|2023-12-05',
+            '121.0.2277.128|121|2024-01-23',
+            '122.0.2365.92|122|2024-02-20',
+            '123.0.2420.97|123|2024-03-19',
+            '124.0.2478.109|124|2024-04-16',
+            '125.0.2535.92|125|2024-05-14',
+            '126.0.2592.113|126|2024-06-11',
+            '127.0.2651.105|127|2024-07-23',
+            '128.0.2739.79|128|2024-08-20',
+            '129.0.2792.89|129|2024-09-17',
+            '130.0.2849.80|130|2024-10-15',
+            '131.0.2903.147|131|2024-11-12',
+            '132.0.2957.140|132|2025-01-14',
+            '133.0.3065.92|133|2025-02-04',
+            '134.0.3124.95|134|2025-03-04',
+            '135.0.3179.98|135|2025-04-01',
+            '136.0.3240.92|136|2025-04-29',
+            '137.0.3296.93|137|2025-05-27',
+            '138.0.3351.121|138|2025-06-24',
+            '139.0.3405.125|139|2025-08-05',
+            '140.0.3485.94|140|2025-09-02',
+            '141.0.3537.99|141|2025-09-30',
+            '142.0.3595.94|142|2025-10-28',
+            '143.0.3650.139|143|2025-12-02',
+            '144.0.3719.115|144|2026-01-13',
+            '145.0.3800.97|145|2026-02-10',
+            '146.0.3856.97|146|2026-03-10',
+            '147.0.3912.98|147|2026-04-07',
+            '148.0.3967.96|148|2026-05-05',
+            '149.0.4022.98|149|2026-06-02',
+            '150.0.4078.105|150|2026-06-30',
+            '151.0.4129.107|151|2026-07-28',
+          ],
+          webkit: [
+            '1446|r1446|2021-03-24',
+            '1472|r1472|2021-05-20',
+            '1492|r1492|2021-06-26',
+            '1516|r1516|2021-07-29',
+            '1530|r1530|2021-08-24',
+            '1550|r1550|2021-10-05',
+            '1564|r1564|2021-11-02',
+            '1578|r1578|2022-01-10',
+            '1596|r1596|2022-01-27',
+            '1609|r1609|2022-02-24',
+            '1616|r1616|2022-04-01',
+            '1630|r1630|2022-04-18',
+            '1641|15.4|2022-05-21',
+            '1668|15.4|2022-07-16',
+            '1683|16.0|2022-07-29',
+            '1699|16.0|2022-09-07',
+            '1715|16.0|2022-09-27',
+            '1724|16.0|2022-10-12',
+            '1735|16.4|2022-11-23',
+            '1751|16.4|2023-01-06',
+            '1767|16.4|2023-01-25',
+            '1792|16.4|2023-03-02',
+            '1811|16.4|2023-04-11',
+            '1837|16.4|2023-04-27',
+            '1848|16.4|2023-05-25',
+            '1860|16.4|2023-06-15',
+            '1869|17.0|2023-07-25',
+            '1883|17.0|2023-08-17',
+            '1908|17.0|2023-09-21',
+            '1921|17.4|2023-10-11',
+            '1944|17.4|2023-11-28',
+            '1967|17.4|2024-02-01',
+            '1983|17.4|2024-03-02',
+            '1992|17.4|2024-04-12',
+            '2003|17.4|2024-05-23',
+            '2035|17.4|2024-07-22',
+            '2051|18.0|2024-08-16',
+            '2070|18.0|2024-09-20',
+            '2083|18.0|2024-10-25',
+            '2104|18.2|2024-12-10',
+            '2123|18.2|2025-01-31',
+            '2140|18.4|2025-03-17',
+            '2158|18.4|2025-04-17',
+            '2182|18.5|2025-06-30',
+            '2191|26.0|2025-08-01',
+            '2203|26.0|2025-09-23',
+            '2215|26.0|2025-10-17',
+            '2227|26.0|2025-11-25',
+            '2248|26.0|2026-02-06',
+            '2272|26.4|2026-04-01',
+            '2287|26.4|2026-05-11',
+            '2311|26.5|2026-06-23',
+            '2336|26.5|2026-07-30',
+          ],
+        };
+        /* shelf:end */
+
         /* ---------- catalogue: seed, cache, revalidate ----------
      SEED is what shipped with this page. Chrome branches a new milestone about
      every four weeks, so the page also asks the same public sources the CLI uses
@@ -5528,33 +5866,149 @@
           requestAnimationFrame(step);
         }
 
+        /* ---------- the shelf: four engines, one scrubber ----------
+     Chromium is the only engine with a per-release story worth telling, so it
+     keeps the shape it always had: milestone, full version, snapshot revision,
+     and an editorial note. The other three come off the S rows discover.py
+     writes, which carry an id, a published label and a release date and nothing
+     else - so their note is the one thing that is always true and never guessed:
+     when the vendor shipped it.
+
+     Everything below works on `list`, whichever engine that currently is. */
+        const NATIVE = './engineshelf.sh run ';
+        const CONTAINER = './engineshelf-docker.sh start ';
+        const MONTH = 2629800000;
+
+        // Microsoft's enterprise feed holds roughly the last half-year and drops
+        // everything behind it, so for an older Edge the honest command is the
+        // container one - the Linux package pool is what still has that build.
+        // Read off the release date rather than a milestone number, so it keeps
+        // being right without anybody editing it.
+        const edgeIsGone = (e) => Date.now() - Date.parse(e.date) > 7 * MONTH;
+
+        const ENGINE_META = {
+          chromium: {
+            name: 'Chromium',
+            tint: 'var(--e-chromium)',
+            // Chromium is the bare number to the CLI; everything else is prefixed,
+            // because "115" alone would mean three different things.
+            cmd: (e) => NATIVE + e.v,
+            plat: (e) => e.plat,
+          },
+          firefox: {
+            name: 'Firefox',
+            tint: 'var(--e-firefox)',
+            cmd: (e) => NATIVE + 'firefox:' + e.v,
+            plat: () => 'macOS · Windows · Linux',
+          },
+          edge: {
+            name: 'Edge',
+            tint: 'var(--e-edge)',
+            cmd: (e) => (edgeIsGone(e) ? CONTAINER : NATIVE) + 'edge:' + e.v,
+            plat: (e) =>
+              edgeIsGone(e) ? 'Linux build, in a container' : 'macOS · Windows',
+          },
+          webkit: {
+            name: 'WebKit',
+            tint: 'var(--e-webkit)',
+            // Two WebKit builds can share a published name, so the revision is
+            // what the CLI is given - it is the only unambiguous handle.
+            cmd: (e) => NATIVE + 'webkit:' + e.id,
+            plat: () => 'Playwright build CDN',
+          },
+        };
+
+        // 'id|label|date' -> the same shape SEED already has, so one renderer
+        // covers all four. The year is read off the date rather than stored
+        // twice, and the note is the date spelt out.
+        const DATE_FMT = new Intl.DateTimeFormat('en-GB', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        });
+        const spellDate = (iso) => {
+          const d = new Date(iso + 'T00:00:00Z');
+          return isNaN(d) ? iso : DATE_FMT.format(d);
+        };
+        const unpack = (engine, row) => {
+          const [id, label, date] = row.split('|');
+          return {
+            engine,
+            id,
+            date,
+            v: label,
+            // Whatever the engine, this slot only earns its place when it says
+            // something the headline does not. WebKit's id is a Playwright
+            // revision rather than a version, so it is written as one - and
+            // dropped when the build has no published name and the headline is
+            // already showing that revision.
+            full:
+              engine === 'webkit'
+                ? label === 'r' + id
+                  ? ''
+                  : 'r' + id
+                : id === label
+                  ? ''
+                  : id,
+            second: spellDate(date),
+            year: date.slice(0, 4),
+            note: 'Released ' + spellDate(date) + '.',
+          };
+        };
+
+        const shelfFor = (engine) =>
+          engine === 'chromium'
+            ? MS.map((m) => ({
+                engine: 'chromium',
+                id: m.v,
+                v: m.v,
+                full: m.full,
+                second: 'r' + m.rev,
+                plat: m.plat,
+                year: m.year,
+                note: m.note,
+              }))
+            : (SHELF[engine] || []).map((row) => unpack(engine, row));
+
         /* ---------- version scrubber ---------- */
         const track = $('track'),
           cursor = $('cursor'),
-          progress = $('progress');
-        let idx = 3,
+          progress = $('progress'),
+          shelfSection = $('shelf');
+        let engine = 'chromium',
+          list = [],
+          idx = 3,
           dragging = false;
 
         function render() {
-          const m = MS[idx];
-          const pct = (idx / (MS.length - 1)) * 100 + '%';
+          const m = list[idx];
+          if (!m) return;
+          const meta = ENGINE_META[engine];
+          const pct = (idx / Math.max(1, list.length - 1)) * 100 + '%';
           cursor.style.left = pct;
           progress.style.width = pct;
+          $('mEngine').textContent = meta.name;
           $('mVer').textContent = m.v;
-          $('mCmd').textContent = m.v;
+          $('mCmd').textContent = meta.cmd(m);
           $('mFull').textContent = m.full;
-          $('mRev').textContent = m.rev;
-          $('mPlat').textContent = m.plat;
+          $('mSecond').textContent = m.second;
+          $('mPlat').textContent = meta.plat(m);
           $('mYear').textContent = m.year;
           $('mNote').textContent = m.note;
+          // Firefox publishes 115.0 as "115"; printing both would just be the
+          // same number twice with a dot in it.
+          document
+            .querySelectorAll('[data-m-sep]')
+            .forEach((el) => (el.hidden = !m.full));
+          $('mFull').hidden = !m.full;
           track.setAttribute('aria-valuenow', String(idx));
-          track.setAttribute('aria-valuetext', 'Chromium ' + m.v);
+          track.setAttribute('aria-valuetext', meta.name + ' ' + m.v);
         }
 
         function setFromX(clientX) {
           const r = track.getBoundingClientRect();
           const p = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-          idx = Math.round(p * (MS.length - 1));
+          idx = Math.round(p * (list.length - 1));
           render();
         }
 
@@ -5580,51 +6034,125 @@
                 : 0;
           if (!d) return;
           e.preventDefault();
-          idx = Math.min(MS.length - 1, Math.max(0, idx + d));
+          idx = Math.min(list.length - 1, Math.max(0, idx + d));
           render();
         });
 
         /* ---------- era grid ----------
-     The cards are editorial: each names a milestone because something specific
-     lands there, and no generator can write that. But the catalogue keeps
-     growing past the last one anybody has written about, so whatever none of
-     them mention gets a card of its own at the end. The boundary is read off
+     Chromium's cards are editorial: each names a milestone because something
+     specific lands there, and no generator can write that. But the catalogue
+     keeps growing past the last one anybody has written about, so whatever none
+     of them mention gets a card of its own at the end. The boundary is read off
      the cards themselves rather than written down, so adding a hand-written
-     card automatically shrinks the generated one. */
+     card automatically shrinks the generated one.
+
+     The other three have no such story - what they have is a release cadence,
+     so their cards are one year each. Same grid, same shelf, honestly labelled. */
         const eraGrid = $('eraGrid');
         const eraTemplate = eraGrid && eraGrid.lastElementChild.cloneNode(true);
+        const eraEditorial = eraGrid ? [...eraGrid.children] : [];
 
-        function renderEraTail() {
+        // Every version printed on a card jumps the scrubber to it. The copy above
+        // promises exactly this, so it cannot be decoration.
+        function makeVersions(el, entries) {
+          el.replaceChildren(
+            ...entries.flatMap((entry, i) => {
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = 'era-jump';
+              button.textContent = entry.v;
+              button.setAttribute(
+                'aria-label',
+                ENGINE_META[engine].name + ' ' + entry.v,
+              );
+              button.addEventListener('click', () => {
+                idx = list.indexOf(entry);
+                render();
+                $('shelfCard').scrollIntoView({
+                  block: 'nearest',
+                  behavior: reduced ? 'auto' : 'smooth',
+                });
+              });
+              return i ? [document.createTextNode(' · '), button] : [button];
+            }),
+          );
+        }
+
+        function eraCard(title, entries, note) {
+          const card = eraTemplate.cloneNode(true);
+          card.setAttribute('data-reveal', 'in'); // the observer has long since run
+          const [era, versions, text] = card.children;
+          era.textContent = title;
+          versions.removeAttribute('data-era-versions'); // generated, not editorial
+          makeVersions(versions, entries);
+          text.textContent = note;
+          return card;
+        }
+
+        function renderEras() {
           if (!eraGrid || !eraTemplate) return;
-          const named = new Set();
-          eraGrid
-            .querySelectorAll('[data-era-versions]')
-            .forEach((el) =>
-              el.textContent.split('·').forEach((t) => named.add(t.trim())),
+
+          if (engine !== 'chromium') {
+            const years = [];
+            list.forEach((entry) => {
+              const bucket = years.find((y) => y.year === entry.year);
+              if (bucket) bucket.entries.push(entry);
+              else years.push({ year: entry.year, entries: [entry] });
+            });
+            eraGrid.replaceChildren(
+              ...years.map((y) => {
+                // Playwright pins several revisions to one published WebKit name,
+                // so a year of them would read "16.4 · 16.4 · 16.4". Name each
+                // version once, pointing at the newest build that carries it, and
+                // let the note keep the difference honest.
+                const named = [];
+                y.entries.forEach((entry) => {
+                  const at = named.findIndex((e) => e.v === entry.v);
+                  if (at >= 0) named[at] = entry;
+                  else named.push(entry);
+                });
+                const builds =
+                  y.entries.length === 1
+                    ? 'One build'
+                    : y.entries.length + ' builds';
+                return eraCard(
+                  y.year,
+                  named,
+                  named.length === y.entries.length
+                    ? builds + ' catalogued this year.'
+                    : builds + ' this year, under ' + named.length + ' names.',
+                );
+              }),
             );
+            return;
+          }
 
-          const existing = $('eraTail');
-          if (existing) existing.remove();
+          eraGrid.replaceChildren(...eraEditorial);
+          const named = new Set();
+          eraGrid.querySelectorAll('[data-era-versions]').forEach((el) => {
+            const versions = el.textContent.split('·').map((t) => t.trim());
+            versions.forEach((v) => named.add(v));
+            makeVersions(
+              el,
+              versions.map((v) => list.find((m) => m.v === v)).filter(Boolean),
+            );
+          });
 
-          const rest = MS.filter((m) => !named.has(m.v));
+          const rest = list.filter((m) => !named.has(m.v));
           if (!rest.length) return;
-
           const years = rest.map((m) => m.year).filter(Boolean);
           const first = years[0],
             last = years[years.length - 1];
-          const card = eraTemplate.cloneNode(true);
+          const card = eraCard(
+            !years.length
+              ? 'Newer'
+              : first === last
+                ? first
+                : first + '–' + last,
+            rest,
+            'Added on the same spacing as Chrome releases them.',
+          );
           card.id = 'eraTail';
-          card.setAttribute('data-reveal', 'in'); // the observer has long since run
-          const [era, versions, note] = card.children;
-          era.textContent = !years.length
-            ? 'Newer'
-            : first === last
-              ? first
-              : first + '–' + last;
-          versions.textContent = rest.map((m) => m.v).join(' · ');
-          versions.removeAttribute('data-era-versions'); // generated, not editorial
-          note.textContent =
-            'Added on the same spacing as Chrome releases them.';
           eraGrid.appendChild(card);
         }
 
@@ -5632,35 +6160,111 @@
           tickLabels = $('tickLabels');
         function renderTicks() {
           tickMarks.replaceChildren(
-            ...MS.map(() => {
+            ...list.map(() => {
               const tick = document.createElement('span');
               tick.style.cssText =
                 'width:2px;height:14px;background:var(--line)';
               return tick;
             }),
           );
-          // Every milestone gets a mark, but past sixteen or so the labels start
-          // colliding on a narrow screen, so only every nth is written out.
-          const step = Math.ceil(MS.length / 16);
+          // Every release gets a mark, but past sixteen or so the labels start
+          // colliding on a narrow screen, so only every nth is written out - and
+          // never the same one twice running, which is what an axis of WebKit
+          // builds would otherwise be.
+          const step = Math.ceil(list.length / 16);
+          let printed = null;
           tickLabels.replaceChildren(
-            ...MS.map((m, i) => {
+            ...list.map((m, i) => {
               const label = document.createElement('span');
-              label.textContent =
-                i % step === 0 || i === MS.length - 1 ? m.v : '';
+              const due = i % step === 0 || i === list.length - 1;
+              if (due && m.v !== printed) {
+                label.textContent = m.v;
+                printed = m.v;
+              }
               return label;
             }),
           );
         }
 
-        function setMilestones(list) {
-          MS = list;
-          track.setAttribute('aria-valuemax', String(MS.length - 1));
+        /* ---------- engine tabs ---------- */
+        const engineTabs = [
+          ...document.querySelectorAll('#engineTabs [data-engine]'),
+        ];
+
+        // shelfFor builds fresh objects every time, so what is held across a
+        // repaint is the id, never the object.
+        function paintShelf(keepPosition) {
+          const previous = keepPosition && list[idx] ? list[idx].id : null;
+          list = shelfFor(engine);
+          if (!list.length) return;
+          const meta = ENGINE_META[engine];
+          shelfSection.style.setProperty('--e', meta.tint);
+          track.setAttribute('aria-label', meta.name + ' release');
+          track.setAttribute('aria-valuemax', String(list.length - 1));
+          const at = previous
+            ? list.findIndex((entry) => entry.id === previous)
+            : -1;
+          // A newly picked engine opens on its newest build - the one somebody is
+          // most likely to be checking something against.
+          idx =
+            at >= 0
+              ? at
+              : keepPosition
+                ? Math.min(idx, list.length - 1)
+                : list.length - 1;
           renderTicks();
-          idx = Math.min(idx, MS.length - 1);
-          renderEraTail();
+          renderEras();
+          render();
+        }
+
+        function setEngine(next, focus) {
+          if (!ENGINE_META[next]) return;
+          engine = next;
+          engineTabs.forEach((tab) => {
+            const on = tab.dataset.engine === next;
+            tab.setAttribute('aria-checked', String(on));
+            // Roving tabindex: a radio group is one stop, and the arrows move
+            // inside it.
+            tab.tabIndex = on ? 0 : -1;
+            if (on && focus) tab.focus();
+          });
+          paintShelf(false);
+        }
+
+        engineTabs.forEach((tab, i) => {
+          const count = tab.querySelector('[data-eng-count]');
+          if (count) {
+            const n =
+              tab.dataset.engine === 'chromium'
+                ? SEED.length
+                : (SHELF[tab.dataset.engine] || []).length;
+            count.textContent = n ? String(n) : '';
+          }
+          tab.addEventListener('click', () => setEngine(tab.dataset.engine));
+          tab.addEventListener('keydown', (e) => {
+            const d =
+              e.key === 'ArrowRight' || e.key === 'ArrowDown'
+                ? 1
+                : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+                  ? -1
+                  : 0;
+            if (!d) return;
+            e.preventDefault();
+            const at = (i + d + engineTabs.length) % engineTabs.length;
+            setEngine(engineTabs[at].dataset.engine, true);
+          });
+        });
+
+        function setMilestones(ms) {
+          MS = ms;
           const mock = $('mockVer');
           if (mock) mock.textContent = 'Chromium ' + MS[MS.length - 1].v;
-          render();
+          // Only the Chromium shelf can have grown; the others are whatever
+          // discover.py last catalogued and nothing here changes them.
+          if (engine === 'chromium') paintShelf(true);
+          const tab = engineTabs.find((t) => t.dataset.engine === 'chromium');
+          const count = tab && tab.querySelector('[data-eng-count]');
+          if (count) count.textContent = String(MS.length);
           syncStats();
         }
 
@@ -5668,14 +6272,17 @@
         // fails, is blocked, or is simply offline changes nothing on screen: the cached
         // list still stands, and the seed stands behind that.
         const cached = readCache();
-        setMilestones(cached ? cached.ms : SEED);
+        MS = cached ? cached.ms : SEED;
+        list = shelfFor(engine);
+        idx = Math.min(3, list.length - 1); // where the shelf has always opened
+        setMilestones(MS);
         if (!cached || Date.now() - cached.at > CACHE_TTL)
           revalidate().catch(() => {});
 
         if (!reduced) {
           setInterval(() => {
             if (dragging || document.hidden) return;
-            idx = (idx + 1) % MS.length;
+            idx = (idx + 1) % list.length;
             render();
           }, 2300);
         }
