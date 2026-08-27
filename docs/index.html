@@ -364,31 +364,53 @@
         color: var(--ink);
       }
 
-      @keyframes floatA {
-        0%,
-        100% {
-          transform: translate3d(0, 0, 0) rotate(-3.5deg);
-        }
-        50% {
-          transform: translate3d(0, -14px, 0) rotate(-3deg);
-        }
+      /* The hero deck: four windows nested one behind the other, newest build of
+         each engine. Every window carries its own --e, so one rule tints all
+         four with the same colours the manager uses. */
+      .deck-win {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 58px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+        box-shadow:
+          inset 0 1px 0 color-mix(in srgb, var(--e) 45%, transparent),
+          0 -14px 30px -22px color-mix(in srgb, var(--e) 70%, transparent);
+        animation: deckFloat 7s ease-in-out infinite;
       }
-      @keyframes floatB {
-        0%,
-        100% {
-          transform: translate3d(0, 0, 0) rotate(1.5deg);
-        }
-        50% {
-          transform: translate3d(0, -9px, 0) rotate(2deg);
-        }
+      .deck-bar {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 39px;
+        padding: 0 14px;
       }
-      @keyframes floatC {
+      .deck-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--ink-3);
+        opacity: 0.45;
+      }
+      .deck-mark {
+        margin-left: auto;
+        font-size: 15px;
+        color: var(--e);
+      }
+      .deck-name {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--ink-2);
+      }
+      @keyframes deckFloat {
         0%,
         100% {
           transform: translate3d(0, 0, 0);
         }
         50% {
-          transform: translate3d(0, -5px, 0);
+          transform: translate3d(0, -7px, 0);
         }
       }
       @keyframes caret {
@@ -1064,7 +1086,6 @@
           gap: 40px !important;
         }
         [data-r='stack'] {
-          height: 340px !important;
           order: -1;
         }
         [data-r='nav'] {
@@ -1086,9 +1107,6 @@
         [data-lp] .sec-wrap {
           padding-left: 18px !important;
           padding-right: 18px !important;
-        }
-        [data-lp] [data-r='stack'] {
-          height: 270px !important;
         }
         [data-lp] [data-r='ticks'] span {
           font-size: 9px;
@@ -1747,6 +1765,23 @@
           "
         >
           <div>
+            <div
+              data-reveal
+              style="
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 18px;
+                font-family: var(--mono);
+                font-size: 11.5px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--ink-3);
+              "
+            >
+              <svg class="ic" aria-hidden="true"><use href="#i-layers" /></svg
+              ><span>A shelf of real browsers</span>
+            </div>
             <h1
               data-reveal
               style="
@@ -1755,11 +1790,11 @@
                 line-height: 1.02;
                 letter-spacing: -0.035em;
                 font-weight: 680;
-                text-wrap: balance;
               "
             >
-              A shelf of real browsers,<br /><span style="color: var(--accent)"
-                >Four engines,<br />one click away.</span
+              Four engines.<br />Every version.<br /><span
+                style="color: var(--accent)"
+                >One click away.</span
               >
             </h1>
             <p
@@ -1857,7 +1892,7 @@
                     color: var(--ink-3);
                   "
                 >
-                  milestones catalogued
+                  versions on the shelf
                 </div>
               </div>
               <div>
@@ -1899,149 +1934,83 @@
                     color: var(--ink-3);
                   "
                 >
-                  newest milestone
+                  browsers, three engines
                 </div>
               </div>
             </div>
           </div>
 
-          <div data-r="stack" style="position: relative; height: 420px">
+          <!-- The three back windows are absolute; the front one stays in flow and
+               is what gives the deck its height, so nothing here has to be told
+               how tall it is. -->
+          <div data-r="stack" style="position: relative">
             <div
+              class="deck-win"
               style="
-                position: absolute;
-                top: 8px;
-                right: 34px;
-                width: 82%;
-                height: 212px;
-                border-radius: 16px;
-                border: 1px solid var(--line);
-                background: var(--panel-2);
+                --e: var(--e-firefox);
+                top: 2px;
+                margin: 0 10%;
                 opacity: 0.55;
-                animation: floatA 9s ease-in-out infinite;
+                animation-delay: -1.8s;
               "
             >
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  gap: 7px;
-                  height: 36px;
-                  padding: 0 14px;
-                  border-bottom: 1px solid var(--line);
-                "
-              >
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.6;
-                  "
-                ></span>
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.4;
-                  "
-                ></span>
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.25;
-                  "
-                ></span>
-                <span
-                  style="
-                    margin-left: auto;
-                    font-family: var(--mono);
-                    font-size: 10.5px;
-                    color: var(--ink-3);
-                  "
-                  >60</span
-                >
+              <div class="deck-bar">
+                <span class="deck-dot"></span><span class="deck-dot"></span
+                ><span class="deck-dot"></span>
+                <svg class="ic deck-mark" aria-hidden="true">
+                  <use href="#i-firefox" /></svg
+                ><span class="deck-name" id="mockFirefox">Firefox 154</span>
+              </div>
+            </div>
+            <div
+              class="deck-win"
+              style="
+                --e: var(--e-edge);
+                top: 40px;
+                margin: 0 6.6%;
+                opacity: 0.72;
+                animation-delay: -1.2s;
+              "
+            >
+              <div class="deck-bar">
+                <span class="deck-dot"></span><span class="deck-dot"></span
+                ><span class="deck-dot"></span>
+                <svg class="ic deck-mark" aria-hidden="true">
+                  <use href="#i-edge" /></svg
+                ><span class="deck-name" id="mockEdge">Edge 151</span>
+              </div>
+            </div>
+            <div
+              class="deck-win"
+              style="
+                --e: var(--e-webkit);
+                top: 78px;
+                margin: 0 3.3%;
+                opacity: 0.88;
+                animation-delay: -0.6s;
+              "
+            >
+              <div class="deck-bar">
+                <span class="deck-dot"></span><span class="deck-dot"></span
+                ><span class="deck-dot"></span>
+                <svg class="ic deck-mark" aria-hidden="true">
+                  <use href="#i-webkit" /></svg
+                ><span class="deck-name" id="mockWebkit">WebKit 26.5</span>
               </div>
             </div>
             <div
               style="
-                position: absolute;
-                top: 66px;
-                right: 14px;
-                width: 90%;
-                height: 250px;
+                --e: var(--e-chromium);
+                position: relative;
+                margin-top: 116px;
                 border-radius: 16px;
-                border: 1px solid var(--line);
-                background: var(--panel-2);
-                opacity: 0.8;
-                animation: floatB 7.5s ease-in-out infinite;
-              "
-            >
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  gap: 7px;
-                  height: 38px;
-                  padding: 0 14px;
-                  border-bottom: 1px solid var(--line);
-                "
-              >
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.6;
-                  "
-                ></span>
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.4;
-                  "
-                ></span>
-                <span
-                  style="
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--ink-3);
-                    opacity: 0.25;
-                  "
-                ></span>
-                <span
-                  style="
-                    margin-left: auto;
-                    font-family: var(--mono);
-                    font-size: 10.5px;
-                    color: var(--ink-3);
-                  "
-                  >95</span
-                >
-              </div>
-            </div>
-            <div
-              style="
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                width: 96%;
-                border-radius: 18px;
                 border: 1px solid var(--line);
                 background: var(--panel);
-                box-shadow: var(--shadow);
+                box-shadow:
+                  0 34px 64px -28px rgba(0, 0, 0, 0.8),
+                  inset 0 1px 0 color-mix(in srgb, var(--e) 45%, transparent);
                 overflow: hidden;
-                animation: floatC 6.5s ease-in-out infinite;
+                animation: deckFloat 7s ease-in-out infinite;
               "
             >
               <div
@@ -2050,7 +2019,7 @@
                   align-items: center;
                   gap: 8px;
                   padding: 0 15px;
-                  height: 42px;
+                  height: 44px;
                   background: #2b3444;
                   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
                 "
@@ -2098,6 +2067,13 @@
                   "
                   >localhost:4173</span
                 >
+                <svg
+                  class="ic"
+                  aria-hidden="true"
+                  style="font-size: 15px; color: var(--e-chromium)"
+                >
+                  <use href="#i-chromium" />
+                </svg>
                 <span
                   id="mockVer"
                   style="
@@ -5559,6 +5535,8 @@
             '2336|26.5|2026-07-30',
           ],
         };
+        // The manager prints this same number, so the two must come from one place.
+        const SHELF_TOTAL = 288;
         /* shelf:end */
 
         /* ---------- catalogue: seed, cache, revalidate ----------
@@ -5824,14 +5802,25 @@
         /* ---------- hero counters ---------- */
         // Read off the catalogue rather than written down, so they cannot contradict
         // the shelf below once a newly released milestone arrives.
+        // Only Chromium's list can grow after load, so the other three shelves
+        // are measured once.
+        const SHELF_YEARS = Object.values(SHELF).flatMap((rows) =>
+          rows.map((row) => +row.split('|')[2].slice(0, 4)),
+        );
         const statTargets = () => {
-          const years = MS.map((m) => +m.year).filter(Boolean);
+          const years = MS.map((m) => +m.year)
+            .concat(SHELF_YEARS)
+            .filter(Boolean);
           return {
-            statM: MS.length,
+            // SHELF_TOTAL is what discover.py catalogued; anything the page has
+            // resolved for itself since then is on the shelf too, and the count
+            // has to say so or it contradicts the scrubber below.
+            statM: SHELF_TOTAL + Math.max(0, MS.length - SEED.length),
             statY: years.length
               ? Math.max(...years) - Math.min(...years) + 1
               : 8,
-            statV: +MS[MS.length - 1].v,
+            // SHELF holds the three engines that are not Chromium.
+            statV: 1 + Object.keys(SHELF).length,
           };
         };
         // Targets are re-read every frame rather than captured when the count-up
@@ -6255,10 +6244,21 @@
           });
         });
 
+        // The four windows in the hero name the newest build of each engine, off
+        // the same catalogue the scrubber reads. Nothing there is written down,
+        // so nothing there can go stale while the shelf below moves on.
+        const deckLabel = (id, engine) => {
+          const el = $(id);
+          if (!el) return;
+          const shelf = shelfFor(engine);
+          if (!shelf.length) return;
+          const newest = shelf[shelf.length - 1];
+          el.textContent = ENGINE_META[engine].name + ' ' + newest.v;
+        };
+
         function setMilestones(ms) {
           MS = ms;
-          const mock = $('mockVer');
-          if (mock) mock.textContent = 'Chromium ' + MS[MS.length - 1].v;
+          deckLabel('mockVer', 'chromium');
           // Only the Chromium shelf can have grown; the others are whatever
           // discover.py last catalogued and nothing here changes them.
           if (engine === 'chromium') paintShelf(true);
@@ -6267,6 +6267,10 @@
           if (count) count.textContent = String(MS.length);
           syncStats();
         }
+
+        deckLabel('mockFirefox', 'firefox');
+        deckLabel('mockEdge', 'edge');
+        deckLabel('mockWebkit', 'webkit');
 
         // Paint from whatever the last visit learned, then look for more. A fetch that
         // fails, is blocked, or is simply offline changes nothing on screen: the cached

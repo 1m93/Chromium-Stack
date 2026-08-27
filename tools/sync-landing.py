@@ -48,6 +48,8 @@ def read_catalog():
     rows = []
     builds = {}
     shelf = {engine: [] for engine in SHELF_ENGINES}
+    # Every S row, Chromium's included, because the hero counts the whole shelf
+    # while the scrubber's Chromium tab lists only the catalogued milestones.
     seen = set()
     with open(CATALOG) as handle:
         for line in handle:
@@ -62,7 +64,7 @@ def read_catalog():
                 })
             elif parts[0] == "B":
                 builds.setdefault(int(parts[1]), {})[parts[2]] = parts[3]
-            elif parts[0] == "S" and len(parts) >= 6 and parts[1] in shelf:
+            elif parts[0] == "S" and len(parts) >= 6:
                 # Two WebKit builds can carry the same published name, so the id
                 # is the identity - and the same id twice is a stale row the
                 # rewrite left behind, not a second release.
@@ -70,10 +72,11 @@ def read_catalog():
                 if key in seen:
                     continue
                 seen.add(key)
-                shelf[parts[1]].append((parts[3], parts[4], parts[5]))
+                if parts[1] in shelf:
+                    shelf[parts[1]].append((parts[3], parts[4], parts[5]))
     for releases in shelf.values():
         releases.sort(key=lambda r: r[2])
-    return rows, builds, shelf
+    return rows, builds, shelf, len(seen)
 
 
 def seed_entries(rows, builds):
@@ -99,7 +102,7 @@ def seed_entries(rows, builds):
     return entries
 
 
-def shelf_block(shelf):
+def shelf_block(shelf, total):
     """One line per release, packed: 'id|label|date'.
 
     The page splits it back apart. A row is three short strings and there are a
@@ -115,6 +118,9 @@ def shelf_block(shelf):
             lines.append("      '%s|%s|%s',\n" % release)
         lines.append("    ],\n")
     lines.append("  };\n")
+    lines.append("  // The manager prints this same number, so the two must"
+                 " come from one place.\n")
+    lines.append("  const SHELF_TOTAL = %d;\n" % total)
     lines.append(SHELF_END)
     return "".join(lines)
 
@@ -138,15 +144,27 @@ def replace_block(text, begin, end, body):
     return text[:start] + body + text[stop:]
 
 
-def rewrite(text, entries, shelf):
+def rewrite(text, entries, shelf, total):
     text = replace_block(text, SEED_BEGIN, SEED_END, seed_block(entries))
-    text = replace_block(text, SHELF_BEGIN, SHELF_END, shelf_block(shelf))
+    text = replace_block(text, SHELF_BEGIN, SHELF_END, shelf_block(shelf, total))
     # Not prose, and not claims: two values the page recomputes from live data on
     # load. They only have to be right for the moment before the script runs - and
     # for whoever is reading with JavaScript off.
     text = re.sub(r'aria-valuemax="\d+"', 'aria-valuemax="{}"'.format(len(entries) - 1), text)
-    return re.sub(r'(id="mockVer"[^>]*>)Chromium \d+',
-                  r'\g<1>Chromium {}'.format(entries[-1]["v"]), text)
+    # The four windows in the hero name the newest build of each engine. The page
+    # rewrites them on load, but only these strings are there before it runs -
+    # and for anyone reading with JavaScript off, they are all there ever is.
+    windows = [("mockVer", "Chromium", entries[-1]["v"])]
+    for element, engine, name in (("mockFirefox", "firefox", "Firefox"),
+                                  ("mockEdge", "edge", "Edge"),
+                                  ("mockWebkit", "webkit", "WebKit")):
+        if shelf.get(engine):
+            windows.append((element, name, shelf[engine][-1][1]))
+    for element, name, version in windows:
+        text = re.sub(r'(id="{}"[^>]*>){}[^<]*'.format(element, name),
+                      lambda m, label="{} {}".format(name, version):
+                          m.group(1) + label, text)
+    return text
 
 
 def main():
@@ -154,7 +172,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="report drift, do not write")
     args = parser.parse_args()
 
-    rows, builds, shelf = read_catalog()
+    rows, builds, shelf, total = read_catalog()
     entries = seed_entries(rows, builds)
     if not entries:
         print("catalog.tsv has no usable rows", file=sys.stderr)
@@ -168,7 +186,7 @@ def main():
               % ", ".join(empty), file=sys.stderr)
 
     current = open(PAGE, encoding="utf-8").read()
-    updated = rewrite(current, entries, shelf)
+    updated = rewrite(current, entries, shelf, total)
 
     if args.check:
         if current == updated:
