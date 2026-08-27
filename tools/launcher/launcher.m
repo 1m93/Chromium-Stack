@@ -186,9 +186,10 @@ static NSString *home_dir(void)
 @interface Manager : NSObject <NSApplicationDelegate, NSWindowDelegate,
                                WKNavigationDelegate, WKUIDelegate>
 @property (nonatomic, copy)   NSString *project;
-@property (nonatomic, strong) NSWindow *window;
-@property (nonatomic, strong) WKWebView *web;
-@property (nonatomic, strong) NSTextField *notice;
+/* Every window is the same manager seen twice: one shelf, one server, two
+ * views of it - the same thing the Chrome-hosted window on Linux and Windows
+ * gets by being launched again. The app quits when the last one closes. */
+@property (nonatomic, strong) NSMutableArray<NSWindow *> *windows;
 @property (nonatomic, assign) pid_t server;      /* the manager, 0 once it has gone */
 @property (nonatomic, strong) dispatch_source_t watch;
 @property (nonatomic, copy)   NSString *address;
@@ -216,6 +217,7 @@ static NSString *home_dir(void)
     self = [super init];
     if (self) {
         _project = [project copy];
+        _windows = [NSMutableArray array];
         _pending = [NSMutableString string];
         _pendingLock = [[NSLock alloc] init];
     }
@@ -234,45 +236,123 @@ static NSString *home_dir(void)
 
 - (void)buildWindow
 {
+    [self openWindow:nil];
+}
+
+/* Also the Cmd-N action. A second window is another view of the same server:
+ * the shelf in one and the year grid in the other, or a download watched in one
+ * while the other is being read. */
+- (void)openWindow:(id)sender
+{
     NSRect frame = NSMakeRect(0, 0, 1440, 920);
-    self.window = [[NSWindow alloc]
+    NSWindow *window = [[NSWindow alloc]
         initWithContentRect:frame
                   styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                              NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
                     backing:NSBackingStoreBuffered
                       defer:NO];
-    self.window.title = @"EngineShelf";
-    self.window.delegate = self;
+    window.title = @"EngineShelf";
+    window.delegate = self;
+    window.releasedWhenClosed = NO;
     /* 900x620 is about where the shelf stops being able to show a row's
      * actions; below that the page is honest but cramped. */
-    self.window.minSize = NSMakeSize(900, 620);
-    [self.window center];
-    /* Remembered per user, so the window comes back where it was left. */
-    [self.window setFrameAutosaveName:@"EngineShelfWindow"];
+    window.minSize = NSMakeSize(900, 620);
 
-    WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
-    self.web = [[WKWebView alloc] initWithFrame:self.window.contentView.bounds
-                                  configuration:config];
-    self.web.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    self.web.navigationDelegate = self;
-    self.web.UIDelegate = self;
+    if (self.windows.count == 0) {
+        [window center];
+        /* Remembered per user, so the first window comes back where it was
+         * left. The ones after it are stacked off it instead, which is what
+         * every other app does with a second window. */
+        [window setFrameAutosaveName:@"EngineShelfWindow"];
+    } else {
+        NSWindow *last = self.windows.lastObject;
+        [window setFrame:last.frame display:NO];
+        [window cascadeTopLeftFromPoint:
+            NSMakePoint(NSMinX(last.frame) + 26, NSMaxY(last.frame) - 26)];
+    }
+
+    WKWebView *web = [[WKWebView alloc] initWithFrame:window.contentView.bounds
+                                       configuration:[[WKWebViewConfiguration alloc] init]];
+    web.identifier = @"web";
+    web.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    web.navigationDelegate = self;
+    web.UIDelegate = self;
     /* The page paints its own background a moment later; matching its dark
      * ground here is what stops a white flash on every launch. */
-    self.web.hidden = YES;
-    [self.window.contentView setWantsLayer:YES];
-    self.window.contentView.layer.backgroundColor =
+    web.hidden = YES;
+    [window.contentView setWantsLayer:YES];
+    window.contentView.layer.backgroundColor =
         [NSColor colorWithSRGBRed:0.06 green:0.07 blue:0.09 alpha:1].CGColor;
-    [self.window.contentView addSubview:self.web];
+    [window.contentView addSubview:web];
 
-    self.notice = [NSTextField labelWithString:@"Starting the manager…"];
-    self.notice.textColor = [NSColor secondaryLabelColor];
-    self.notice.alignment = NSTextAlignmentCenter;
-    self.notice.frame = NSMakeRect(0, NSMidY(frame) - 12, NSWidth(frame), 24);
-    self.notice.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin | NSViewMaxYMargin;
-    [self.window.contentView addSubview:self.notice];
+    NSTextField *notice = [NSTextField labelWithString:@"Starting the manager…"];
+    notice.identifier = @"notice";
+    notice.textColor = [NSColor secondaryLabelColor];
+    notice.alignment = NSTextAlignmentCenter;
+    notice.frame = NSMakeRect(0, NSMidY(frame) - 12, NSWidth(frame), 24);
+    notice.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin | NSViewMaxYMargin;
+    [window.contentView addSubview:notice];
 
-    [self.window makeKeyAndOrderFront:nil];
+    [self.windows addObject:window];
+    note([NSString stringWithFormat:@"Window opened (%lu open).",
+          (unsigned long)self.windows.count]);
+    [window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+
+    /* A window opened after the address is known has nothing to wait for. */
+    if (self.address)
+        [web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:self.address]]];
+}
+
+/* The Dock does not read the File menu: an app that wants "New Window" on its
+ * Dock icon has to hand the Dock a menu saying so. Items here are dispatched
+ * straight to their target rather than through the responder chain, which is
+ * why this one names it. */
+- (NSMenu *)applicationDockMenu:(NSApplication *)app
+{
+    NSMenu *menu = [[NSMenu alloc] init];
+    NSMenuItem *item = [menu addItemWithTitle:@"New Window"
+                                       action:@selector(openWindow:)
+                                keyEquivalent:@""];
+    item.target = self;
+    return menu;
+}
+
+- (NSView *)viewNamed:(NSString *)name in:(NSWindow *)window
+{
+    for (NSView *view in window.contentView.subviews)
+        if ([view.identifier isEqualToString:name])
+            return view;
+    return nil;
+}
+
+- (WKWebView *)webIn:(NSWindow *)window
+{
+    return (WKWebView *)[self viewNamed:@"web" in:window];
+}
+
+- (NSTextField *)noticeIn:(NSWindow *)window
+{
+    return (NSTextField *)[self viewNamed:@"notice" in:window];
+}
+
+/* Something has happened to the manager itself, so it belongs in front of every
+ * window rather than whichever one happens to be in front. */
+- (void)noticeEverywhere:(NSString *)text
+{
+    for (NSWindow *window in self.windows) {
+        [self noticeIn:window].stringValue = text;
+        [self noticeIn:window].hidden = NO;
+        [self webIn:window].hidden = YES;
+    }
+}
+
+- (NSWindow *)frontWindow
+{
+    for (NSWindow *window in self.windows)
+        if (window.isKeyWindow)
+            return window;
+    return self.windows.lastObject;
 }
 
 /* Without a menu of its own an app built this way has no Cmd-Q, no Cmd-W and -
@@ -296,6 +376,13 @@ static NSString *home_dir(void)
     [appMenu addItemWithTitle:@"Quit EngineShelf" action:@selector(terminate:) keyEquivalent:@"q"];
     appItem.submenu = appMenu;
     [bar addItem:appItem];
+
+    NSMenuItem *fileItem = [[NSMenuItem alloc] init];
+    NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+    [fileMenu addItemWithTitle:@"New Window" action:@selector(openWindow:) keyEquivalent:@"n"];
+    [fileMenu addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
+    fileItem.submenu = fileMenu;
+    [bar addItem:fileItem];
 
     NSMenuItem *editItem = [[NSMenuItem alloc] init];
     NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
@@ -324,7 +411,8 @@ static NSString *home_dir(void)
     NSMenuItem *windowItem = [[NSMenuItem alloc] init];
     NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
     [windowMenu addItemWithTitle:@"Minimise" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
-    [windowMenu addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
+    [windowMenu addItemWithTitle:@"Bring All to Front"
+                          action:@selector(arrangeInFront:) keyEquivalent:@""];
     windowItem.submenu = windowMenu;
     [bar addItem:windowItem];
 
@@ -332,15 +420,16 @@ static NSString *home_dir(void)
     NSApp.windowsMenu = windowMenu;
 }
 
-- (void)reloadPage:(id)sender { [self.web reload]; }
+- (void)reloadPage:(id)sender { [[self webIn:self.frontWindow] reload]; }
 
 /* Page zoom arrived in macOS 11; on anything older the commands are there and
  * do nothing, which is better than a bundle that will not load at all. */
 - (void)zoomBy:(CGFloat)factor
 {
     if (@available(macOS 11.0, *)) {
-        CGFloat next = factor == 0 ? 1.0 : self.web.pageZoom * factor;
-        self.web.pageZoom = MIN(MAX(next, 0.5), 3.0);
+        WKWebView *web = [self webIn:self.frontWindow];
+        CGFloat next = factor == 0 ? 1.0 : web.pageZoom * factor;
+        web.pageZoom = MIN(MAX(next, 0.5), 3.0);
     }
 }
 
@@ -518,7 +607,8 @@ static NSString *home_dir(void)
         [NSApp terminate:nil];
         return;
     }
-    [self.web loadRequest:[NSURLRequest requestWithURL:url]];
+    for (NSWindow *window in self.windows)
+        [[self webIn:window] loadRequest:[NSURLRequest requestWithURL:url]];
 }
 
 - (void)serverEndedWith:(NSNumber *)status
@@ -532,15 +622,13 @@ static NSString *home_dir(void)
      * app stays up: an alert on a background app is a dialog nobody sees, and
      * quitting from here is what used to strand the app mid-terminate. */
     note([NSString stringWithFormat:@"The manager stopped (exit %@).", status]);
-    self.notice.stringValue =
+    [self noticeEverywhere:
         self.address
             ? @"The manager stopped. Its last words are in manager.log, in the "
                "EngineShelf home directory. Close this window and open EngineShelf again."
             : [NSString stringWithFormat:
                @"The manager could not start (exit %@). The reason is in manager.log, "
-                "in the EngineShelf home directory.", status];
-    self.notice.hidden = NO;
-    self.web.hidden = YES;
+                "in the EngineShelf home directory.", status]];
 }
 
 /* A manager that never says where it is serving is a manager that is not
@@ -555,10 +643,9 @@ static NSString *home_dir(void)
         if (self.address || self.closing)
             return;
         note(@"The manager has not printed an address yet.");
-        self.notice.stringValue =
+        [self noticeEverywhere:
             @"The manager has not answered. What it managed to say is in manager.log, "
-             "in the EngineShelf home directory.";
-        self.notice.hidden = NO;
+             "in the EngineShelf home directory."];
     }];
 }
 
@@ -566,9 +653,10 @@ static NSString *home_dir(void)
 
 - (void)webView:(WKWebView *)web didFinishNavigation:(WKNavigation *)navigation
 {
-    if (self.notice.hidden == NO)
+    NSTextField *notice = [self noticeIn:web.window];
+    if (notice.hidden == NO)
         note(@"Window showing the manager.");
-    self.notice.hidden = YES;
+    notice.hidden = YES;
     web.hidden = NO;
 }
 
@@ -577,9 +665,10 @@ static NSString *home_dir(void)
                        withError:(NSError *)error
 {
     note([NSString stringWithFormat:@"Window could not load: %@", error.localizedDescription]);
-    self.notice.stringValue = [NSString stringWithFormat:@"Cannot reach the manager: %@",
-                               error.localizedDescription];
-    self.notice.hidden = NO;
+    NSTextField *notice = [self noticeIn:web.window];
+    notice.stringValue = [NSString stringWithFormat:@"Cannot reach the manager: %@",
+                          error.localizedDescription];
+    notice.hidden = NO;
     web.hidden = YES;
 }
 
@@ -639,17 +728,20 @@ static NSString *home_dir(void)
 
 #pragma mark closing
 
-/* Closing the window ends the session - the server stops, the browsers it
+/* Closing the LAST window ends the session - the server stops, the browsers it
  * launched close, the containers it started come down - which is the point, but
  * not something a stray click on the red button should do while a download is
  * halfway through. In a browser the page guards this with beforeunload; here
- * the question is asked properly, in an alert this app owns. */
+ * the question is asked properly, in an alert this app owns.
+ *
+ * Any other window is just a second view of the same shelf, and closing one of
+ * those is not worth a question. */
 - (BOOL)windowShouldClose:(NSWindow *)sender
 {
-    if (self.closing || !self.address)
+    if (self.closing || !self.address || self.windows.count > 1)
         return YES;
 
-    [self.web evaluateJavaScript:
+    [[self webIn:sender] evaluateJavaScript:
         @"(function(){try{var r=window.engineShelfRunning();"
          "return r.browsers+r.containers+r.jobs}catch(e){return 0}})()"
                completionHandler:^(id result, NSError *jsError) {
@@ -658,6 +750,7 @@ static NSString *home_dir(void)
         if (busy > 0) {
             NSAlert *panel = [[NSAlert alloc] init];
             panel.messageText = @"Close EngineShelf?";
+            /* The window is the session, so this is the app going, not a tab. */
             panel.informativeText =
                 busy == 1
                 ? @"One browser, container or download is still running, and closing "
@@ -675,6 +768,16 @@ static NSString *home_dir(void)
     return NO;
 }
 
+- (void)windowWillClose:(NSNotification *)notification
+{
+    /* A strong local first: this array is the only thing holding the window,
+     * and it is still closing. */
+    NSWindow *window = notification.object;
+    [self.windows removeObject:window];
+    note([NSString stringWithFormat:@"Window closed (%lu left).",
+          (unsigned long)self.windows.count]);
+}
+
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app
 {
     return YES;
@@ -686,7 +789,10 @@ static NSString *home_dir(void)
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)app hasVisibleWindows:(BOOL)visible
 {
     if (!visible) {
-        [self.window makeKeyAndOrderFront:nil];
+        if (self.windows.count == 0)
+            [self openWindow:nil];
+        else
+            [self.windows.lastObject makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];
     }
     return YES;

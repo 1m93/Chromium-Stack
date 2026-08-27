@@ -161,7 +161,7 @@ One page, served locally, with everything on it.
 | **A live log panel** | Downloads, dependency installs and Docker containers stream their output line by line — the same text a terminal would show, one tab per job when several are in flight. |
 | **Honest disk accounting** | A running total split between browsers, profiles and Docker images, so it is obvious when to clear something out. |
 | **Light or dark** | Follows the system theme, or pin it either way from the header. |
-| **One manager at a time** | Opening the app while it is already running brings its window back rather than starting a second manager on the next port — which used to leave the new window pointing at a server that had just shut itself down. |
+| **One manager at a time** | Opening the app while it is already running brings its window back rather than starting a second manager on the next port. `⌘N` on macOS opens another window onto the same shelf. |
 | **Closes like an app** | Closing the window stops the manager, the browsers it launched and the containers it started — with a confirmation first if any of them are running. Nothing is left holding a port or a gigabyte. |
 
 <p align="center">
@@ -179,11 +179,15 @@ started comes down. Ctrl-C in a terminal does the same. If something is still ru
 you close it, the browser asks you to confirm first — a stray click on the X cannot take a
 download with it.
 
-It opens in a window of its own — a Chromium-family browser in `--app` mode with a profile
-of its own, which is what makes closing it unambiguous and keeps the manager out of your own
-browsing session. Without such a browser installed it falls back to a tab, and then it is the
-tab closing that ends the session, twelve seconds later. `--tab` asks for that on purpose;
-`--keep-alive` leaves the server running whatever the window does.
+It opens in a window of its own. **On macOS that window belongs to EngineShelf.app itself**
+— an ordinary Mac window drawn by the app, so the Dock icon is EngineShelf's, pressing it
+brings the manager back from Stage Manager or a hidden desktop, and `⌘N` opens a second
+window onto the same shelf. **On Windows and Linux** it is a Chromium-family browser in
+`--app` mode with a profile of its own, which keeps the manager out of your own browsing
+session; opening the launcher again there gives you another window onto the same manager
+rather than a second one. Without such a browser installed it falls back to a tab, and then
+it is the tab closing that ends the session, twelve seconds later. `--tab` asks for that on
+purpose; `--keep-alive` leaves the server running whatever the window does.
 
 > [!NOTE]
 > **Nothing listens outside your machine.** The server binds to `127.0.0.1` and every
@@ -600,7 +604,8 @@ there.
 | `~/.engineshelf/builds/<revision>/` | a downloaded browser |
 | `~/.engineshelf/profiles/<revision>/` | that version's profile (cookies, logins, storage) |
 | `~/.engineshelf/logs/<revision>.log` | that version's stderr from its last run |
-| `~/.engineshelf/manager-window/` | the browser profile behind the manager's own window — a few tens of MB of browser plumbing, not something EngineShelf downloaded. Safe to delete when the manager is closed; it is rebuilt on the next start. |
+| `~/.engineshelf/manager.json` | which port the running manager is on, so opening the app again finds it instead of starting a second one. Removed when it quits. |
+| `~/.engineshelf/manager-window/` | the browser profile behind the manager's own window on Windows and Linux — a few tens of MB of browser plumbing, not something EngineShelf downloaded. Safe to delete when the manager is closed; it is rebuilt on the next start. The macOS app draws its own window and needs none of it. |
 | `%USERPROFILE%\.engineshelf\` | the same, on Windows |
 | docker volume `engineshelf-profile-<revision>` | the Docker edition's profile |
 
