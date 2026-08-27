@@ -92,9 +92,19 @@ obf_ps1_light() {
   local file="$1"
   # Drop full-line comments and blank lines, and trim leading indentation.
   # Conservative: leaves param()/CmdletBinding and every statement intact.
+  # Block comments <# ... #> are dropped whole - removing only the '#'-leading
+  # lines inside them would strip the closing '#>' and orphan the opener.
   awk '
     { line = $0 }
     { sub(/^[[:space:]]+/, "", line) }
+    inblock {
+      if (line ~ /#>/) { inblock = 0 }
+      next
+    }
+    line ~ /^<#/ {
+      if (line !~ /#>/) { inblock = 1 }
+      next
+    }
     line ~ /^#/ { next }
     line == ""  { next }
     { print line }
