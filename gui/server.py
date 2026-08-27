@@ -391,6 +391,48 @@ def rosetta_ceiling(builds):
     return ceiling
 
 
+_features_cache = {"at": None, "value": {}}
+
+
+def features_path():
+    return os.path.join(PROJECT, "features.tsv")
+
+
+def read_features():
+    """What each shelf version brought, keyed by (engine, id).
+
+    Written by tools/features.py from MDN's browser-compat-data and shipped with
+    the release: twenty megabytes of compat data resolved once, on someone else's
+    machine, so nothing here fetches anything and the shelf works offline. Before
+    it existed the only notes on the shelf were twenty-odd hand-written lines on
+    curated Chromium milestones, and 270 rows had nothing to say at all.
+    """
+    try:
+        stamp = os.path.getmtime(features_path())
+    except OSError:
+        return {}
+    if _features_cache["at"] == stamp:
+        return _features_cache["value"]
+    found = {}
+    try:
+        with open(features_path()) as handle:
+            for line in handle:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 5 or parts[0] != "F":
+                    continue
+                try:
+                    count = int(parts[3])
+                except ValueError:
+                    continue
+                names = [name for name in parts[4].split("|") if name]
+                found[(parts[1], parts[2])] = {"count": count, "names": names}
+    except OSError:
+        return {}
+    _features_cache["at"] = stamp
+    _features_cache["value"] = found
+    return found
+
+
 def catalog_cache():
     """Milestones engineshelf.sh has resolved against the live archive.
 
@@ -797,65 +839,13 @@ def milestone_of(revision, builds):
     return None
 
 
-# The matrix draws a label, a size and a click target, and nothing else. Sending
-# whole rows would put all 288 of them in the state document twice.
-# "docker" rides along because a cell with no build for this host is not a dead
-# end when there is a container to run it in - the matrix draws the same Docker
-# button the list does, and it cannot know that without this.
-_CELL_FIELDS = ("engine", "label", "id", "date", "selector", "key",
-                "supported", "installed", "sizeBytes", "profileBytes", "docker",
-                "native", "knownBad", "nativeAvailable")
-
-
-def build_matrix(rows):
-    """The shelf as years x engines, which is the other way the page draws it.
-
-    Version numbering does not line up across engines - Chromium 120, Firefox
-    121, Edge 120 and WebKit 17.4 are contemporaries and none of those numbers
-    say so - so release date is the only axis on which they can be compared. A
-    year holds the newest release of each engine, with the rest of that year
-    behind it: the shelf is ~290 releases, and a flat list of that is unreadable.
-
-    Grouped from the rows the list already built rather than re-derived from the
-    S rows. Deriving it twice is what let the two views disagree - the matrix
-    knew about four engines while the list showed Chromium alone.
-    """
-    cells = {}
-    for row in rows:
-        if row["year"] is None:
-            continue
-        cells.setdefault(row["year"], {}).setdefault(row["engine"], []).append(row)
-
-    matrix = []
-    for year in sorted(cells, reverse=True):
-        line = {"year": year, "cells": {}}
-        for engine in ENGINES:
-            bucket = sorted(cells[year].get(engine) or [],
-                            key=lambda r: r["date"], reverse=True)
-            if not bucket:
-                line["cells"][engine] = None
-                continue
-            # An installed build is what someone opening the manager is looking
-            # for, so it leads its year even when it is not the newest.
-            lead = next((r for r in bucket if r["installed"]), bucket[0])
-            line["cells"][engine] = dict(
-                {f: lead[f] for f in _CELL_FIELDS},
-                others=[{f: r[f] for f in _CELL_FIELDS}
-                        for r in bucket if r is not lead],
-                installedCount=sum(1 for r in bucket if r["installed"]),
-            )
-        matrix.append(line)
-    return matrix
-
-
 def shelf_row(engine, release, installed, builds, hosts, notes, docker,
-               known_bad, rosetta_max, native):
+               known_bad, rosetta_max, native, features):
     """One release, in the shape the list draws.
 
-    The matrix and the list are two views of the same shelf, so both are built
-    from the S rows. What the list adds is everything needed to act on a row -
-    the platform a build would come from, the Docker side, the curated note
-    where there is one - because the list is where the buttons live.
+    Built from the S rows, which is where the whole shelf lives, plus everything
+    needed to act on a row: the platform a build would come from, the Docker
+    side, the curated note where there is one.
     """
     ident = release["id"]
     row = {
@@ -874,6 +864,8 @@ def shelf_row(engine, release, installed, builds, hosts, notes, docker,
         # which is about architecture: a build can be perfectly runnable here and
         # simply no longer downloadable.
         "nativeAvailable": True,
+        # What this version was first to support, when the compat data knows.
+        "features": features.get((engine, ident)),
     }
 
     if engine == "chromium":
@@ -972,16 +964,17 @@ def build_state():
     known_bad = known_bad_keys()
     rosetta_max = rosetta_ceiling(builds)
     native = read_native()
+    features = read_features()
 
     # The list used to be the V rows and nothing else - twenty-one curated
-    # Chromium milestones - so it showed Chromium alone while the matrix beside
+    # Chromium milestones - so it showed Chromium alone while the S rows beside
     # it showed four engines. Same shelf, same rows, one source.
     rows = []
     for engine, releases in read_shelf().items():
         for release in releases:
             rows.append(shelf_row(engine, release, everything, builds, hosts,
                                   notes, docker, known_bad, rosetta_max,
-                                  native))
+                                  native, features))
     # Asked in the background, after the rows are built from whatever the last
     # answer was: the first page load of a fresh install is exactly as fast as
     # before, and the shelf sharpens a few seconds later.
@@ -1028,7 +1021,7 @@ def build_state():
         engine = info["engine"]
         row = dict(info, note="Installed by revision.", supported=True,
                    native=True, docker=None, milestone=None, revision=None,
-                   knownBad=False, nativeAvailable=True,
+                   knownBad=False, nativeAvailable=True, features=None,
                    label=info["version"], id=key, year=None, date="")
         row["id"] = key if engine == "chromium" else key[len(engine) + 1:]
         if engine == "chromium" and key.isdigit():
@@ -1058,7 +1051,6 @@ def build_state():
         "hostPlatforms": hosts,
         "versions": rows,
         "extra": extra,
-        "matrix": build_matrix(rows),
         "engines": [{"id": e, "name": ENGINE_NAMES[e]} for e in ENGINES],
         "installedCount": len(everything),
         "browserBytes": browser_bytes,

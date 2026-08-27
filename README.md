@@ -164,15 +164,6 @@ One page, served locally, with everything on it.
 | **One manager at a time** | Opening the app while it is already running brings its window back rather than starting a second manager on the next port. `⌘N` on macOS opens another window onto the same shelf. |
 | **Closes like an app** | Closing the window stops the manager, the browsers it launched and the containers it started — with a confirmation first if any of them are running. Nothing is left holding a port or a gigabyte. |
 
-<p align="center">
-  <img src="assets/screenshot-matrix.png" width="100%" alt="The same shelf as a grid: years down the side, Chromium, Firefox, Edge and WebKit across the top under their own marks, installed versions outlined in green with their size, and the rest of each year folded behind a plus">
-  <br>
-  <sub><b>By year</b>, the other view. Four engines release on their own schedules and number
-  their releases four different ways, so the only axis they share is when a build shipped —
-  which is what makes “what was current when Chromium 120 was” answerable at a glance.
-  Installed versions are outlined; the rest of a year folds behind a <b>+</b>.</sub>
-</p>
-
 **Closing the window quits everything.** The manager is the app, not a page that outlives it:
 close it and the server stops, the browsers it launched close, and any Docker container it
 started comes down. Ctrl-C in a terminal does the same. If something is still running when
@@ -665,6 +656,30 @@ Edge and WebKit say nothing about architecture before a download, because nothin
 data settles which one they arrive as. All four engines still switch to Docker the moment one is
 actually watched fail, whatever the architecture.
 
+**Every version says what it brought.** The shelf's notes were twenty-odd hand-written lines on
+curated Chromium milestones and nothing at all on the other 270 rows — which is fair, since no
+vendor publishes a changelog a tool can read: Chrome has a milestone API, Mozilla and Apple
+publish HTML, Playwright publishes nothing.
+
+MDN's **browser-compat-data** answers for all four at once. It records, per web feature, the
+first version of each browser to support it, so inverting it by version gives the question
+someone browsing this shelf is actually asking: what can I test here that I could not test in
+the version before. `tools/features.py` does that inversion and writes `features.tsv`, which
+ships with the release — twenty megabytes of compat data resolved once, on a maintainer's
+machine, so nothing here fetches it and the shelf works offline.
+
+| Engine | Rows with data |
+|---|---|
+| Chromium | 92 / 92 |
+| Firefox | 104 / 104 |
+| Edge | 39 / 39 |
+| WebKit | 25 / 53 — the 28 oldest are labelled by Playwright revision, with no Safari version for the data to be keyed on |
+
+A hand-written note still wins where there is one: it says *why you would pick this version*,
+which compat data cannot. Otherwise the row names the most notable features and the **⤢** button
+opens the rest — the file ships fourteen names per version out of as many as sixty-seven, and
+the modal says how many were left out. Rows with neither say `N/A`.
+
 **Every Chromium milestone knows what it is called.** Twenty-one carry a hand-written version;
 the other seventy had nothing under their name, because a milestone number is not a version and
 inventing one is worse than a blank. One request each to the milestone dashboard fills them in,
@@ -860,7 +875,10 @@ catalog.tsv                           verified revisions per milestone per platf
                                       plus the shelf itself - every release of every
                                       engine, with its date. The seed, not the last word
 ~/.engineshelf/catalog.cache.tsv   milestones resolved live since then; read first
+features.tsv                          what each shelf version was first to support,
+                                      inverted out of MDN browser-compat-data
 tools/discover.py                     rebuild the shelf from each vendor's own index
+tools/features.py                     regenerate features.tsv from compat data
 tools/refresh-catalog.py              regenerate catalog.tsv from the archive
 tools/sync-landing.py                 bring docs/index.html into step with catalog.tsv
 tools/check-phases.mjs                assert the manager still understands what the

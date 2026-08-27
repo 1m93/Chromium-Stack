@@ -9,10 +9,9 @@ the shelf is derived from those dates by one rule:
 
     one version per engine per year - the newest that shipped in that year.
 
-That rule is what the year-matrix UI shows, and it stays correct forever without
-anyone touching this file.
+That rule stays correct forever without anyone touching this file.
 
-    python3 tools/discover.py                 # print the matrix
+    python3 tools/discover.py                 # print the shelf, by year
     python3 tools/discover.py --tsv           # emit catalog rows to stdout
     python3 tools/discover.py --write         # merge those rows into catalog.tsv
     python3 tools/discover.py --from 2017     # earliest year to include
@@ -66,7 +65,7 @@ def by_year(releases):
     Discovery keeps every release it finds; picking one to show is a view, not a
     filter. An earlier cut of this file kept only one version per year and that
     quietly threw away the milestones the catalog exists for - Chromium 80 and
-    84, where optional chaining and flexbox `gap` land. The matrix shows the
+    84, where optional chaining and flexbox `gap` land. The table shows the
     first entry of a year and opens the rest on demand.
     """
     years = {}
@@ -254,7 +253,7 @@ def webkit_floor(releases):
     Playwright prunes old builds, so most of the history it names is no longer
     downloadable - measured, the shelf reaches back about two years, not to 2020.
     Listing a version that cannot be fetched is worse than not listing it: the
-    matrix would offer cells that fail on click.
+    the shelf would offer rows that fail on click.
 
     Availability is monotonic - everything above the oldest surviving build
     survives too - so a binary search finds the floor in about six requests
@@ -368,7 +367,7 @@ def main():
     parser.add_argument("--from", dest="first_year", type=int, default=2017,
                         help="earliest year to show (default: 2017)")
     parser.add_argument("--tsv", action="store_true",
-                        help="emit catalog rows instead of the matrix")
+                        help="emit catalog rows instead of the table")
     parser.add_argument("--write", action="store_true",
                         help="merge the rows into catalog.tsv")
     args = parser.parse_args()

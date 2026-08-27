@@ -81,8 +81,8 @@ const ICONS = {
     '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><ellipse cx="12" cy="12" rx="4.2" ry="9"/>',
 };
 
-/* Kept in the order gui/server.py lists them, so the sidebar, the matrix columns
-   and the CLI's own help all name the engines in one order. */
+/* Kept in the order gui/server.py lists them, so the sidebar and the CLI's own
+   help name the engines in one order. */
 const ENGINE_ORDER = ['chromium', 'firefox', 'edge', 'webkit'];
 const ENGINE_NAMES = {
   chromium: 'Chromium',
@@ -157,7 +157,7 @@ let pollFailures = 0; // consecutive failed polls of the watched job
 const jobInfo = new Map(); // job id -> {phase, percent, detail} read out of its output
 const dropdowns = [];
 
-const VIEW_KEY = 'engineshelf.view';
+
 
 // The query string can name what the page opens on, so a particular shelf can be
 // linked to and so each of these is reachable without driving the controls.
@@ -165,20 +165,6 @@ const asked = (name, allowed) => {
   const value = new URLSearchParams(location.search).get(name);
   return allowed.includes(value) ? value : null;
 };
-
-// Which of the two shelf views is showing. The list is the default: it is where
-// the per-row actions are, and it is what the manager has always opened on.
-// Wrapped because storage throws outright in a private window rather than
-// returning null.
-function storedView() {
-  const wanted = asked('view', ['matrix', 'list']);
-  if (wanted) return wanted;
-  try {
-    return localStorage.getItem(VIEW_KEY) === 'matrix' ? 'matrix' : 'list';
-  } catch {
-    return 'list';
-  }
-}
 
 const view = {
   filter: asked('filter', ['all', 'installed', 'running', 'rosetta']) || 'all',
@@ -188,7 +174,6 @@ const view = {
   // the shelf is actually in.
   sort: asked('sort', ['new', 'old', 'disk']) || 'old',
   gpu: 'auto',
-  mode: storedView(),
 };
 
 const stopping = new Set(); // jobs the user has asked to stop or cancel
@@ -613,10 +598,28 @@ function decorate(row) {
   const tags = [...raw.matchAll(/`([^`]+)`/g)]
     .map((match) => match[1])
     .slice(0, 3);
-  // The changelog, and nothing standing in for it. The release date used to fill
-  // this line on the 260 rows that have no note; it is a tag of its own now, so a
-  // row with nothing to say says so.
-  const note = raw.replace(/`/g, '');
+  // A curated note where somebody wrote one, and otherwise what the compat data
+  // says this version was first to support. Both are "what did this release
+  // bring"; the difference is that twenty of them are hand-written and 260 are
+  // derived, and the derived ones are why the other 270 rows are no longer blank.
+  const feats = row.features || null;
+  const curated = raw.replace(/`/g, '');
+  const listed = feats ? feats.names.join(', ') : '';
+  const note = curated || listed;
+  // What the modal shows: everything, and how much of it was left out. The file
+  // ships the most notable fourteen per version rather than all sixty-seven.
+  const noteFull = !feats
+    ? curated
+    : [
+        curated,
+        `${feats.count} feature${feats.count === 1 ? '' : 's'} first supported here.`,
+        feats.names.length < feats.count
+          ? `The most notable ${feats.names.length}:`
+          : '',
+        feats.names.map((name) => `\u2022 ${name}`).join('\n'),
+      ]
+        .filter(Boolean)
+        .join('\n\n');
 
   // Read off the server's own answer rather than off platformDir, which most of
   // the shelf does not have until a launch resolves it. The server says false
@@ -727,6 +730,8 @@ function decorate(row) {
         nativeGone ||
         translated),
     name: label ? `${engineName(engine)} ${label}` : version,
+    features: feats,
+    noteFull,
     installed: Boolean(row.installed),
     // "Is this version taking up disk", which an image answers as much as a
     // downloaded build does. The installed filter and count read this.
@@ -1316,19 +1321,7 @@ function render() {
   renderDoctor();
   renderStatusBar();
   renderLogTabs();
-  renderViewSwitch();
 
-  // The matrix has no filtering or sorting of its own - a year is a year - so it
-  // returns before any of that runs, rather than pretending those controls apply.
-  if (view.mode === 'matrix') {
-    $('list').hidden = true;
-    $('matrix').hidden = false;
-    renderMatrix();
-    lastPaint = paintSignature();
-    setCloseGuard();
-    return;
-  }
-  $('matrix').hidden = true;
   $('list').hidden = false;
 
   const query = view.query.trim().toLowerCase();
@@ -1387,57 +1380,6 @@ function render() {
   setCloseGuard();
 }
 
-/* ---------- the matrix ---------- */
-
-// True only when the backend serving this page knows about the shelf. Two
-// independent servers answer /api/state - server.py and server.ps1 - so the page
-// cannot assume a field exists just because one of them sends it. Without the
-// shelf there is nothing to draw a matrix from, so the switch is not offered and
-// the list is the only view, exactly as before.
-function matrixAvailable() {
-  return (
-    Array.isArray(state.matrix) &&
-    Array.isArray(state.engines) &&
-    state.matrix.length > 0
-  );
-}
-
-function renderViewSwitch() {
-  const available = matrixAvailable();
-  // A remembered choice must not survive into a backend that cannot honour it,
-  // or the shelf would come up blank with no way to get back to the list.
-  if (!available) view.mode = 'list';
-
-  const group = document.querySelector('.viewswitch');
-  if (group) group.hidden = !available;
-  for (const [mode, id] of [
-    ['matrix', 'view-matrix'],
-    ['list', 'view-list'],
-  ]) {
-    const button = $(id);
-    if (!button) continue;
-    const on = view.mode === mode;
-    button.setAttribute('aria-pressed', String(on));
-    button.classList.toggle('on', on);
-  }
-
-  // Sorting, filtering and the era jumps only mean something for the list. In
-  // the matrix they would show counts for rows nobody can see - "Installed 2"
-  // over a shelf with five installed builds, because the list is Chromium only.
-  const matrix = view.mode === 'matrix';
-  for (const id of ['sort-drop', 'filters-group']) {
-    const el = $(id);
-    if (el) el.hidden = matrix;
-  }
-  // renderChrome decides whether the era list is worth showing at all, so this
-  // only ever hides it - forcing it visible again would override that.
-  if (matrix) $('eras-group').hidden = true;
-  const sortLabel = document.querySelector('.sort-label');
-  if (sortLabel) sortLabel.hidden = matrix;
-  const search = document.querySelector('.search');
-  if (search) search.hidden = matrix;
-}
-
 // In the list, the engines are a filter: four engines share one shelf and most
 // of the time you want one of them. Counted over the whole shelf rather than the
 // filtered view, so the row you would click to widen the filter still says how
@@ -1474,266 +1416,11 @@ function renderEngineFilters(rows) {
   for (const engine of ENGINE_ORDER) pick(engine, true, engineName(engine));
 }
 
-// What each engine holds on this machine, in the matrix - where there is nothing
-// to filter, because a year is a year.
-function renderEngineSummary() {
-  const host = $('engine-list');
-  host.textContent = '';
-  const rows = state.matrix || [];
-  for (const engine of state.engines || []) {
-    let total = 0;
-    let installed = 0;
-    let bytes = 0;
-    for (const row of rows) {
-      const cell = row.cells[engine.id];
-      if (!cell) continue;
-      const all = [cell, ...(cell.others || [])];
-      total += all.length;
-      for (const entry of all) {
-        if (!entry.installed) continue;
-        installed += 1;
-        bytes += entry.sizeBytes;
-      }
-    }
-    if (!total) continue;
-
-    const line = document.createElement('div');
-    line.className = 'engline';
-    line.append(engineMark(engine.id));
-    line.append(spanWith('engname', engine.name));
-    const right = spanWith('engcount', '');
-    if (installed) {
-      right.append(spanWith('mdot', ''));
-      right.append(document.createTextNode(mb(bytes)));
-      line.title = `${installed} of ${total} ${engine.name} versions on disk`;
-    } else {
-      right.textContent = `${total}`;
-      line.title = `${total} ${engine.name} versions on the shelf, none downloaded`;
-    }
-    line.append(right);
-    host.append(line);
-  }
-}
-
-function setView(mode) {
-  if (view.mode === mode) return;
-  view.mode = mode;
-  try {
-    localStorage.setItem(VIEW_KEY, mode);
-  } catch {
-    /* a private window forbids it; the choice just does not outlive the tab */
-  }
-  render();
-}
-
-// Years down, engines across. Chromium 120, Firefox 121, Edge 120 and WebKit
-// 17.4 shipped within weeks of each other and not one of those numbers says so,
-// so the only axis on which four engines can be compared is when they came out.
-// The server does the grouping; this draws it and nothing more.
-function renderMatrix() {
-  const host = $('matrix');
-  host.textContent = '';
-  const rows = state.matrix || [];
-  const engines = state.engines || [];
-  if (!rows.length || !engines.length) {
-    host.append(
-      note(
-        'No shelf rows yet. Build them from each vendor’s own index with:  ' +
-          'python3 tools/discover.py --write',
-      ),
-    );
-    return;
-  }
-
-  const table = document.createElement('table');
-  table.className = 'matrix';
-
-  const head = table.createTHead().insertRow();
-  head.append(th(''));
-  for (const engine of engines) {
-    // Named and marked. The columns are the one place all four engines sit side
-    // by side, so it is the one place the marks have to be told apart.
-    const cell = document.createElement('th');
-    const box = spanWith('mhead', '');
-    box.append(engineMark(engine.id), spanWith('', engine.name));
-    cell.append(box);
-    head.append(cell);
-  }
-
-  const body = table.createTBody();
-  for (const row of rows) {
-    const line = body.insertRow();
-    const year = document.createElement('th');
-    year.scope = 'row';
-    year.className = 'myear';
-    year.textContent = row.year;
-    line.append(year);
-    for (const engine of engines) {
-      line.append(matrixCell(row.cells[engine.id], row.year, engine));
-    }
-  }
-
-  host.append(table);
-  host.append(
-    note(
-      'A cell opens that version — downloading it first if this is the first ' +
-        'time. “+N” is the rest of that year.',
-    ),
-  );
-}
-
-function th(text) {
-  const cell = document.createElement('th');
-  cell.textContent = text;
-  return cell;
-}
-
-function note(text) {
-  const el = document.createElement('p');
-  el.className = 'mnote';
-  el.textContent = text;
-  return el;
-}
-
-// What a cell would run in a container, and only when nothing else here would
-// run it: no build for this machine, or an x86_64 one with no Rosetta to
-// translate it. The list keeps this on the row; a cell carries only the few
-// fields the matrix draws, so it is worked out again from those.
-function cellDocker(entry) {
-  const dk = entry && entry.docker;
-  if (!dk || !(state.docker && state.docker.cli)) return null;
-  const noNative =
-    entry.supported === false ||
-    entry.knownBad === true ||
-    (entry.native === false && entry.engine === 'chromium');
-  if (!noNative) return null;
-  return String(dk.selector != null ? dk.selector : dk.revision);
-}
-
-function matrixCell(entry, year, engine) {
-  const cell = document.createElement('td');
-  if (!entry) {
-    cell.className = 'mcell empty';
-    // Not a failure: no build of this engine existed that year, or none was ever
-    // published for this machine. Said with a dot rather than a word, because
-    // there are a lot of them and none of them are actionable.
-    cell.textContent = '·';
-    cell.title = `No ${engine.name} build for ${year}`;
-    return cell;
-  }
-
-  const docker = cellDocker(entry);
-
-  cell.className = 'mcell' + (entry.installed ? ' on' : '');
-  // Only greyed out when the cell has nothing behind it. With a container to
-  // run, it is an ordinary cell that happens to open a desktop instead.
-  if (!entry.supported && !docker) cell.classList.add('unsupported');
-
-  const button = document.createElement('button');
-  button.className = 'mbtn';
-  button.append(spanWith('mlabel', entry.label));
-
-  const foot = spanWith('mfoot', '');
-  if (entry.installed) {
-    foot.append(spanWith('mdot', ''));
-    foot.append(document.createTextNode(mb(entry.sizeBytes)));
-  } else if (!entry.supported) {
-    foot.textContent = docker ? 'docker' : 'not for this machine';
-  } else {
-    foot.textContent = docker ? 'docker' : 'download';
-  }
-  button.append(foot);
-
-  if (docker) {
-    // Same rule as the list: where nothing starts natively, the cell opens the
-    // container rather than being a dead end or a download that will not run.
-    button.title =
-      (entry.supported
-        ? `${engine.name} ${entry.label} is better off in its Docker container ` +
-          'on this machine'
-        : `No ${engine.name} ${entry.label} build exists for this machine, so ` +
-          'its Docker container is what this opens') +
-      (entry.docker && entry.docker.imageBytes
-        ? ''
-        : ' — building the image first, several minutes, once');
-    button.onclick = () =>
-      startDockerBy(button, docker, `${engine.name} ${entry.label}`);
-  } else if (entry.supported) {
-    button.title = `${engine.name} ${entry.label} · ${entry.date}`;
-    button.onclick = () =>
-      start(button, {
-        selector: entry.selector,
-        name: `${engine.name} ${entry.label}`,
-      });
-  } else {
-    button.disabled = true;
-    button.title =
-      `The catalog has no ${engine.name} ${entry.label} build for ` +
-      `${state.hostPlatforms.join(' or ') || 'this machine'}`;
-  }
-  cell.append(button);
-
-  if (entry.others && entry.others.length) {
-    const more = document.createElement('button');
-    more.className = 'mmore';
-    more.textContent = `+${entry.others.length}`;
-    more.title = `The other ${engine.name} releases of ${year}`;
-    more.onclick = (event) => {
-      event.stopPropagation();
-      toggleOthers(cell, entry, engine);
-    };
-    cell.append(more);
-  }
-  return cell;
-}
-
 function spanWith(className, text) {
   const span = document.createElement('span');
   span.className = className;
   if (text) span.textContent = text;
   return span;
-}
-
-// Expanded in place rather than in a popover: the cell is already in the right
-// column, and a floating panel would cover the years around it.
-function toggleOthers(cell, entry, engine) {
-  const open = cell.querySelector('.mothers');
-  if (open) {
-    open.remove();
-    return;
-  }
-  const box = document.createElement('div');
-  box.className = 'mothers';
-  for (const other of entry.others) {
-    const item = document.createElement('button');
-    item.className = 'mother' + (other.installed ? ' on' : '');
-    item.textContent = other.label;
-    if (other.installed) item.append(spanWith('mdot', ''));
-    const docker = cellDocker(other);
-    if (docker) {
-      item.title =
-        (other.supported
-          ? 'Better off in its Docker container on this machine'
-          : 'No build for this machine, so this runs its Docker container') +
-        (other.docker && other.docker.imageBytes
-          ? ''
-          : ' — building the image first, several minutes, once');
-      item.onclick = () =>
-        startDockerBy(item, docker, `${engine.name} ${other.label}`);
-    } else if (other.supported) {
-      item.title = `${engine.name} ${other.label} · ${other.date}`;
-      item.onclick = () =>
-        start(item, {
-          selector: other.selector,
-          name: `${engine.name} ${other.label}`,
-        });
-    } else {
-      item.disabled = true;
-      item.title = 'No build for this machine';
-    }
-    box.append(item);
-  }
-  cell.append(box);
 }
 
 // Header, sidebar and the disk read-outs: everything outside the shelf itself.
@@ -1793,11 +1480,9 @@ function renderChrome(rows, scoped, counts) {
   // Rosetta only exists on Apple Silicon; elsewhere the filter would always be empty.
   $('filter-rosetta').hidden = counts.rosetta === 0;
 
-  // Which engines are on the shelf, and how much of each is here. A filter in
-  // the list, a read-out in the matrix, because the matrix has nothing to filter.
+  // Which engines are on the shelf, and how much of each is here.
   $('engines-group').hidden = false;
-  if (view.mode === 'matrix') renderEngineSummary();
-  else renderEngineFilters(rows);
+  renderEngineFilters(rows);
 
   const eras = $('eras');
   eras.textContent = '';
@@ -1924,24 +1609,33 @@ function renderRow(row) {
   // blank line looks like something failed to load, and most of the shelf has no
   // changelog because nobody wrote one, which is a fact rather than a fault.
   const noteLine = node.querySelector('[data-note]');
+  const brief =
+    row.note.length > NOTE_BRIEF
+      ? `${row.note.slice(0, NOTE_BRIEF).replace(/[\s,]+$/, '')}\u2026`
+      : row.note;
   if (!row.note) {
     noteLine.textContent = 'N/A';
     noteLine.classList.add('is-empty');
-  } else if (row.note.length > NOTE_BRIEF) {
-    noteLine.textContent = `${row.note.slice(0, NOTE_BRIEF).trimEnd()}\u2026 `;
-    const more = document.createElement('button');
-    more.type = 'button';
-    more.className = 'note-more';
-    more.append(iconSpan('expand'));
-    tipped(more, 'Read the whole changelog');
-    more.onclick = () => {
-      $('note-title').textContent = row.name;
-      $('note-text').textContent = row.note;
-      $('note-dialog').showModal();
-    };
-    noteLine.append(more);
   } else {
-    noteLine.textContent = row.note;
+    noteLine.textContent = `${brief} `;
+    // Offered whenever there is more behind it than the line shows - either the
+    // line was cut, or the file holds more names than the line could ever fit.
+    const hidden =
+      brief !== row.note ||
+      (row.features && row.features.count > row.features.names.length);
+    if (hidden) {
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'note-more';
+      more.append(iconSpan('expand'));
+      tipped(more, 'What this version brought, in full');
+      more.onclick = () => {
+        $('note-title').textContent = row.name;
+        $('note-text').textContent = row.noteFull;
+        $('note-dialog').showModal();
+      };
+      noteLine.append(more);
+    }
   }
 
   const dot = node.querySelector('[data-dot]');
@@ -2253,9 +1947,9 @@ async function startDocker(button, row) {
   return startDockerBy(button, row.dockerSelector, row.name);
 }
 
-// The matrix has cells, not rows, and a cell that has no build for this machine
-// needs the same container the list offers - so the request is keyed by selector
-// rather than by the row object the list happens to hold.
+// Keyed by selector rather than by the row object, because the caller that
+// starts a container does not always have one - the row menu passes a selector it
+// read off the row minutes earlier.
 async function startDockerBy(button, selector, name) {
   button.disabled = true;
   try {
@@ -2852,8 +2546,6 @@ function askConfirm({ title, body, label }) {
   });
 }
 
-$('view-matrix').onclick = () => setView('matrix');
-$('view-list').onclick = () => setView('list');
 
 /* ---------- controls ---------- */
 

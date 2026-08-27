@@ -14,8 +14,8 @@ produces the same picture unless the page itself changed.
 
     python3 tools/make-screenshots.py [--keep]
 
-Writes the landing page's pair (list view, both themes) and the README's hero
-(the matrix), all from the same staged shelf so the three agree with each other.
+Writes the landing page's pair (both themes) and the README's hero, all from the
+same staged shelf so the three agree with each other.
 
 Needs a Chromium to shoot with: whichever one EngineShelf has downloaded, or
 Chrome. Pillow turns the PNGs into the WebPs the page prefers.
@@ -121,8 +121,8 @@ def staged_state():
     # Everything green: a system-check banner across the top of the shot would be
     # about this machine, not about the product.
     state["doctor"] = {"os": "darwin", "arch": "arm64", "components": []}
-    # No containers in this scene. The matrix shot carries the Docker story, and
-    # a second gigabyte-sized bar here only crowds the disk card.
+    # No containers in this scene: a second gigabyte-sized bar here only crowds
+    # the disk card.
     state["docker"] = {"cli": True, "running": True, "containers": [],
                        "supported": True, "byRevision": {},
                        "imageBytes": 0, "profileBytes": 0}
@@ -148,11 +148,6 @@ def staged_state():
     state["jobs"] = [{"id": i, "kind": j["kind"], "revision": j["revision"],
                       "label": j["label"], "status": "running"}
                      for i, j in JOBS.items()]
-    # Regrouped from the rows above, not left as build_state() returned it: the
-    # matrix is built before this function gets to touch anything, so its cells
-    # are copies carrying whatever is really on this machine. Without this the
-    # two views in the two pictures disagree about what is installed.
-    state["matrix"] = backend.build_matrix(state["versions"])
     return state
 
 
@@ -194,8 +189,6 @@ SHOTS = (
     # The README's hero. The list, because that is what the manager opens on -
     # and no job log over it, because the point of this one is the shelf itself.
     ("list", "assets", "screenshot-manager.png", "?sort=new&shot=dark&nolog=1", False),
-    # The grid, shown further down where the two views are compared.
-    ("matrix", "assets", "screenshot-matrix.png", "?view=matrix&shot=dark", False),
 )
 
 
@@ -234,7 +227,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             page = page.replace(
                 '<script src="app.js"></script>',
                 THEME.replace("__SCHEME__", scheme) + '<script src="app.js"></script>')
-            if "view=matrix" not in self.path and "nolog=1" not in self.path:
+            if "nolog=1" not in self.path:
                 page = page.replace("</body>", STAGE + "</body>")
             return self._send(page.encode(), "text/html")
         name = os.path.normpath(path.lstrip("/"))
@@ -336,8 +329,7 @@ def main():
     print(f"  staged manager -> {url}")
 
     if args.keep:
-        print("  --keep: open it with ?sort=new, ?view=matrix, ?shot=light. "
-              "Ctrl-C to stop.")
+        print("  --keep: open it with ?sort=new, ?shot=light. Ctrl-C to stop.")
         try:
             threading.Event().wait()
         except KeyboardInterrupt:

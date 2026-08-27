@@ -62,7 +62,7 @@ function Read-Catalog {
     # $script: on purpose. Variable names here are case-insensitive, so a caller
     # holding a local $catalog - the parsed catalog, not the path - shadowed this
     # for the whole call chain. Read-Shelf below then handed Test-Path a
-    # hashtable, silently parsed nothing, and the matrix came up empty on
+    # hashtable, silently parsed nothing, and the shelf came up empty on
     # Windows. Naming the scope is what makes that impossible rather than
     # something to remember.
     foreach ($path in @($script:Catalog, $script:CacheFile)) {
@@ -443,12 +443,9 @@ function Get-InstalledByKey {
     return $result
 }
 
-# One release, in the shape the list draws.
-#
-# The matrix and the list are two views of the same shelf, so both are built from
-# the S rows. What the list adds is everything needed to act on a row - the
-# platform a build would come from, the Docker side, the curated note where there
-# is one - because the list is where the buttons live.
+# One release, in the shape the list draws. Built from the S rows, which is where
+# the whole shelf lives, plus everything needed to act on a row: the platform a
+# build would come from, the Docker side, the curated note where there is one.
 function Get-ShelfRow {
     param($engine, $release, $installed, $builds, $notes, $docker)
 
@@ -547,72 +544,6 @@ function Get-ShelfRow {
     return $row
 }
 
-# The matrix draws a label, a size and a click target, and nothing else. Sending
-# whole rows would put all 288 of them in the state document twice.
-# 'docker' rides along because a cell with no build for this host is not a dead
-# end when there is a container to run it in - the matrix draws the same Docker
-# button the list does, and it cannot know that without this.
-$CellFields = @('engine', 'label', 'id', 'date', 'selector', 'key',
-                'supported', 'installed', 'sizeBytes', 'profileBytes', 'docker',
-                'native', 'knownBad', 'nativeAvailable')
-
-function Get-MatrixCell {
-    param($row)
-    $cell = @{}
-    foreach ($field in $CellFields) { $cell[$field] = $row[$field] }
-    return $cell
-}
-
-# The shelf as years x engines, which is the other way the page draws it. Version
-# numbering does not line up across engines - Chromium 120, Firefox 121, Edge 120
-# and WebKit 17.4 are contemporaries and none of those numbers say so - so the
-# release date is the only axis they can share.
-#
-# Grouped from the rows the list already built rather than re-derived from the S
-# rows. Deriving it twice is what let the two views disagree: the matrix knew
-# about four engines while the list showed Chromium alone.
-function Build-Matrix {
-    param($rows)
-    $cells = @{}
-    foreach ($row in $rows) {
-        if ($null -eq $row.year) { continue }
-        $year = $row.year
-        if (-not $cells.ContainsKey($year)) { $cells[$year] = @{} }
-        if (-not $cells[$year].ContainsKey($row.engine)) {
-            $cells[$year][$row.engine] = New-Object System.Collections.ArrayList
-        }
-        [void]$cells[$year][$row.engine].Add($row)
-    }
-
-    $matrix = New-Object System.Collections.ArrayList
-    foreach ($year in ($cells.Keys | Sort-Object -Descending)) {
-        $line = @{ year = $year; cells = @{} }
-        foreach ($engine in $Engines) {
-            if (-not $cells[$year].ContainsKey($engine)) { $line.cells[$engine] = $null; continue }
-            $bucket = @($cells[$year][$engine] | Sort-Object -Property { $_.date } -Descending)
-            if ($bucket.Count -eq 0) { $line.cells[$engine] = $null; continue }
-            # An installed build is what someone opening the manager is looking
-            # for, so it leads its year even when it is not the newest.
-            $lead = $bucket[0]
-            foreach ($candidate in $bucket) { if ($candidate.installed) { $lead = $candidate; break } }
-            $others = New-Object System.Collections.ArrayList
-            $installedCount = 0
-            foreach ($candidate in $bucket) {
-                if ($candidate.installed) { $installedCount++ }
-                if (-not [object]::ReferenceEquals($candidate, $lead)) {
-                    [void]$others.Add((Get-MatrixCell $candidate))
-                }
-            }
-            $cell = Get-MatrixCell $lead
-            $cell.others = @($others)
-            $cell.installedCount = $installedCount
-            $line.cells[$engine] = $cell
-        }
-        [void]$matrix.Add($line)
-    }
-    return $matrix
-}
-
 function Get-State {
     $cat = Read-Catalog
     $docker = Get-DockerStatus
@@ -623,7 +554,7 @@ function Get-State {
     foreach ($entry in $cat.versions) { $notes[$entry.milestone] = $entry }
 
     # The list used to be the V rows and nothing else - twenty-one curated
-    # Chromium milestones - so it showed Chromium alone while the matrix beside it
+    # Chromium milestones - so it showed Chromium alone while the S rows beside it
     # showed four engines. Same shelf, same rows, one source.
     $shelf = Read-Shelf
     # Read once per state build, not once per row: 288 rows would otherwise open
@@ -713,7 +644,6 @@ function Get-State {
         extra = $extra
         # @() for the same reason the jobs list has it: a returned collection
         # unrolls, and the page needs a list even when there is one row.
-        matrix = @(Build-Matrix $rows)
         engines = @(foreach ($e in $Engines) { @{ id = $e; name = $EngineNames[$e] } })
         installedCount = $everything.Count
         browserBytes = $browserBytes
@@ -865,8 +795,8 @@ function Get-JobSummary {
 }
 
 # ---------- http ----------
-# Depth 12, not 8: a matrix cell nests year -> cells -> engine -> others -> entry,
-# and at 8 the innermost entries serialise as type names instead of objects.
+# Depth 12, not 8: a row nests docker -> byRevision -> entry and the doctor report
+# nests further, and at 8 the innermost values serialise as type names.
 function ConvertTo-Json2 { param($obj) $obj | ConvertTo-Json -Depth 12 -Compress }
 
 function Send-Response {
