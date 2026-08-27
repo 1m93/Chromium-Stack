@@ -832,6 +832,20 @@ class Jobs:
                 return None
             return {k: v for k, v in job.items() if k != "lines"} | {"output": "\n".join(job["lines"])}
 
+    def revision(self):
+        """What a window needs in order to know it has missed something.
+
+        Two windows onto one manager each poll on their own four-second clock,
+        so a download started in one took up to four seconds to appear in the
+        other. This rides along on the heartbeat instead - it changes exactly
+        when a job appears, finishes or is stopped, which is when the other
+        window has to look again. Progress is not in here: that is what the
+        faster refresh while something is running is for.
+        """
+        with self._lock:
+            return ",".join(f"{job['id']}:{job['status']}"
+                            for job in self._jobs.values())
+
     def summary(self):
         with self._lock:
             return [
@@ -1266,7 +1280,8 @@ class Handler(BaseHTTPRequestHandler):
             # page can tell whether closing it will end the session.
             if not self._authorised():
                 return self._json({"error": "unauthorised"}, 403)
-            return self._json({"autoQuit": _life["auto"], "grace": GRACE_SECONDS})
+            return self._json({"autoQuit": _life["auto"], "grace": GRACE_SECONDS,
+                               "revision": jobs.revision()})
 
         if path == "/api/token":
             # Handed to the page once, from the loopback origin it was opened on.

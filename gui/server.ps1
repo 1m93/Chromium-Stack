@@ -756,6 +756,27 @@ function Get-JobRecord {
 
 # Callers must wrap this in @(): see Get-State. PowerShell unrolls the collection
 # on the way out, which turns "no jobs" into $null.
+function Get-JobsRevision {
+    <#
+      What a window needs in order to know it has missed something.
+
+      Two windows onto one manager each poll on their own four-second clock, so
+      a download started in one took up to four seconds to appear in the other.
+      This rides along on the heartbeat instead - it changes exactly when a job
+      appears, finishes or is stopped. Progress is not in here: that is what the
+      faster refresh while something is running is for.
+    #>
+    $parts = @()
+    foreach ($id in ($script:Jobs.Keys | Sort-Object)) {
+        $job = $script:Jobs[$id]
+        $state = if ($job.stopping) { 'stopping' }
+                 elseif ($job.proc.HasExited) { 'ended' }
+                 else { 'running' }
+        $parts += "${id}:$state"
+    }
+    return ($parts -join ',')
+}
+
 function Get-JobSummary {
     $running = New-Object System.Collections.ArrayList
     foreach ($id in @($script:Jobs.Keys)) {
@@ -1064,7 +1085,11 @@ function Invoke-Route {
             # Test-Authorised has already noted the time; the body is only so the
             # page can tell whether closing it will end the session.
             if (-not (Test-Authorised $Request)) { Send-Json $Stream @{ error = 'unauthorised' } 403; return }
-            Send-Json $Stream @{ autoQuit = $script:AutoQuit; grace = $GraceSeconds }; return
+            Send-Json $Stream @{
+                autoQuit = $script:AutoQuit; grace = $GraceSeconds
+                revision = (Get-JobsRevision)
+            }
+            return
         }
 
         if ($path -eq '/api/state') {

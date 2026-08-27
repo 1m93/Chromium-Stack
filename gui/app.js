@@ -2642,13 +2642,34 @@ function setCloseGuard() {
   else window.removeEventListener('beforeunload', guardClose);
 }
 
-/* ---------- refresh loop ---------- */
+/* ---------- refresh loop ----------
+   Four seconds is right for a shelf where nothing is happening, and far too
+   slow for one where a download is: the row's percentage, the status bar and the
+   disk read-out all come from here. So the clock follows the work - a second
+   while anything is running, four when it is not. */
+
+let refreshTimer = null;
+let jobRevision = null; // what the heartbeat last said the server was running
+
+function keepLooking() {
+  clearTimeout(refreshTimer);
+  const busy = Boolean(state && state.jobs && state.jobs.length);
+  refreshTimer = setTimeout(() => {
+    // Not over an open menu or dialog: a repaint would close what someone is
+    // reading. The heartbeat keeps the server happy in the meantime, and
+    // refresh() sets the next tick itself.
+    if (popoverOpen() || document.querySelector('dialog[open]')) keepLooking();
+    else refresh();
+  }, busy ? 1000 : 4000);
+}
+
 
 async function refresh() {
   let next;
   try {
     next = await api('/api/state');
   } catch (error) {
+    keepLooking();
     showState({
       glyph: 'warn',
       tone: 'error',
@@ -2675,6 +2696,9 @@ async function refresh() {
   }
   state = next;
   await sampleJobs();
+  // The clock is set from what this just found: a shelf with a download on it
+  // is worth a second, an idle one is not.
+  keepLooking();
 
   try {
     render();
@@ -2733,17 +2757,27 @@ async function refresh() {
 
   TOKEN = (await (await fetch('/api/token')).json()).token;
   await refresh();
-  setInterval(() => {
-    // Keep the running dots honest without fighting an open menu or a dialog.
-    if (!popoverOpen() && !document.querySelector('dialog[open]')) refresh();
-  }, 4000);
 
   // The heartbeat that tells the server this window still exists. Deliberately
   // not folded into the refresh above: that one pauses while a menu or a dialog
   // is open, which is long enough for the server to decide nobody is home.
-  setInterval(() => {
-    api('/api/ping').catch(() => {
-      /* the next one will do */
-    });
-  }, 2500);
+  //
+  // It carries one more thing: which jobs the server has. Two windows onto one
+  // manager each keep their own clock, so a download started in one used to
+  // take a whole cycle to appear in the other; this notices in one beat and
+  // looks straight away.
+  setInterval(async () => {
+    let beat;
+    try {
+      beat = await api('/api/ping');
+    } catch {
+      return; // the next one will do
+    }
+    if (beat.revision === undefined || beat.revision === jobRevision) return;
+    const first = jobRevision === null;
+    jobRevision = beat.revision;
+    if (!first && !popoverOpen() && !document.querySelector('dialog[open]')) {
+      refresh();
+    }
+  }, 1500);
 })();
