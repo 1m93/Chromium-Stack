@@ -172,23 +172,73 @@ ARCH_CACHE="$ROOT/arch-fallback.cache"
 
 host_os_major() { sw_vers -productVersion 2>/dev/null | cut -d. -f1; }
 
-native_known_bad() {    # milestone
+# What one version is called in the record below. A bare milestone for Chromium,
+# which is what the file has always held, and engine:id for the other three - the
+# id, not the printed version, because that is the selector the manager builds its
+# rows from and a record it cannot match is a record nobody reads. Two WebKit
+# builds are both called 26.5 and only the id says which one died.
+# Empty when there is nothing stable to key on, and the caller then records
+# nothing rather than a row it could never match again.
+native_bad_key() {
+  case "$SEL_ENGINE" in
+    chromium)
+      case "${SEL_MILESTONE:-}" in
+        ''|'?') return 1 ;;
+        *) printf '%s\n' "$SEL_MILESTONE" ;;
+      esac ;;
+    *)
+      [ -n "${SEL_ID:-}" ] || return 1
+      printf '%s:%s\n' "$SEL_ENGINE" "$SEL_ID" ;;
+  esac
+}
+
+# What to tell someone to type at engineshelf-docker.sh, which is not always the
+# key above. The container runs Linux builds, and Edge's Linux packages carry
+# different build numbers from its mac ones - so a full mac version is a version
+# that pool has never heard of, while the bare milestone matches. WebKit takes a
+# raw build id, and Firefox's version is the same everywhere.
+docker_selector() {
+  case "$SEL_ENGINE" in
+    chromium) printf '%s\n' "${SEL_MILESTONE:-$SEL_ID}" ;;
+    edge)     printf 'edge:%s\n' "${SEL_ID%%.*}" ;;
+    *)        printf '%s:%s\n' "$SEL_ENGINE" "$SEL_ID" ;;
+  esac
+}
+
+native_known_bad() {    # key
   [ -f "$ARCH_CACHE" ] || return 1
+  [ -n "${1:-}" ] || return 1
   grep -qx "$(host_os_major)	$1" "$ARCH_CACHE" 2>/dev/null
 }
 
-remember_native_bad() {
+remember_native_bad() { # key
+  [ -n "${1:-}" ] || return 0
   native_known_bad "$1" && return 0
   printf '%s\t%s\n' "$(host_os_major)" "$1" >> "$ARCH_CACHE" 2>/dev/null || true
 }
 
 # Said in both places this can be discovered: before a launch that is already
 # known to fail, and after one that just did.
-suggest_container() {   # milestone
-  warn "Chromium $1 does not start natively on macOS $(host_os_major) - neither the"
-  warn "arm64 build nor the x86_64 one under Rosetta, which crashes at random."
+#
+# Only Chromium's failure is understood well enough to name, and only in the
+# Rosetta range: the allocator paragraph below is that one. For anything else the
+# honest report is that it died before its window and the container is the way
+# past it - which is all the record actually knows.
+suggest_container() {   # label, docker selector
+  local label="$1" selector="$2"
+  if [ "$SEL_ENGINE" = "chromium" ] && [ "${SEL_PLATFORM:-}" = "Mac" ]; then
+    warn "$label does not start natively on macOS $(host_os_major): no arm64"
+    warn "build exists this far back, and the x86_64 one aborts in its first second"
+    warn "- its allocator replaces malloc zones this macOS no longer lays out that"
+    warn "way, and frees a pointer the system zone never handed out. No flag turns"
+    warn "that off; the shim is installed before the command line is read."
+  else
+    warn "$label does not start natively on macOS $(host_os_major): it launches"
+    warn "and dies before its window appears, every time, and no flag here changes"
+    warn "that - the build is older than the system it is being asked to run on."
+  fi
   warn "The container runs the Linux build and never touches Rosetta:"
-  warn "    ./engineshelf-docker.sh start $1"
+  warn "    ./engineshelf-docker.sh start $selector"
 }
 
 cache_has() {           # milestone -> is it in the cache rather than the catalog
@@ -916,8 +966,26 @@ $(engine_launch_env "$SEL_ENGINE" "$(build_dir "$SEL_KEY")")
 ENVV
 }
 
+# The last lines of the log, minus the frame addresses. Chromium dumps a stack of
+# bare hex on any fatal signal, and fifteen lines of that is fifteen lines of
+# nothing: the line worth reading is the ERROR above it.
+log_tail() {
+  grep -av '^ \[0x' "$LAUNCH_LOG" 2>/dev/null | tail -n 15
+}
+
+# Bash announces a child killed by a signal - "Abort trap: 6" followed by the
+# entire command line, which for a browser launch is a screenful of flags - and
+# an old build dying is exactly the case where that lands on someone. Waited for
+# by a nested shell whose own stderr goes nowhere, the notice goes with it: the
+# browser's output still reaches the log, and the status still comes back, but as
+# an ordinary exit code this shell has nothing to say about.
+launch_engine() {       # log, command...
+  local log="$1"; shift
+  bash -c 'log="$1"; shift; "$@" >>"$log" 2>&1' bash "$log" "$@" 2>/dev/null
+}
+
 cmd_run() {
-  local url="" window_size="" use_gpu="" auto_restart=1 max_restarts=5
+  local url="" window_size="" use_gpu="" auto_restart=1 max_restarts=5 noted_bad=0
   local selector="" extra_args=()
 
   selector="${1:-}"; shift || true
@@ -935,10 +1003,17 @@ cmd_run() {
 
   resolve_selector "$selector"
   # Warned before the download, not after: this is already known to fail here.
-  if [ "$SEL_ENGINE" = "chromium" ] && [ -n "$SEL_MILESTONE" ] \
-     && native_known_bad "$SEL_MILESTONE"; then
-    suggest_container "$SEL_MILESTONE"
+  # Any engine - a 2017 Firefox meets the same wall a 2019 Chromium does.
+  local bad_key=""
+  bad_key="$(native_bad_key)" || bad_key=""
+  if [ -n "$bad_key" ] && native_known_bad "$bad_key"; then
+    suggest_container "$(engine_display "$SEL_ENGINE") $SEL_VERSION" "$(docker_selector)"
     info ""
+    # Still launched, in case this is a machine where it now works - but once,
+    # and without the restart loop that turned one dead build into eleven crash
+    # reports. Said here, so the loop below does not say it again.
+    max_restarts=0
+    noted_bad=1
   fi
   install_build
   prepare_launch "$use_gpu" "$window_size"
@@ -969,21 +1044,26 @@ cmd_run() {
   info "  ${DIM}Log: $LAUNCH_LOG${RST}"
   info ""
 
-  # Chromium's stack sampling profiler walks thread stacks with libunwind. Under
-  # Rosetta that unwinder occasionally segfaults on a synthesised x86 frame and
-  # kills the browser - random, with no flag to disable it in an unbranded build.
-  # Relaunch and let Chromium restore the tabs rather than handing that to QA.
-  local attempt=0 fast_crashes=0 started status ran noted_bad=0
+  # Two different failures land here and only one is worth a retry. A build that
+  # dies after its window appeared is the flaky kind - Chromium's stack sampling
+  # profiler segfaults now and then unwinding a Rosetta-synthesised frame - so
+  # relaunch it and let Chromium restore the tabs rather than handing that to QA.
+  # A build that dies before the window is the other kind: a 2019 allocator
+  # against this year's libsystem_malloc, aborting in the first second, every
+  # time. Retrying that only multiplies the crash reports, so the loop below
+  # stops the moment it recognises one.
+  local attempt=0 fast_crashes=0 started status ran
   local launch_args=("$url")
   [ -z "$url" ] && launch_args=()
 
   while :; do
     started=$(date +%s)
     set +e
-    env "${LAUNCH_ENV[@]+"${LAUNCH_ENV[@]}"}" \
+    launch_engine "$LAUNCH_LOG" \
+      env "${LAUNCH_ENV[@]+"${LAUNCH_ENV[@]}"}" \
       "$LAUNCH_BINARY" "${LAUNCH_ARGS[@]+"${LAUNCH_ARGS[@]}"}" \
       "${extra_args[@]+"${extra_args[@]}"}" \
-      "${launch_args[@]+"${launch_args[@]}"}" >>"$LAUNCH_LOG" 2>&1
+      "${launch_args[@]+"${launch_args[@]}"}"
     status=$?
     set -e
 
@@ -993,17 +1073,19 @@ cmd_run() {
     # Dying before a window appears, on macOS, is the version-against-OS failure
     # rather than a flaky run. Record it so the next launch says so up front, and
     # name the way that does work instead of retrying into the same wall.
-    if [ "$ran" -lt 5 ] && [ "$noted_bad" -eq 0 ] && [ "$SEL_ENGINE" = "chromium" ] \
-       && [ "$(uname -s)" = "Darwin" ] && [ -n "$SEL_MILESTONE" ] \
-       && [ "$SEL_MILESTONE" != "?" ]; then
+    if [ "$ran" -lt 5 ] && [ "$noted_bad" -eq 0 ] \
+       && [ "$(uname -s)" = "Darwin" ] && [ -n "$bad_key" ]; then
       noted_bad=1
-      remember_native_bad "$SEL_MILESTONE"
-      suggest_container "$SEL_MILESTONE"
+      remember_native_bad "$bad_key"
+      suggest_container "$label" "$(docker_selector)"
+      # A wall, not a flake. Named as such above; retrying it would only say so
+      # again three times over.
+      max_restarts=0
     fi
 
     if [ "$auto_restart" -eq 0 ]; then
       warn "$label exited with status $status after ${ran}s. Last lines of $LAUNCH_LOG:"
-      tail -n 15 "$LAUNCH_LOG" >&2 || true
+      log_tail >&2 || true
       exit "$status"
     fi
 
@@ -1011,8 +1093,15 @@ cmd_run() {
     if [ "$ran" -lt 5 ]; then fast_crashes=$((fast_crashes + 1)); else fast_crashes=0; fi
     if [ "$fast_crashes" -ge 3 ] || [ "$attempt" -gt "$max_restarts" ]; then
       warn "$label crashed after ${ran}s (status $status), giving up after $attempt attempt(s)."
-      warn "Last lines of $LAUNCH_LOG:"
-      tail -n 15 "$LAUNCH_LOG" >&2 || true
+      if [ "$noted_bad" -eq 1 ]; then
+        # The cause is named above. What the log holds under it is the crash dump
+        # and crashpad failing to read a translated process - nothing that adds
+        # to what was already said.
+        warn "Full log: $LAUNCH_LOG"
+      else
+        warn "Last lines of $LAUNCH_LOG:"
+        log_tail >&2 || true
+      fi
       exit "$status"
     fi
 
@@ -1023,6 +1112,29 @@ cmd_run() {
       chromium|edge) launch_args=(--restore-last-session) ;;
     esac
   done
+}
+
+# Resolve one milestone for a platform this machine does not run, and print the
+# revision. Not in the help, because nobody types it: engineshelf-docker.sh needs
+# the Linux x86_64 revision of a milestone while running on a Mac, and the live
+# resolver here has always only ever asked about platforms the host can launch -
+# which is exactly why a container was on offer for twenty-one milestones and no
+# others. The answer lands in the same cache the native side writes, so the
+# manager sees it on its next read without being told.
+cmd_resolve_for() {
+  local platform="${1:-}" milestone="${2:-}" build
+  [ -n "$platform" ] && [ -n "$milestone" ] || die "usage: $0 resolve-for <platform> <milestone>"
+  case "$milestone" in ''|*[!0-9]*) die "Not a milestone: $milestone" ;; esac
+  # What live_resolve_milestone and platform_for_milestone both loop over. Set
+  # here rather than exported, so nothing else in this run changes behaviour.
+  HOST_PLATFORMS="$platform"
+  build="$(catalog_build "$milestone" "$platform")"
+  if [ -z "$build" ]; then
+    live_resolve_milestone "$milestone" | cache_add || true
+    build="$(catalog_build "$milestone" "$platform")"
+  fi
+  [ -n "$build" ] || die "No $platform build of Chromium $milestone is available."
+  printf '%s\n' "$(printf '%s' "$build" | cut -d' ' -f1)"
 }
 
 cmd_doctor() {
@@ -1121,6 +1233,7 @@ case "$COMMAND" in
   remove|rm|uninstall) cmd_remove "$@" ;;
   clean)            cmd_clean "$@" ;;
   doctor|check)     cmd_doctor "$@" ;;
+  resolve-for)      cmd_resolve_for "$@" ;;
   gui)              exec "$SCRIPT_DIR/gui.sh" "$@" ;;
   ''|-h|--help|help) usage ;;
   *)                die "Unknown command: $COMMAND (try --help)" ;;

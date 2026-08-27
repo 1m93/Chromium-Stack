@@ -816,6 +816,42 @@ function Invoke-Run {
     }
 }
 
+function Invoke-ResolveFor {
+    <#
+      Resolve one milestone for a platform this machine does not run, and print
+      the revision. Not in the help, because nobody types it: engineshelf-docker
+      needs the Linux x86_64 revision of a milestone while running on Windows,
+      and the live resolver here has only ever asked about the host's own
+      platform - which is why a container was on offer for the hand-catalogued
+      milestones and no others. The answer lands in the same cache the native
+      side writes, so the manager sees it on its next read.
+    #>
+    param([string]$Platform, [string]$Milestone)
+    if (-not $Platform -or -not $Milestone) {
+        Die "usage: engineshelf.ps1 resolve-for <platform> <milestone>"
+    }
+    if ($Milestone -notmatch '^\d+$') { Die "Not a milestone: $Milestone" }
+    # What Resolve-MilestoneLive resolves against. Script scope, for this run only.
+    $script:HostPlatform = $Platform
+    $m = [int]$Milestone
+    $build = $null
+    if ($CatalogBuilds.ContainsKey($m)) { $build = $CatalogBuilds[$m][$Platform] }
+    if (-not $build) {
+        $rows = Resolve-MilestoneLive $m
+        if ($rows) {
+            Add-CacheRows $rows
+            foreach ($line in $rows) {
+                $f = $line -split "`t"
+                if ($f[0] -eq 'B' -and $f[2] -eq $Platform) {
+                    $build = @{ Revision = $f[3]; Archive = $f[4]; Root = $f[5] }
+                }
+            }
+        }
+    }
+    if (-not $build) { Die "No $Platform build of Chromium $Milestone is available." }
+    Write-Output $build.Revision
+}
+
 function Invoke-Doctor {
     param([string[]]$Options)
 
@@ -912,6 +948,7 @@ switch -Regex ($Command) {
         break
     }
     '^(doctor|check)$'     { Invoke-Doctor (@($Selector) + $Rest | Where-Object { $_ }); break }
+    '^resolve-for$'        { Invoke-ResolveFor $Selector $Rest[0]; break }
     '^gui$'                { & (Join-Path $ScriptDir 'gui.ps1') @Rest; break }
     '^(|-h|--help|help)$'  { Show-Usage; break }
     default                { Die "Unknown command: $Command (try --help)" }

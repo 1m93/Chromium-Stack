@@ -28,6 +28,11 @@ $ProgressPreference = 'SilentlyContinue'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Catalog   = Join-Path $ScriptDir 'catalog.tsv'
+# The other half of the catalog: milestones resolved against the live archive.
+$EngineShelfHome = if ($env:ENGINESHELF_HOME) { $env:ENGINESHELF_HOME }
+                   elseif ($env:BROWSERS_EMU_HOME) { $env:BROWSERS_EMU_HOME }
+                   else { Join-Path $env:USERPROFILE '.engineshelf' }
+$CatalogCache = Join-Path $EngineShelfHome 'catalog.cache.tsv'
 . (Join-Path $ScriptDir 'lib\preflight.ps1')
 # Where Firefox's and Edge's Linux downloads are resolved from - the same code
 # the native launcher runs, rather than a second copy of each vendor's URLs.
@@ -82,7 +87,12 @@ function Resolve-DockerTarget {
     $token = $token -replace '^[MmRr]', ''
     if ($token -notmatch '^\d+$') { Die "Not a Chromium version or revision: $Raw" }
 
-    $lines = Get-Content $Catalog
+    # Both halves of the catalog, cache first - the same precedence the native
+    # launcher uses. Reading only the shipped file is what made a container look
+    # impossible for every milestone nobody had catalogued by hand.
+    $lines = @()
+    if (Test-Path $CatalogCache) { $lines += Get-Content $CatalogCache }
+    $lines += Get-Content $Catalog
     $milestone = $null
     if ([int64]$token -lt 1000) {
         $milestone = $token
@@ -107,7 +117,26 @@ function Resolve-DockerTarget {
         if ($f[0] -eq 'V' -and $f[1] -eq $milestone) { $version = $f[2] }
         if ($f[0] -eq 'B' -and $f[1] -eq $milestone -and $f[2] -eq 'Linux_x64') { $revision = $f[3] }
     }
-    if (-not $revision) { Die "No Linux x86_64 build of Chromium $milestone in the catalog." }
+    if (-not $revision) {
+        # Only twenty-odd milestones carry a hand-verified row, and the native
+        # launcher has always asked the archive for the rest. This asks the same
+        # question about the Linux build instead of refusing.
+        Write-Host "   Chromium $milestone has no catalogued Linux build - asking the archive..." -ForegroundColor DarkGray
+        $revision = & (Join-Path $ScriptDir 'engineshelf.ps1') resolve-for Linux_x64 $milestone 2>$null
+        if ($revision) {
+            $revision = "$revision".Trim()
+            if (Test-Path $CatalogCache) {
+                foreach ($line in Get-Content $CatalogCache) {
+                    $f = $line -split "`t"
+                    if ($f[0] -eq 'V' -and $f[1] -eq $milestone) { $version = $f[2] }
+                }
+            }
+        }
+    }
+    if (-not $revision) { Die @"
+No Linux x86_64 build of Chromium $milestone is available. It is in neither the
+   catalog nor the cache, and the archive could not be reached to look it up.
+"@ }
     if (-not $version) { $version = "r$revision" }
     return @{
         Engine = 'chromium'; Milestone = $milestone; Version = $version
@@ -317,6 +346,38 @@ function Start-Container {
     return $null
 }
 
+function Invoke-ImageOnly {
+    <#
+      Build the image and stop there. The native side has always been able to
+      download without launching - a shelf you fill now and use later - and this
+      is that, for the container: the multi-minute build happens when it suits,
+      not in front of someone waiting for a browser.
+    #>
+    param($target, [bool]$ForceBuild)
+    Test-Docker
+    $image = Get-ImageName $target.Key
+
+    Write-Host ""
+    Write-Host "  $(Get-DockerLabel $target.Engine) $($target.Version) in Docker (image only)" -ForegroundColor White
+    Write-Host ""
+    if (-not $ForceBuild) {
+        docker image inspect $image 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "The image is already built. Run it with: .\engineshelf-docker.ps1 start $Selector"
+            return
+        }
+    }
+    if ($ForceBuild) {
+        Write-Host "  Rebuilding the image from scratch. Several minutes." -ForegroundColor DarkGray
+        Invoke-Build $target $image @('--no-cache')
+    } else {
+        Write-Host "  Building the image. Several minutes, once." -ForegroundColor DarkGray
+        Invoke-Build $target $image @()
+    }
+    Write-Host ""
+    Write-Ok "Built. Nothing is running: start $Selector opens it."
+}
+
 function Invoke-Start {
     param($target, [bool]$ForceBuild)
     Test-Docker
@@ -392,6 +453,7 @@ function Invoke-Start {
 
 switch -Regex ($Command) {
     '^(start|up)$' { Invoke-Start (Resolve-DockerTarget $Selector) $false; break }
+    '^(build|get)$' { Invoke-ImageOnly (Resolve-DockerTarget $Selector) $false; break }
     '^rebuild$'    { Invoke-Start (Resolve-DockerTarget $Selector) $true; break }
     '^(stop|down)$' {
         $target = Resolve-DockerTarget $Selector

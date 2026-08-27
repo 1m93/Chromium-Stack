@@ -149,7 +149,7 @@ One page, served locally, with everything on it.
 |---|---|
 | **One-click install & launch** | Missing builds download on demand, then open. No separate install step to remember. |
 | **Cancel while it downloads** | A download or a Docker image build can be called off from the row or from the log panel. The half-fetched archive and the part-unpacked directory go with it, rather than sitting on disk until something retries. |
-| **Docker where nothing runs natively** | Versions with no build for this machine — and on Apple Silicon the x86_64 ones when Rosetta 2 is not installed — lead with **Run in Docker** instead of a download that would not start. |
+| **Docker where nothing runs natively** | Versions with no build for this machine, ones already watched crash here, and Chromium's Rosetta range lead with **Get & launch in Docker** instead of a download that would not start or would not survive. |
 | **A shared URL for every launch** | Set it once at the top; every version opens there. |
 | **Window size and graphics** | Fix the viewport for a layout check, or force hardware acceleration on or off. |
 | **Per-row menu** | Download without launching, run that version in Docker, reset its profile, or delete it. |
@@ -396,6 +396,7 @@ browser, over noVNC. All four engines, same commands as the native launcher:
 ./engineshelf-docker.sh start firefox:52
 ./engineshelf-docker.sh start edge:95      # only route to an Edge this old, on any host
 ./engineshelf-docker.sh start webkit:16.4
+./engineshelf-docker.sh build 74           # build the image and stop there
 ./engineshelf-docker.sh stop 74
 ./engineshelf-docker.sh logs 74
 ./engineshelf-docker.sh rebuild 74         # rebuild the image from scratch
@@ -403,11 +404,19 @@ browser, over noVNC. All four engines, same commands as the native launcher:
 ./engineshelf-docker.sh purge 74           # delete that version's image
 ```
 
+**Every version on the shelf, not just the catalogued ones.** Only about twenty Chromium
+milestones carry a hand-verified row, and the container used to refuse everything else with
+*"No Linux x86_64 build of Chromium 88 in the catalog"* — while the native launcher had always
+asked the archive for exactly that. It now asks the same question about the Linux build, keeps
+the answer in `~/.engineshelf/catalog.cache.tsv`, and the manager offers the container on every
+Chromium row from then on. The other three engines were never limited this way: their downloads
+are resolved against each vendor's index on both sides already.
+
 It is worth being clear about when this earns its gigabyte, because it is different per engine:
 
 | | Why a container |
 |---|---|
-| **Chromium** | It never touches Rosetta, so on Apple Silicon it sidesteps the crash under [Stability](#good-to-know). |
+| **Chromium** | It never touches Rosetta, so on Apple Silicon it sidesteps both crashes under [Stability](#good-to-know) — the profiler one and the startup abort that stops the oldest milestones reaching a window at all. |
 | **Edge** | **The only route to an old one.** The enterprise feed that serves mac and Windows holds about six months; the Linux apt pool has kept every build since 2021. Natively, `edge:95` cannot be had at any price. |
 | **WebKit** | Playwright stopped publishing macOS archives for the older revisions, and never published some at all. The Linux ones are still there. |
 | **Firefox** | The least necessary — Firefox installs natively everywhere. Reach for it when a 2017 build will not start against a 2026 OS, or when you want the Linux rendering rather than your own. |
@@ -507,8 +516,80 @@ edition** — on the same site, the container survived 3 of 3 runs.
 > looks like the obvious fix and makes things **much worse** — 4 crashes out of 4 runs versus
 > 0 out of 4 without it. Do not add it back.
 
+**3. Startup abort — not fixable, and it ends the milestone.** Some milestones no longer reach
+a window at all. The browser process aborts in its first second with `malloc: *** error for
+object 0x…: pointer being freed was not allocated`, in the helper process as well as the
+browser: Chromium's allocator replaces the system malloc zones, and a build from 2019 does not
+replace the ones this year's `libsystem_malloc` actually has. There is no switch — the shim is
+installed before the command line is read. Measured on **Chromium 74, macOS 15.5, M4**: dead
+in under a second on 9 launches out of 9, with the GPU on and off, sandbox on and off,
+single-process, and with `MallocNanoZone=0`.
+
+This is the same milestone the profiler measurement above was taken on, and back then it
+started and ran for tens of seconds — so this is not a property of the build, it is where the
+build and the OS have drifted apart, and the line will keep moving up the shelf as macOS moves
+on.
+
+Nothing can retry its way out of that, so the shelf stops trying. The first launch of **any**
+engine that dies before its window records that version against this macOS major version in
+`~/.engineshelf/arch-fallback.cache`, and from then on:
+
+- the CLI names the cause, tries **once**, and points at the container instead of restarting
+  five times into the same wall
+- the manager marks the row `crashes on this macOS` and makes Docker the row's button, with
+  *Launch natively anyway* — or *Download and launch natively* — still in the **···** menu
+- a macOS upgrade clears the verdict, because the record is keyed by OS major — the question
+  gets asked again rather than inherited
+
+### What a row says, and what its button does
+
+Each row carries up to two badges, because they answer two different questions and one badge
+answering both was unreadable.
+
+The first says **what this version is on this machine**: `native arm64`, `x86_64 · Rosetta`,
+`x86_64 · needs Rosetta`, `crashes on this macOS`, `no build for this host`.
+
+The second says **what to do about it** — **Docker run recommended** — and where it appears,
+the row's button runs the container rather than the native build. Recommending one thing and
+offering another asks someone to read a badge, work out what it means, and then reject the
+button in front of them. It appears on three kinds of row:
+
+| Row | Why |
+|---|---|
+| no build for this host | there is nothing to launch natively |
+| already watched crash here | it starts and dies, every time |
+| Chromium under Rosetta | it does run, and loses about a third of sessions on a heavy page |
+
+There are two ways to run a version and each has the same three states, so each has the same
+three buttons — colour included. **Accent means "this runs now"**: a row with a multi-minute
+image build in front of it does not wear it, any more than an undownloaded native row wears it
+on Get.
+
+| State | Native | Docker |
+|---|---|---|
+| nothing on disk | **Get** | **Get & launch in Docker** |
+| on disk | **Launch** | **Launch in Docker** |
+| fetch it, run it later | *Download only* (**···** menu) | *Get the container only* (**···** menu) |
+
+`Get the container only` is `./engineshelf-docker.sh build <version>` — the image built and
+nothing started, so the eight minutes happen when it suits rather than in front of someone who
+wanted a browser.
+
+Rosetta by itself is not on that list. Old **Firefox** builds are x86_64 too — Mozilla's mac
+package is universal only from 84 on — so those rows say `x86_64 · Rosetta` and stop there:
+translation alone is not a reason to send anyone to a container, and no crash rate has been
+measured for them. Edge and WebKit say nothing before a download, because nothing in the shelf
+data settles which architecture they arrive as. All four engines still switch to Docker the
+moment one is actually watched fail.
+
+The Rosetta badge appears before a download too. Only about twenty Chromium milestones carry a
+verified platform row, so the rest used to say nothing about Rosetta until they had been
+installed; the shelf instead reads the boundary out of the catalog — the highest milestone
+proven to have no arm64 build — and says so from the start. The few milestones between that
+boundary and the first proven arm64 build stay unlabelled, because nobody has checked them.
+
 **Intel Macs, Windows and Linux run x86_64 natively**, never go through the Rosetta unwinder,
-and should not see the second failure mode at all.
+and should not see the second or third failure mode at all.
 
 </details>
 
@@ -604,6 +685,7 @@ there.
 | `~/.engineshelf/builds/<revision>/` | a downloaded browser |
 | `~/.engineshelf/profiles/<revision>/` | that version's profile (cookies, logins, storage) |
 | `~/.engineshelf/logs/<revision>.log` | that version's stderr from its last run |
+| `~/.engineshelf/arch-fallback.cache` | one line per macOS major version and version that started here and died before its window — a bare milestone for Chromium, `engine:id` for the other three. Written by the first such launch, read by the CLI and the manager so neither leads with a native launch again. Delete it to make the shelf ask again. |
 | `~/.engineshelf/manager.json` | which port the running manager is on, so opening the app again finds it instead of starting a second one. Removed when it quits. |
 | `~/.engineshelf/manager-window/` | the browser profile behind the manager's own window on Windows and Linux — a few tens of MB of browser plumbing, not something EngineShelf downloaded. Safe to delete when the manager is closed; it is rebuilt on the next start. The macOS app draws its own window and needs none of it. |
 | `%USERPROFILE%\.engineshelf\` | the same, on Windows |

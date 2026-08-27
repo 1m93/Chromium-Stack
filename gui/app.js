@@ -589,7 +589,19 @@ function decorate(row) {
       ? `Released ${humanDate(row.date)}.`
       : '';
 
-  const rosetta = row.platformDir === 'Mac' && state.arch === 'arm64';
+  // Read off the server's own answer rather than off platformDir, which most of
+  // the shelf does not have until a launch resolves it. The server says false
+  // here both for a verified Mac-only row and for a milestone old enough that no
+  // arm64 build exists - so a row can say Rosetta before anything is downloaded.
+  const rosetta = row.native === false;
+
+  // Rosetta by itself is not a reason to send someone to a container - millions
+  // of x86_64 Mac apps run under it without trouble. Chromium's range is: its
+  // profiler segfaults in the translated unwinder and takes about a third of
+  // sessions on a heavy page (measured, README), with no switch to turn it off.
+  // Firefox's old x86_64 builds have no such record here, so they say what they
+  // are and nothing more.
+  const crashProne = rosetta && engine === 'chromium';
 
   // Docker is the second way to run the same version, with its own image on
   // disk, its own container and its own profile volume - and the row used to
@@ -656,13 +668,22 @@ function decorate(row) {
     // daemon does not have to be up: the launcher offers to start it, the same
     // way the command line does.
     dockerAvailable,
-    // Nothing here starts natively - either the catalog has no build of this
-    // version for this machine, or it has one that this machine cannot execute
-    // - and the container runs the Linux build regardless. That makes Docker
-    // the row's own button rather than an entry in the menu behind it.
+    // A launch on this machine that got as far as starting and then died. Only
+    // the shelf can know it, and only after it happened once - so it comes from
+    // the CLI's own record rather than from the catalog.
+    knownBad: row.knownBad === true,
+    // Nothing here starts natively - the catalog has no build of this version
+    // for this machine, or it has one this machine cannot execute, or it has one
+    // that has already been watched crash here - and the container runs the
+    // Linux build regardless. That makes Docker the row's own button rather than
+    // an entry in the menu behind it.
+    // If the row recommends the container, the container is the button. Anything
+    // else asks someone to read a badge, work out what it means and then reject
+    // the button in front of them. The native launcher never goes away - it
+    // moves one click, into the menu beside it.
     dockerOnly:
       dockerAvailable &&
-      (row.supported === false || (rosetta && rosettaMissing())),
+      (row.supported === false || row.knownBad === true || crashProne),
     name: label ? `${engineName(engine)} ${label}` : version,
     installed: Boolean(row.installed),
     // "Is this version taking up disk", which an image answers as much as a
@@ -1354,7 +1375,9 @@ function cellDocker(entry) {
   const dk = entry && entry.docker;
   if (!dk || !(state.docker && state.docker.cli)) return null;
   const noNative =
-    entry.supported === false || (entry.native === false && rosettaMissing());
+    entry.supported === false ||
+    entry.knownBad === true ||
+    (entry.native === false && entry.engine === 'chromium');
   if (!noNative) return null;
   return String(dk.selector != null ? dk.selector : dk.revision);
 }
@@ -1396,11 +1419,15 @@ function matrixCell(entry, year, engine) {
   if (docker) {
     // Same rule as the list: where nothing starts natively, the cell opens the
     // container rather than being a dead end or a download that will not run.
-    button.title = entry.supported
-      ? `${engine.name} ${entry.label} cannot start on this machine — opens ` +
-        'in its Docker container'
-      : `No ${engine.name} ${entry.label} build exists for this machine — ` +
-        'opens it in its Docker container instead';
+    button.title =
+      (entry.supported
+        ? `${engine.name} ${entry.label} is better off in its Docker container ` +
+          'on this machine'
+        : `No ${engine.name} ${entry.label} build exists for this machine, so ` +
+          'its Docker container is what this opens') +
+      (entry.docker && entry.docker.imageBytes
+        ? ''
+        : ' — building the image first, several minutes, once');
     button.onclick = () =>
       startDockerBy(button, docker, `${engine.name} ${entry.label}`);
   } else if (entry.supported) {
@@ -1456,9 +1483,13 @@ function toggleOthers(cell, entry, engine) {
     if (other.installed) item.append(spanWith('mdot', ''));
     const docker = cellDocker(other);
     if (docker) {
-      item.title = other.supported
-        ? 'Cannot start on this machine — runs in Docker'
-        : 'No build for this machine — runs in Docker';
+      item.title =
+        (other.supported
+          ? 'Better off in its Docker container on this machine'
+          : 'No build for this machine, so this runs its Docker container') +
+        (other.docker && other.docker.imageBytes
+          ? ''
+          : ' — building the image first, several minutes, once');
       item.onclick = () =>
         startDockerBy(item, docker, `${engine.name} ${other.label}`);
     } else if (other.supported) {
@@ -1675,30 +1706,41 @@ function renderRow(row) {
   const badge = document.createElement('span');
   badge.className = 'badge';
   if (!row.supported) {
-    // Docker changes what this means. Without it the row is a dead end; with
-    // it there is no native build but there is still a way to run the version,
-    // and the badge has to say which of the two this is.
-    badge.textContent = row.dockerOnly
-      ? 'no native build · Docker'
-      : 'no build for this host';
-    if (row.dockerOnly)
-      badge.title =
-        'The catalog has no build of this version for this machine, so it runs ' +
-        'in its Docker container instead.';
-  } else if (row.rosetta) {
-    // Worth calling out: these are the builds that go through Rosetta, and the
-    // ones where the stack-profiler crash shows up.
+    // What this version is on this machine, and nothing about what to do with
+    // it: the advice badge below says that, on every row where it applies, in
+    // the same words.
+    badge.textContent = 'no build for this host';
+    badge.title =
+      'The catalog has no build of this version for this machine.';
+  } else if (row.knownBad) {
+    // Stronger than "needs Rosetta": this one has already been watched fail on
+    // this machine, so the badge says so instead of describing the translation
+    // it would go through.
     badge.classList.add('rosetta');
-    if (row.dockerOnly) {
+    badge.textContent = 'crashes on this macOS';
+    badge.title =
+      'This version downloaded and started on this machine, then died before ' +
+      'its window appeared - a build from ' +
+      (row.raw.year ? row.raw.year + ' ' : '') +
+      'against this year\u2019s macOS.';
+  } else if (row.rosetta) {
+    // Worth calling out: these are the builds that go through Rosetta, where a
+    // 2019 allocator meets this year's libsystem_malloc.
+    badge.classList.add('rosetta');
+    // Read off the machine, not off the row's button: the button is Docker for
+    // every Chromium build in this range whether Rosetta is installed or not, so
+    // it can no longer stand in for "cannot run at all".
+    if (rosettaMissing()) {
       badge.textContent = 'x86_64 · needs Rosetta';
       badge.title =
         'No arm64 build exists this far back and Rosetta 2 is not installed, ' +
-        'so this version cannot start on this machine. It runs in its Docker ' +
-        'container instead.';
+        'so this version cannot start on this machine as it is.';
     } else {
       badge.textContent = 'x86_64 · Rosetta';
-      badge.title =
-        'No arm64 build exists this far back, so it runs under Rosetta.';
+      badge.title = row.raw.platformDir
+        ? 'No arm64 build exists this far back, so it runs under Rosetta.'
+        : 'No arm64 build exists this far back, so this one arrives as x86_64 ' +
+          'and runs under Rosetta.';
     }
   } else {
     // Only Chromium's platform is known from the catalog. For the others it is
@@ -1707,6 +1749,37 @@ function renderRow(row) {
     badge.textContent = platformLabel(row.raw.platformDir);
   }
   if (badge.textContent) tags.append(badge);
+
+  // The badge above says how the version stands on this machine; reading it
+  // still left someone to work out what that meant for the button. This says it
+  // outright, in one wording, on every row where the container is the better
+  // route: no build for this host at all, one already watched crash here, or the
+  // Rosetta range - which starts and runs, but loses about a third of sessions
+  // on a heavy page to an unwinder crash no switch turns off.
+  // Not while the container is up: the row already carries a live Docker marker,
+  // and advising what someone is currently doing is noise.
+  if (row.dockerOnly && !row.dockerRunning) {
+    const advise = document.createElement('span');
+    advise.className = 'badge advise';
+    advise.textContent = 'Docker run recommended';
+    advise.title = !row.supported
+      ? 'No build of this version exists for this machine. The container runs ' +
+        'the Linux build of it instead.'
+      : row.knownBad
+        ? 'The native build starts on this machine and dies in its first ' +
+          'second, every time. The container runs the Linux build and never ' +
+          'touches Rosetta.'
+        : rosettaMissing()
+          ? 'No arm64 build exists this far back and Rosetta 2 is not ' +
+            'installed, so nothing here starts natively as this machine is ' +
+            'set up. The container needs neither.'
+          : 'It does run natively, under Rosetta - and about a third of ' +
+            'sessions on a heavy page die there: Chromium\u2019s profiler ' +
+            'segfaults in the translated unwinder and no switch turns it off. ' +
+            'The launcher relaunches and restores the tabs; the container has ' +
+            'none of it. Native launch is in the menu beside this row.';
+    tags.append(advise);
+  }
 
   // Docker gets its own marker rather than a share of the fixed-width size
   // column: it is a separate copy of the browser, and when the container is up
@@ -1856,16 +1929,36 @@ function renderActions(container, row) {
     // runs on this machine - so it is the button, not something to be found in
     // the menu behind it. Ahead of "installed" deliberately: a build that is on
     // disk but cannot execute here is still not something to launch.
-    action.classList.add('accent');
+    // Two ways to run a version, and each has the same three states, so each
+    // gets the same three buttons:
+    //
+    //   nothing on disk   Get                    Get & launch in Docker
+    //   on disk           Launch                 Launch in Docker
+    //   fetch only (menu) Download only          Get the container only
+    //
+    // Including the colour. Accent means "this runs now"; a row with no image
+    // has a multi-minute build in front of it and must not wear it, any more
+    // than an undownloaded native row wears it on Get.
+    if (row.dockerImage) action.classList.add('accent');
     action.append(
-      iconSpan('cube'),
-      row.dockerImage ? 'Launch' : 'Run in Docker',
+      iconSpan(row.dockerImage ? 'cube' : 'download'),
+      row.dockerImage ? 'Launch in Docker' : 'Get & launch in Docker',
     );
-    action.title = row.supported
-      ? 'This build cannot start on this machine as it is. Docker runs it in ' +
-        'its container and opens the desktop.'
-      : 'No build of this version exists for this machine. Docker builds its ' +
-        'image once, then runs it and opens the desktop.';
+    const why = !row.supported
+      ? 'No build of this version exists for this machine.'
+      : row.knownBad
+        ? 'The native build starts on this machine and dies before its window.'
+        : rosettaMissing()
+          ? 'No arm64 build exists this far back and Rosetta 2 is not installed.'
+          : 'The native build of this one crashes often enough that the ' +
+            'container is the better route.';
+    action.title =
+      why +
+      (row.dockerImage
+        ? ' Docker runs its container and opens the desktop.'
+        : ' Docker builds its image first - several minutes, once - then runs ' +
+          'it and opens the desktop.') +
+      (row.supported ? ' The menu beside this button still launches natively.' : '');
     action.onclick = () => startDocker(action, row);
   } else if (row.installed) {
     action.classList.add('accent');
@@ -1876,7 +1969,7 @@ function renderActions(container, row) {
     // The image is already built, so this is one click and no download - the
     // same shape as Launch, which is what it is.
     action.classList.add('accent');
-    action.append(iconSpan('cube'), 'Launch');
+    action.append(iconSpan('cube'), 'Launch in Docker');
     action.title =
       'Run this version in its Docker container and open the desktop';
     action.onclick = () => startDocker(action, row);
@@ -2046,19 +2139,35 @@ function toggleMenu(container, row) {
         });
       }
     } else {
-      item(
-        'cube',
-        row.dockerImage
-          ? 'Run in Docker (noVNC)'
-          : 'Run in Docker (builds an image first)',
-        async () => {
+      // Not when the row's own button already is this: on a Docker-first row the
+      // two read word for word the same, which is one entry too many.
+      if (!row.dockerOnly) {
+        item(
+          'cube',
+          row.dockerImage
+            ? 'Launch in Docker (noVNC)'
+            : 'Get & launch in Docker',
+          async () => {
+            const { job } = await post('/api/docker', {
+              selector: docker,
+              action: 'start',
+            });
+            watch(job, `Docker · ${row.name}`);
+          },
+        );
+      }
+      // The other half of "Download only": fill the shelf now, use it later. An
+      // image build is minutes, and having to sit through them at the moment
+      // you wanted a browser is the thing this avoids.
+      if (!row.dockerImage) {
+        item('download', 'Get the container only', async () => {
           const { job } = await post('/api/docker', {
             selector: docker,
-            action: 'start',
+            action: 'build',
           });
-          watch(job, `Docker · ${row.name}`);
-        },
-      );
+          watch(job, `Building Docker image · ${row.name}`);
+        });
+      }
     }
     if (row.dockerImage) {
       const held = row.dockerImage + row.dockerProfileBytes;
@@ -2086,12 +2195,15 @@ function toggleMenu(container, row) {
     }
   }
 
-  // The row's button is Docker because nothing here starts natively, so the
-  // native launcher - worth a try again the moment Rosetta is installed - has to
-  // be somewhere. Not offered while the container is up: that entry is already
-  // in the block above.
-  if (row.dockerOnly && row.installed && !row.dockerRunning) {
-    item('play', 'Launch natively anyway', async () => {
+  // The row's button is Docker, so the native launcher has to be somewhere -
+  // including on a version that is not downloaded yet, which is most of them.
+  // Not offered while the container is up: that entry is already in the block
+  // above.
+  if (row.dockerOnly && !row.dockerRunning) {
+    const label = row.installed
+      ? 'Launch natively anyway'
+      : 'Download and launch natively';
+    item('play', label, async () => {
       const { job } = await post('/api/launch', {
         selector,
         ...launchOptions(),

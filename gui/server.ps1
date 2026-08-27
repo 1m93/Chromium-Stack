@@ -253,8 +253,13 @@ function Get-DockerRow {
       used to hide a running container from the row it belonged to.
     #>
     param($Revision, $Status, $Selector = $null)
-    if ($null -eq $Revision -or -not $Status.supported) { return $null }
-    $entry = $Status.byRevision[[string]$Revision]
+    if (-not $Status.supported) { return $null }
+    # A revision of $null means "there is a container, but which Linux build it
+    # runs has not been looked up yet" - the launcher asks the archive when the
+    # button is pressed. Refusing to offer it until then is what kept the Docker
+    # edition to the hand-catalogued milestones and nothing in between.
+    if ($null -eq $Revision -and $null -eq $Selector) { return $null }
+    $entry = if ($null -ne $Revision) { $Status.byRevision[[string]$Revision] } else { $null }
     if (-not $entry) { $entry = @{ imageBytes = 0; profileBytes = 0; state = $null; status = ''; port = $null } }
     return @{
         revision = $Revision
@@ -423,6 +428,11 @@ function Get-ShelfRow {
         revision = $null
         docker = $null
         native = $true
+        # The macOS side fills this from the record engineshelf.sh keeps of
+        # builds that started here and died. Windows has no Rosetta and no
+        # arch-fallback cache to read, so the field exists to keep the page's
+        # two servers answering the same shape and is always false.
+        knownBad = $false
     }
 
     if ($engine -eq 'chromium') {
@@ -437,7 +447,10 @@ function Get-ShelfRow {
         } else {
             $row.version = $release.label
         }
-        $row.docker = Get-DockerRow (Get-LinuxRevision $builds $m) $docker
+        # Addressed by milestone rather than by the Linux revision: for most of
+        # the shelf that revision is not resolved yet, and the launcher takes
+        # either.
+        $row.docker = Get-DockerRow (Get-LinuxRevision $builds $m) $docker ([string]$m)
         $has = $builds.ContainsKey($m)
         if ($has -and $builds[$m].ContainsKey($HostPlatform)) {
             $row.revision = $builds[$m][$HostPlatform].revision
@@ -452,8 +465,15 @@ function Get-ShelfRow {
             $row.platformDir = $null
             # Unknown is not unavailable. B rows exist only for the catalogued
             # milestones; every other one is resolved against the live archive on
-            # first launch, so no B row means no key yet - not no build.
-            $row.supported = (-not $has)
+            # first launch, so no B row means no key yet - not no build. Only rows
+            # for this operating system's own platform count as an answer: a Linux
+            # row cached so the container knows which build to run says nothing
+            # about Windows, and read as evidence it said the opposite.
+            # Which, on Windows, is always true here: Win_x64 is the only
+            # platform this OS could use, and reaching this branch already means
+            # there is no row for it. Python has two Mac platforms to weigh and
+            # so has a real test to make.
+            $row.supported = $true
             $row.key = $null
             $row.selector = [string]$m
         }
@@ -494,7 +514,7 @@ function Get-ShelfRow {
 # button the list does, and it cannot know that without this.
 $CellFields = @('engine', 'label', 'id', 'date', 'selector', 'key',
                 'supported', 'installed', 'sizeBytes', 'profileBytes', 'docker',
-                'native')
+                'native', 'knownBad')
 
 function Get-MatrixCell {
     param($row)
@@ -592,6 +612,7 @@ function Get-State {
         $row.note = 'Installed by revision.'
         $row.supported = $true
         $row.native = $true
+        $row.knownBad = $false
         $row.installed = $true
         $row.docker = $null
         $row.milestone = $null
@@ -1178,7 +1199,7 @@ function Invoke-Route {
         '/api/docker' {
             $action = [string](Get-Field $body 'action')
             if (-not $action) { $action = 'start' }
-            if (@('start', 'stop', 'rebuild', 'purge') -notcontains $action) {
+            if (@('start', 'build', 'stop', 'rebuild', 'purge') -notcontains $action) {
                 Send-Json $Stream @{ error = 'bad action' } 400; return
             }
             # Every engine has a container. An unknown one still gets refused

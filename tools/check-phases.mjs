@@ -33,6 +33,10 @@ globalThis.document = {
   documentElement: { dataset: {} },
   addEventListener: () => {},
 };
+// The page answers the macOS window's "is anything running?" question through a
+// property on window, so importing it needs one to assign to. Same object, so
+// window.x and globalThis.x are the one variable the browser has.
+globalThis.window = globalThis;
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.location = { search: '', reload: () => {} };
 globalThis.matchMedia = () => ({ matches: false });

@@ -1241,7 +1241,7 @@
                 "name": "Stability on Apple Silicon",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Chromium publishes native arm64 macOS builds from roughly M92 on, so 95 and later run natively. 60 through 90 have no arm64 build, so they run through Rosetta. Those builds run with --disable-gpu by default, which removes the GPU-process crash completely. Chromium's stack sampling profiler occasionally segfaults under Rosetta and there is no switch to turn it off, so the launcher relaunches the browser and lets Chromium restore your tabs, up to 5 times. Use --no-restart if you would rather it stop and show the log."
+                  "text": "Chromium publishes native arm64 macOS builds from roughly M92 on, so 95 and later run natively. 60 through 90 have no arm64 build, so they run through Rosetta. Those builds run with --disable-gpu by default, which removes the GPU-process crash completely. Chromium's stack sampling profiler occasionally segfaults under Rosetta and there is no switch to turn it off, so the launcher relaunches the browser and lets Chromium restore your tabs, up to 5 times. A build that dies before its window ever appears is the other case and is not retried: the oldest milestones abort in their first second against this year's system allocator, so the shelf records that and offers the container instead. Use --no-restart if you would rather it stop and show the log."
                 }
               },
               {
@@ -4022,7 +4022,10 @@
                   >Why it earns its gigabyte differs per engine.</strong
                 >
                 For Chromium it never touches Rosetta, so on Apple Silicon it
-                sidesteps the stack-profiler crash. For Edge it is the only
+                sidesteps both the stack-profiler crash and the startup abort
+                that stops the oldest milestones reaching a window at all — and
+                it now covers every milestone on the shelf, not only the ones
+                catalogued by hand. For Edge it is the only
                 route to an old build at all — the feed that serves mac and
                 Windows holds about six months, while the Linux package pool has
                 kept every build since 2021. For WebKit, Playwright deleted the
@@ -4774,7 +4777,11 @@
                   Chromium's stack sampling profiler occasionally segfaults
                   under Rosetta and there is no switch to turn it off, so the
                   launcher relaunches the browser and lets Chromium restore your
-                  tabs, up to 5 times. Use
+                  tabs, up to 5 times. A build that never reaches a window is
+                  the other case and is not retried: the oldest milestones now
+                  abort in their first second against this year's system
+                  allocator, so the shelf records that, says so on the row, and
+                  offers the container instead. Use
                   <code
                     style="
                       font-family: var(--mono);

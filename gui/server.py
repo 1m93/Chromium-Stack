@@ -138,9 +138,82 @@ def host_platforms():
     return ["Win_x64"]
 
 
+def os_platforms():
+    """Every platform directory this operating system could ever use.
+
+    Wider than host_platforms(), which is an ordered preference for this exact
+    machine. This answers a different question: which B rows count as evidence
+    about this host at all. A Linux row cached so the container knows which build
+    to run says nothing about a Mac - and read as evidence it said the opposite,
+    turning "not catalogued yet" into "no build for this host".
+    """
+    system = platform.system()
+    if system == "Darwin":
+        return ("Mac", "Mac_Arm")
+    if system == "Linux":
+        return ("Linux_x64",)
+    return ("Win_x64",)
+
+
 def root_dir():
     override = os.environ.get("ENGINESHELF_HOME") or os.environ.get("BROWSERS_EMU_HOME")
     return override or os.path.join(os.path.expanduser("~"), ".engineshelf")
+
+
+def known_bad_keys():
+    """Versions this machine has already watched fail to start, any engine.
+
+    engineshelf.sh appends one `os-major<TAB>key` line the first time a build
+    dies before its window appears, and nothing but a real launch can know it:
+    whether a 2019 x86_64 build still survives this year's Rosetta and
+    libsystem_malloc is not something a catalogue can say. Keyed by macOS major
+    so the answer is asked again after an upgrade rather than inherited.
+
+    The key is a bare milestone for Chromium - all this file used to hold - and
+    `engine:version` for the other three, so a cache written before those three
+    could be recorded still means what it meant.
+    """
+    if platform.system() != "Darwin":
+        return set()
+    try:
+        with open(os.path.join(root_dir(), "arch-fallback.cache")) as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return set()
+    major = platform.mac_ver()[0].split(".")[0]
+    bad = set()
+    for line in lines:
+        parts = line.split("\t")
+        if len(parts) == 2 and parts[0] == major and parts[1]:
+            bad.add(parts[1])
+    return bad
+
+
+# The first Firefox whose mac package is universal. Below it Apple Silicon runs an
+# x86_64 build under Rosetta, with no arm64 build to fall back to.
+FIREFOX_UNIVERSAL = 84
+
+
+def rosetta_ceiling(builds):
+    """The highest milestone the catalog proves has no arm64 Mac build.
+
+    Only twenty-odd milestones carry a verified row, so most of the shelf does
+    not know which platform directory it will come from until a launch resolves
+    it - and a row that says nothing about Rosetta cannot advise anything about
+    it either. This is the part that can be said without resolving anything: at
+    or below this milestone, no arm64 build exists, so Apple Silicon runs the
+    x86_64 one under translation.
+
+    Deliberately the last proven x86_64-only milestone rather than the first
+    proven arm64 one. The gap between them is where nobody has checked, and
+    guessing into it would put a warning on rows that may well run natively.
+    """
+    ceiling = None
+    for milestone, platforms in builds.items():
+        if "Mac" in platforms and "Mac_Arm" not in platforms:
+            if ceiling is None or milestone > ceiling:
+                ceiling = milestone
+    return ceiling
 
 
 def catalog_cache():
@@ -475,9 +548,18 @@ def docker_row(revision, status, selector=None):
     one this host installs natively - and comparing those two is exactly what
     used to hide a running container from the row it belonged to.
     """
-    if revision is None or not status.get("supported"):
+    if not status.get("supported"):
         return None
-    entry = status["byRevision"].get(str(revision), {})
+    # A revision of None means "there is a container, but which Linux build it
+    # runs has not been looked up yet". The launcher asks the archive when the
+    # button is pressed and the answer lands in the catalog cache, so the row
+    # fills itself in on the next read. Refusing to offer it until then is what
+    # kept the Docker edition to the hand-catalogued milestones and nothing in
+    # between them.
+    if revision is None and selector is None:
+        return None
+    entry = (status["byRevision"].get(str(revision), {})
+             if revision is not None else {})
     return {
         "revision": revision,
         # What to post back to run or stop this container. For Chromium that is
@@ -547,7 +629,7 @@ def milestone_of(revision, builds):
 # button the list does, and it cannot know that without this.
 _CELL_FIELDS = ("engine", "label", "id", "date", "selector", "key",
                 "supported", "installed", "sizeBytes", "profileBytes", "docker",
-                "native")
+                "native", "knownBad")
 
 
 def build_matrix(rows):
@@ -591,7 +673,8 @@ def build_matrix(rows):
     return matrix
 
 
-def shelf_row(engine, release, installed, builds, hosts, notes, docker):
+def shelf_row(engine, release, installed, builds, hosts, notes, docker,
+               known_bad, rosetta_max):
     """One release, in the shape the list draws.
 
     The matrix and the list are two views of the same shelf, so both are built
@@ -611,6 +694,7 @@ def shelf_row(engine, release, installed, builds, hosts, notes, docker):
         "revision": None,
         "docker": None,
         "native": True,
+        "knownBad": False,
     }
 
     if engine == "chromium":
@@ -627,10 +711,29 @@ def shelf_row(engine, release, installed, builds, hosts, notes, docker):
         row["platformDir"] = chosen
         # Unknown is not unavailable. B rows exist only for the catalogued
         # milestones; every other one is resolved against the live archive on
-        # first launch, so no B row means no key yet - not no build.
-        row["supported"] = chosen is not None or not available
+        # first launch, so no B row means no key yet - not no build. Only rows
+        # for this operating system's own platforms count as an answer.
+        row["supported"] = chosen is not None or not any(
+            key in available for key in os_platforms())
         row["native"] = chosen != "Mac" or platform.machine() != "arm64"
-        row["docker"] = docker_row(linux_revision(milestone, builds), docker)
+        # Same answer for a milestone with no verified row, where `chosen` is
+        # None and the platform is settled at launch. Left alone, three quarters
+        # of the shelf said nothing about Rosetta and so could not warn about it
+        # either - including every milestone between the catalogued ones.
+        if (chosen is None and rosetta_max is not None
+                and milestone <= rosetta_max
+                and platform.system() == "Darwin"
+                and platform.machine() == "arm64"):
+            row["native"] = False
+        # Not "no build for this host" - a build that downloads, starts, and
+        # dies. The row still offers the native launch; what changes is which
+        # button leads.
+        row["knownBad"] = str(milestone) in known_bad
+        # Addressed by milestone rather than by the Linux revision: for most of
+        # the shelf that revision is not resolved yet, and the launcher takes
+        # either.
+        row["docker"] = docker_row(linux_revision(milestone, builds), docker,
+                                   str(milestone))
         if chosen:
             row["revision"] = available[chosen]["revision"]
             # The revision is what a Chromium build directory has always been
@@ -642,6 +745,16 @@ def shelf_row(engine, release, installed, builds, hosts, notes, docker):
             row["selector"] = str(milestone)
     else:
         row["version"] = ident
+        # Mozilla's mac package is universal from 84 on and x86_64 before it -
+        # which is why lib/engines.sh has only one Firefox mac platform to name.
+        # No S row says which of the two a version is, so the version number is
+        # the only thing that can; and since the platform directory stays "mac"
+        # either way, a download does not settle it later.
+        if (engine == "firefox" and platform.system() == "Darwin"
+                and platform.machine() == "arm64"):
+            head = ident.split(".")[0]
+            if head.isdigit() and int(head) < FIREFOX_UNIVERSAL:
+                row["native"] = False
         row["key"] = "%s-%s" % (engine, ident)
         # The id, not the label: two WebKit builds are both called 26.5 and only
         # the id says which one this is.
@@ -650,6 +763,7 @@ def shelf_row(engine, release, installed, builds, hosts, notes, docker):
         # index at launch time, so until then there is nothing honest to print.
         row["platformDir"] = None
         row["supported"] = True
+        row["knownBad"] = row["selector"] in known_bad
         # All four engines have a container now, and for these three its image
         # is tagged with the same key the build directory uses - so the row can
         # see it without a second lookup. Chromium is the exception above: its
@@ -675,6 +789,8 @@ def build_state():
     # lookup serve all four engines.
     everything = installed_by_key()
     notes = {entry["milestone"]: entry for entry in versions}
+    known_bad = known_bad_keys()
+    rosetta_max = rosetta_ceiling(builds)
 
     # The list used to be the V rows and nothing else - twenty-one curated
     # Chromium milestones - so it showed Chromium alone while the matrix beside
@@ -683,7 +799,7 @@ def build_state():
     for engine, releases in read_shelf().items():
         for release in releases:
             rows.append(shelf_row(engine, release, everything, builds, hosts,
-                                  notes, docker))
+                                  notes, docker, known_bad, rosetta_max))
     # Newest first across engines. A release date is the only ordering four
     # numbering schemes share; the page re-sorts, this just makes the default sane.
     rows.sort(key=lambda r: r["date"], reverse=True)
@@ -701,13 +817,15 @@ def build_state():
         engine = info["engine"]
         row = dict(info, note="Installed by revision.", supported=True,
                    native=True, docker=None, milestone=None, revision=None,
-                   label=info["version"], id=key, year=None, date="")
+                   knownBad=False, label=info["version"], id=key, year=None,
+                   date="")
         row["id"] = key if engine == "chromium" else key[len(engine) + 1:]
         if engine == "chromium" and key.isdigit():
             revision = int(key)
             row["revision"] = revision
             row["selector"] = key
             milestone = milestone_of(revision, builds)
+            row["knownBad"] = milestone is not None and str(milestone) in known_bad
             row["docker"] = docker_row(
                 linux_revision(milestone, builds) if milestone is not None
                 else revision, docker)
@@ -1370,7 +1488,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/docker":
             action = str(body.get("action", "start"))
-            if action not in ("start", "stop", "rebuild", "purge"):
+            if action not in ("start", "build", "stop", "rebuild", "purge"):
                 return self._json({"error": "bad action"}, 400)
             # Every engine has a container. An unknown one still gets refused
             # here rather than in a job log nobody has open.

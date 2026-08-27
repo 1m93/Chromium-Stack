@@ -5,23 +5,24 @@
 # Runs the Linux x86_64 build of a browser inside a container and shows its
 # desktop in a tab of your normal browser.
 #
-# Two engines have images, for two different reasons. Chromium, because a
-# container does not go through Rosetta and so does not inherit the random crash
-# Rosetta's stack unwinder causes on Apple Silicon. WebKit, because Playwright
-# pins a different revision for older macOS releases and deletes what it no
-# longer needs - r1860 (WebKit 16.4) is still published for Linux and has no
-# macOS archive at all, so for those versions this is the only way in, not a
-# slower alternative.
+# All four engines, and why a container earns its gigabyte differs for each.
+# Chromium, because it never goes through Rosetta and so inherits neither of the
+# crashes Rosetta causes on Apple Silicon. Edge, because the enterprise feed that
+# serves mac and Windows keeps about six months while the Linux package pool has
+# kept every build since 2021 - for an old Edge this is the only way in at all.
+# WebKit, because Playwright pins a different revision for older macOS releases
+# and deletes what it no longer needs: r1860 (WebKit 16.4) is still published for
+# Linux and has no macOS archive. Firefox, because one desktop that runs all four
+# is worth more than four ways to run three.
 #
-# Firefox and Edge have no image on purpose: their own downloads run natively on
-# every platform this tool supports, so one would cost a gigabyte and buy nothing.
-#
-#   ./engineshelf-docker.sh start 74            # Chromium, as before
+#   ./engineshelf-docker.sh start 74            # build if needed, run, open it
 #   ./engineshelf-docker.sh start webkit:16.4   # a version no Mac can run natively
+#   ./engineshelf-docker.sh build 74            # build the image and stop there
 #   ./engineshelf-docker.sh stop 74             # stop the container
 #   ./engineshelf-docker.sh logs 74             # follow its log
 #   ./engineshelf-docker.sh list                # what is running
 #   ./engineshelf-docker.sh rebuild 74          # rebuild the image from scratch
+#   ./engineshelf-docker.sh purge 74            # delete that version's image
 #
 # Each version gets its own image, container, profile volume and port, so several
 # can run side by side.
@@ -30,6 +31,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CATALOG="$SCRIPT_DIR/catalog.tsv"
+# The other half of the catalog. Milestones resolved against the live archive land
+# here, and reading only the shipped file is what made a container look impossible
+# for every milestone nobody had catalogued by hand.
+CATALOG_CACHE="${ENGINESHELF_HOME:-${BROWSERS_EMU_HOME:-$HOME/.engineshelf}}/catalog.cache.tsv"
 # shellcheck source=lib/preflight.sh
 . "$SCRIPT_DIR/lib/preflight.sh"
 DOCKER_DIR="$SCRIPT_DIR/docker"
@@ -79,6 +84,16 @@ ensure_docker() {
 # print). Chromium's key stays the bare revision it has always been, so images and
 # containers already on this machine are still found - and so the manager, which
 # parses those names, keeps working.
+# Cache first, then the shipped catalog - the same precedence the native launcher
+# uses, so the two cannot disagree about which revision a milestone is.
+catalog_field() {       # awk args...
+  local files=()
+  [ -f "$CATALOG_CACHE" ] && files+=("$CATALOG_CACHE")
+  [ -f "$CATALOG" ] && files+=("$CATALOG")
+  [ "${#files[@]}" -gt 0 ] || return 0
+  awk "$@" "${files[@]}"
+}
+
 resolve() {
   local raw="${1:-}" engine token milestone
   DOCKER_SELECTOR="$raw"
@@ -111,7 +126,7 @@ Which version? A bare number is Chromium: 74. Otherwise name the engine:
   if [ "$token" -lt 1000 ]; then
     milestone="$token"
   else
-    milestone="$(awk -F'\t' -v r="$token" '$1=="B" && $4==r {print $2; exit}' "$CATALOG")"
+    milestone="$(catalog_field -F'\t' -v r="$token" '$1=="B" && $4==r {print $2; exit}')"
     if [ -z "$milestone" ]; then
       # An uncatalogued revision: assume the caller means that exact Linux build.
       DOCKER_ENGINE="chromium"; DOCKER_MILESTONE="?"
@@ -122,9 +137,20 @@ Which version? A bare number is Chromium: 74. Otherwise name the engine:
   fi
 
   DOCKER_ENGINE="chromium"
-  DOCKER_VERSION="$(awk -F'\t' -v m="$milestone" '$1=="V" && $2==m {print $3; exit}' "$CATALOG")"
-  DOCKER_REVISION="$(awk -F'\t' -v m="$milestone" '$1=="B" && $2==m && $3=="Linux_x64" {print $4; exit}' "$CATALOG")"
-  [ -n "$DOCKER_REVISION" ] || die "No Linux x86_64 build of Chromium $milestone in the catalog."
+  DOCKER_VERSION="$(catalog_field -F'\t' -v m="$milestone" '$1=="V" && $2==m {print $3; exit}')"
+  DOCKER_REVISION="$(catalog_field -F'\t' -v m="$milestone" '$1=="B" && $2==m && $3=="Linux_x64" {print $4; exit}')"
+  if [ -z "$DOCKER_REVISION" ]; then
+    # Only twenty-odd milestones carry a hand-verified row, and the native
+    # launcher has always asked the archive for the rest. This asks the same
+    # question about the Linux build instead of refusing - which is what limited
+    # the Docker edition to the catalogued milestones and nothing between them.
+    info "  ${DIM}Chromium $milestone has no catalogued Linux build - asking the archive...${RST}"
+    DOCKER_REVISION="$("$SCRIPT_DIR/engineshelf.sh" resolve-for Linux_x64 "$milestone" 2>/dev/null)" || true
+    DOCKER_VERSION="$(catalog_field -F'\t' -v m="$milestone" '$1=="V" && $2==m {print $3; exit}')"
+  fi
+  [ -n "$DOCKER_REVISION" ] || die "\
+No Linux x86_64 build of Chromium $milestone is available. It is in neither the
+   catalog nor the cache, and the archive could not be reached to look it up."
   DOCKER_MILESTONE="$milestone"
   DOCKER_VERSION="${DOCKER_VERSION:-r$DOCKER_REVISION}"
   DOCKER_ID="$DOCKER_REVISION"
@@ -390,6 +416,34 @@ cmd_start() {
   open_url "$url"
 }
 
+# Build the image and stop there. The native side has always been able to
+# download without launching - a shelf you fill now and use later - and this is
+# that, for the container: the eight-minute build happens when it suits, not in
+# front of someone waiting for a browser.
+cmd_build() {
+  local force_build="${2:-0}" image
+  resolve "${1:-}"
+  ensure_docker
+  image="$(image_name "$DOCKER_KEY")"
+
+  echo ""
+  echo "  ${B}$(engine_label "$DOCKER_ENGINE") $DOCKER_VERSION in Docker${RST} ${DIM}(image only)${RST}"
+  echo ""
+  if [ "$force_build" != "1" ] && docker image inspect "$image" >/dev/null 2>&1; then
+    echo "${GRN}v${RST} The image is already built. Run it with: $0 start $DOCKER_SELECTOR"
+    return 0
+  fi
+  if [ "$force_build" = "1" ]; then
+    echo "  ${DIM}Rebuilding the image from scratch. Several minutes.${RST}"
+    build_image "$image" --no-cache || die "Image build failed."
+  else
+    echo "  ${DIM}Building the image. Several minutes, once.${RST}"
+    build_image "$image" || die "Image build failed."
+  fi
+  echo ""
+  echo "${GRN}v${RST} Built. Nothing is running: $0 start $DOCKER_SELECTOR opens it."
+}
+
 # SIGTERM before SIGKILL, so the browser inside gets to close its profile. A
 # container removed outright left a lock in the profile volume that stopped the
 # next start of this version dead; the entrypoint clears a stale one now, but
@@ -443,13 +497,18 @@ cmd_purge() {
 }
 
 usage() {
-  sed -n '3,20p' "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'
+  # The whole leading comment block, which is the only place these commands are
+  # written down. A fixed line range used to be printed instead, and it silently
+  # cut the list in half the moment the block above it grew.
+  sed -n '3,/^[^#]/p' "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" \
+    | sed '$d; s/^# \{0,1\}//'
 }
 
 COMMAND="${1:-}"
 [ $# -gt 0 ] && shift || true
 case "$COMMAND" in
   start|up)      cmd_start "${1:-}" 0 ;;
+  build|get)     cmd_build "${1:-}" 0 ;;
   rebuild)       cmd_start "${1:-}" 1 ;;
   stop|down)     cmd_stop "${1:-}" ;;
   logs)          cmd_logs "${1:-}" ;;

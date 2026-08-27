@@ -1003,6 +1003,15 @@ body.booting #disk-text {
   color: var(--c-warn);
 }
 
+/* The advice badge sits next to the informational one and has to read as advice
+   rather than as another fact about the build - so it borrows Docker's colour,
+   which is what it is pointing at, and not the warning colour beside it. */
+.badge.advise {
+  background: color-mix(in srgb, var(--c-ok) 14%, transparent);
+  color: var(--c-ok);
+  white-space: nowrap;
+}
+
 /* The Docker marker. When the container is up this is a link to its desktop -
    the noVNC tab is easy to close by accident and there was no way back to it. */
 .badge.docker {
