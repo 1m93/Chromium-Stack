@@ -500,25 +500,21 @@ const ERAS = [
   {
     id: 'era-1',
     label: '2017 – 2019',
-    blurb: 'the hard floors — kiosks, old WebViews',
     until: 2019,
   },
   {
     id: 'era-2',
     label: '2020 – 2021',
-    blurb: 'flexbox gap, aspect-ratio, :is()',
     until: 2021,
   },
   {
     id: 'era-3',
     label: '2022 – 2023',
-    blurb: 'container queries, :has(), nesting',
     until: 2023,
   },
   {
     id: 'era-4',
     label: '2024 – today',
-    blurb: 'controls for bisecting',
     until: 9999,
   },
 ];
@@ -553,6 +549,15 @@ const eraFor = (row) => {
 // row of a 288-row list, on every refresh, which is a layout pass the shelf does
 // not need to buy.
 const NOTE_BRIEF = 64;
+
+// The sticky toolbar's height, read from the stylesheet rather than repeated
+// here: the group headings stick directly under it and the era jumps scroll to
+// just below it, so all three have to agree on one number.
+const TOOLBAR_H =
+  parseInt(
+    getComputedStyle(document.documentElement).getPropertyValue('--toolbar-h'),
+    10,
+  ) || 55;
 
 /* ---------- shaping a catalog row for the shelf ---------- */
 
@@ -1511,8 +1516,14 @@ function renderChrome(rows, scoped, counts) {
     button.append(label, tally);
     button.onclick = () => {
       const section = document.getElementById(era.id);
+      // Landing under the sticky toolbar rather than behind it. 48 was a guess
+      // made when nothing was sticky except the toolbar; the heading sticks
+      // there too now, so the number has to be the toolbar's own height.
       if (section)
-        $('main').scrollTo({ top: section.offsetTop - 48, behavior: 'smooth' });
+        $('main').scrollTo({
+          top: section.offsetTop - TOOLBAR_H,
+          behavior: 'smooth',
+        });
     };
     eras.append(button);
   }
@@ -1544,7 +1555,6 @@ function groupRows(visible) {
       {
         id: 'by-disk',
         label: 'By disk used',
-        blurb: 'largest first',
         rows: sorted(visible),
       },
     ];
@@ -1553,7 +1563,6 @@ function groupRows(visible) {
   const groups = ERAS.map((era) => ({
     id: era.id,
     label: era.label,
-    blurb: era.blurb,
     rows: sorted(visible.filter((row) => row.era === era)),
   })).filter((group) => group.rows.length);
   // Oldest era first reads as a timeline and matches the jump list; newest-first
@@ -1566,7 +1575,6 @@ function groupRows(visible) {
     groups.unshift({
       id: 'loose',
       label: 'Added by revision',
-      blurb: 'pinned manually',
       rows: sorted(loose),
     });
   }
@@ -1577,16 +1585,17 @@ function renderGroup(group) {
   const section = document.createElement('section');
   section.id = group.id;
 
+  // Sticks to the top of the shelf for as long as its own rows are on screen,
+  // then the next one takes over - the way a phone gallery keeps the month in
+  // view. Which is also why the era's one-line description is gone: a caption
+  // reads once, and this line is now on screen the whole time you are inside it.
   const head = document.createElement('div');
   head.className = 'group-head';
   const heading = document.createElement('h2');
   heading.textContent = group.label;
-  const blurb = document.createElement('span');
-  blurb.className = 'blurb';
-  blurb.textContent = group.blurb;
   const rule = document.createElement('span');
   rule.className = 'rule';
-  head.append(heading, blurb, rule);
+  head.append(heading, rule);
 
   const body = document.createElement('div');
   body.className = 'group-rows';

@@ -45,6 +45,9 @@ globalThis.innerHeight = 900;
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.location = { search: '', reload: () => {} };
 globalThis.matchMedia = () => ({ matches: false });
+// The page reads the sticky toolbar's height out of the stylesheet, so that one
+// number lives in one place. Nothing here has a stylesheet; the fallback answers.
+globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
 globalThis.fetch = () => new Promise(() => {});
 globalThis.setInterval = () => 0;
 globalThis.setTimeout = () => 0;
