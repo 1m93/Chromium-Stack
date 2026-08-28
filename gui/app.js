@@ -2134,12 +2134,23 @@ function busyControls(row, job) {
 
 /* ---------- nothing running: the one button that starts something ---------- */
 
+// Whether Docker takes the row's own button, or stays in the menu behind it. A
+// recommendation is not the whole story: what the button owes is the shortest
+// way to a browser. An image already built is one click, so it keeps the button
+// on a Docker-first row. An image that has yet to be built is minutes of work,
+// and a native copy already on disk beats it every time - that row used to read
+// "Get" over a version that was installed, with the one thing that could start
+// right now hidden in the menu.
+function dockerIsPrimary(row) {
+  return Boolean(row.dockerOnly && (row.dockerImage || !row.installed));
+}
+
 function idleControls(row) {
   const selector = row.selector;
   const action = document.createElement('button');
   action.className = 'btn';
 
-  if (row.dockerOnly) {
+  if (dockerIsPrimary(row)) {
     // Here the container is not a fallback, it is the only way this version runs
     // on this machine - so it is the button, not something to be found in the
     // menu behind it. Ahead of "installed" deliberately: a build that is on disk
@@ -2186,7 +2197,14 @@ function idleControls(row) {
   } else if (row.installed) {
     action.classList.add('accent');
     action.append(iconSpan('play'), 'Launch');
-    action.title = 'Open this build';
+    // On a row that recommends the container this is still the button, because
+    // the image is not built and this build is: one click against several
+    // minutes. The recommendation is not lost - it is in the tooltip, in the
+    // route marks, and one click away in the menu.
+    action.title = row.dockerOnly
+      ? 'Open this build. The container is the route that works here, but its ' +
+        'image has still to be built - the menu beside this starts that.'
+      : 'Open this build';
     action.onclick = () => start(action, row);
   } else if (row.dockerImage) {
     // The image is already built, so this is one click and no download - the
@@ -2340,7 +2358,7 @@ function menuPlan(row) {
   // still starts.
   if (
     nativeFree &&
-    row.dockerOnly &&
+    dockerIsPrimary(row) &&
     !row.dockerRunning &&
     (row.installed || !row.nativeGone)
   ) {
@@ -2368,7 +2386,7 @@ function menuPlan(row) {
     } else {
       // Not when the row's own button already is this: on a Docker-first row the
       // two read word for word the same.
-      if (dockerFree && !row.dockerOnly) plan.push('docker-launch');
+      if (dockerFree && !dockerIsPrimary(row)) plan.push('docker-launch');
       // The other half of "Download only": fill the shelf now, use it later.
       if (dockerFree && !row.dockerImage) plan.push('docker-build');
       // The CLI has had `rebuild` since the container edition shipped and the
