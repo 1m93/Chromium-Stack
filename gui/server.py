@@ -2094,6 +2094,15 @@ class Handler(BaseHTTPRequestHandler):
             if engine not in ENGINES:
                 return self._json({"error": "Unknown engine: %s" % engine}, 400)
             argv = ["bash", DOCKER_CLI, action, selector]
+            # The virtual screen the container comes up with. Only on a start:
+            # the framebuffer is fixed once Xvfb is running, so this is the one
+            # moment it can be decided, and the page sends the size the desktop
+            # is going to be looked at on rather than leaving every container on
+            # the image's 1440x900 whatever the display in front of it.
+            if action in ("start", "rebuild"):
+                screen = str(body.get("screen", "")).strip()
+                if re.fullmatch(r"\d{3,4}x\d{3,4}", screen):
+                    argv += ["--screen", screen]
             # An image is a gigabyte, so removing one has to be possible from the
             # shelf; otherwise the only way to get that disk back is raw docker.
             if action == "purge" and body.get("withProfile"):

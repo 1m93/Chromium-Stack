@@ -448,9 +448,15 @@ by side. Windows uses `.\engineshelf-docker.ps1` with the same commands.
   and `/dev/snd`), and the fake one steps aside.
 - **On Apple Silicon** the container is emulated, so it is noticeably slower than the native
   launcher. Fine for a careful pass over a screen, tiring for a long session.
-- **Viewport.** The browser fills the virtual screen (1440×900 by default; change `SCREEN`
-  in the `SCREEN` line of that engine's Dockerfile), and the Chromium-family warning
-  infobars are suppressed so they do not eat viewport height and skew a layout check.
+- **Viewport.** The browser fills the container's virtual screen, and the Chromium-family
+  warning infobars are suppressed so they do not eat viewport height and skew a layout
+  check. The manager starts a container at the size of the display you are about to look
+  at it on, or at whatever is typed in the window-size box; from the command line,
+  `--screen 1920x1080` or `SCREEN=1920x1080` does the same. It is settled **when the
+  container starts** and cannot change after: Xvfb fixes its framebuffer at startup, and
+  x11vnc can report a resize the X server made but cannot be asked for one, so a desktop
+  that does not match the tab is shown scaled to fit — bars down the sides when the shapes
+  differ. Restart the container to change it.
 - **First start builds an image** for that version — several minutes under x86 emulation.
   After that the launcher reuses it.
 - **The desktop is published on `127.0.0.1` only.** It has no password and a real browser

@@ -302,6 +302,26 @@ function Get-RunningPort {
     return ($mapping -split ':')[-1].Trim()
 }
 
+# --screen WxH, pulled out of the arguments wherever it sits so the commands
+# below keep reading plain positional selectors.
+#
+# The virtual screen has been 1440x900 since the first image, baked into the
+# Dockerfile, and every desktop is shown scaled to fit the browser tab: on a
+# display of any other shape that leaves bars down the sides, and on a bigger one
+# the whole desktop is rendered smaller than the window showing it. The
+# framebuffer cannot be resized once Xvfb is up, so the size is settled here.
+function Resolve-Screen {
+    param([string]$Value)
+    if (-not $Value) { return $null }
+    if ($Value -notmatch 'x[0-9]+$' -or ($Value -split 'x').Count -lt 3) {
+        if ($Value -match '^\d+x\d+$') { $Value = "${Value}x24" }
+    }
+    if ($Value -notmatch '^\d{3,4}x\d{3,4}x(16|24|32)$') {
+        Die "Screen must be WIDTHxHEIGHT, e.g. 1920x1080 (got: $Value)"
+    }
+    return $Value
+}
+
 function Get-FreePort {
     param([int]$From = 0)
     if ($From -lt $BasePort) { $From = $BasePort }
@@ -336,6 +356,9 @@ function Start-Container {
         # already list.
         $extra = @()
         if ($env:INSECURE_ORIGINS) { $extra = @('-e', "INSECURE_ORIGINS=$($env:INSECURE_ORIGINS)") }
+        # The virtual screen, when one was asked for. Unset means the image's own
+        # default, which is what every container built so far has run.
+        if ($script:ScreenArg) { $extra += @('-e', "SCREEN=$($script:ScreenArg)") }
         $output = docker run -d --name $Container --platform linux/amd64 `
             -p "127.0.0.1:${port}:6080" -v "${Volume}:/data" `
             --add-host 'host.docker.internal:host-gateway' --shm-size=1g @extra $Image 2>&1
@@ -458,6 +481,18 @@ function Invoke-Start {
     Write-Host "  Stop it with: .\engineshelf-docker.ps1 stop $Selector" -ForegroundColor DarkGray
     Write-Host ""
     Start-Process $url | Out-Null
+}
+
+# The screen, read off the arguments before anything is dispatched. Either
+# spelling, and the SCREEN environment variable as the fallback the shell
+# launcher also honours.
+$script:ScreenArg = Resolve-Screen $env:SCREEN
+for ($i = 0; $i -lt $Rest.Count; $i++) {
+    if ($Rest[$i] -eq '--screen' -and $i + 1 -lt $Rest.Count) {
+        $script:ScreenArg = Resolve-Screen $Rest[$i + 1]
+    } elseif ($Rest[$i] -like '--screen=*') {
+        $script:ScreenArg = Resolve-Screen $Rest[$i].Substring(9)
+    }
 }
 
 switch -Regex ($Command) {

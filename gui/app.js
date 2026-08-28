@@ -439,6 +439,25 @@ function humanDate(iso) {
   return `${Number(found[3])} ${MONTHS[Number(found[2]) - 1]} ${found[1]}`;
 }
 
+/* The virtual screen a container is started with. The framebuffer cannot be
+   resized once the container is up - Xvfb fixes it at start and x11vnc can only
+   report a resize the X server made, never ask for one - so this is decided
+   here, on the way in.
+   The box in the header is the same one the native launcher takes its window
+   size from; empty means the display this desktop is about to be looked at on,
+   which is the thing the image's fixed 1440x900 could never know. Clamped,
+   because every pixel of that framebuffer is drawn by an emulated x86 and a 4K
+   desktop under emulation is not a kindness. */
+function desktopScreen() {
+  const typed = $('size').value.trim();
+  if (/^\d{3,4}x\d{3,4}$/.test(typed)) return typed;
+  const clamp = (value, low, high, fallback) =>
+    Math.min(high, Math.max(low, Math.round(value || fallback)));
+  const w = clamp(screen.availWidth, 800, 2560, 1440);
+  const h = clamp(screen.availHeight, 600, 1600, 900);
+  return `${w}x${h}`;
+}
+
 function launchOptions() {
   return {
     url: $('url').value.trim(),
@@ -2300,6 +2319,7 @@ async function startDockerBy(button, selector, name, stream = {}) {
     const { stream: key } = await post('/api/docker', {
       selector,
       action: 'start',
+      screen: desktopScreen(),
       ...stream,
     });
     watch(key, name, { auto: true });
@@ -2569,6 +2589,7 @@ function toggleMenu(container, row) {
             const { stream } = await post('/api/docker', {
               selector: docker,
               action: 'start',
+              screen: desktopScreen(),
               ...streamBody(row),
             });
             watch(stream, row.name, { auto: true });
@@ -2607,6 +2628,7 @@ function toggleMenu(container, row) {
           const { stream } = await post('/api/docker', {
             selector: docker,
             action: 'rebuild',
+            screen: desktopScreen(),
             ...streamBody(row),
           });
           watch(stream, row.name, { auto: true });

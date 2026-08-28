@@ -1687,6 +1687,15 @@ function Invoke-Route {
                 return
             }
             $cliArgs = @($action, $selector)
+            # The virtual screen the container comes up with. Only on a start:
+            # the framebuffer is fixed once Xvfb is running, so this is the one
+            # moment it can be decided, and the page sends the size the desktop
+            # is going to be looked at on rather than leaving every container on
+            # the image's 1440x900 whatever the display in front of it.
+            if (@('start', 'rebuild') -contains $action) {
+                $screen = [string](Get-Field $body 'screen')
+                if ($screen -match '^\d{3,4}x\d{3,4}$') { $cliArgs += @('--screen', $screen) }
+            }
             # An image is a gigabyte, so removing one has to be possible from the
             # shelf; otherwise the only way to get that disk back is raw docker.
             if ($action -eq 'purge' -and (Get-Field $body 'withProfile')) {

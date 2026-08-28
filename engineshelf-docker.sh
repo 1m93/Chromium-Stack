@@ -331,9 +331,13 @@ start_container() {
     [ -e /dev/snd ] && extra+=(--device /dev/snd)
   fi
   # Which host origins the browser in there should treat as secure. Left unset
-  # the image has its own list of the usual dev-server ports; this is the way to
-  # name one that is not on it.
+  # the image trusts every port on host.docker.internal, which covers a dev
+  # server on this machine; this is the way to name one reached some other way,
+  # an IP on the LAN say.
   [ -n "${INSECURE_ORIGINS:-}" ] && extra+=(-e "INSECURE_ORIGINS=$INSECURE_ORIGINS")
+  # The virtual screen, when one was asked for. Unset means the image's own
+  # default, which is what every container built so far has run.
+  [ -n "${SCREEN_ARG:-}" ] && extra+=(-e "SCREEN=$SCREEN_ARG")
 
   for attempt in 1 2 3 4 5 6; do
     port="$(free_port "$floor")"
@@ -544,6 +548,40 @@ usage() {
 
 COMMAND="${1:-}"
 [ $# -gt 0 ] && shift || true
+
+# --screen WxH, pulled out of the arguments wherever it sits so the commands
+# below keep reading plain positional selectors.
+#
+# The virtual screen has been 1440x900 since the first image, baked into the
+# Dockerfile, and every desktop is shown scaled to fit the browser tab: on a
+# display of any other shape that leaves bars down the sides, and on a bigger one
+# it leaves the whole desktop rendered smaller than the window showing it. The
+# framebuffer cannot be resized once Xvfb is up - x11vnc only tracks a resize the
+# X server makes, it cannot be asked for one - so the size has to be settled here,
+# when the container starts.
+SCREEN_ARG="${SCREEN:-}"
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --screen) SCREEN_ARG="${2:-}"; shift 2 || shift ;;
+    --screen=*) SCREEN_ARG="${1#--screen=}"; shift ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
+# WxH or WxHxDepth, nothing else: this ends up in the container's environment and
+# on Xvfb's command line, and a screen it cannot parse is a container that comes
+# up with no desktop at all.
+if [ -n "$SCREEN_ARG" ]; then
+  case "$SCREEN_ARG" in
+    *x*x*) : ;;
+    *x*)   SCREEN_ARG="${SCREEN_ARG}x24" ;;
+  esac
+  if ! printf '%s' "$SCREEN_ARG" | grep -Eq '^[0-9]{3,4}x[0-9]{3,4}x(16|24|32)$'; then
+    die "Screen must be WIDTHxHEIGHT, e.g. 1920x1080 (got: $SCREEN_ARG)"
+  fi
+fi
 case "$COMMAND" in
   start|up)      cmd_start "${1:-}" 0 ;;
   build|get)     cmd_build "${1:-}" 0 ;;
