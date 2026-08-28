@@ -311,6 +311,30 @@ CONTAINER_PORT=""
 start_container() {
   local image="$1" container="$2" volume="$3"
   local floor="$BASE_PORT" attempt port output
+
+  # A webcam is a device on the host, and only a Linux host can lend one to a
+  # container: on macOS and Windows this runs inside Docker Desktop's Linux VM,
+  # which has no USB passthrough at all, so there is nothing to pass and the
+  # entrypoint stands Chromium's fake camera in instead. Where the nodes do
+  # exist they are handed over by name - /dev/video0 is the camera on most
+  # machines and /dev/video1 its metadata node, and a card that is not first in
+  # the list would be missed by guessing.
+  local extra=()
+  if [ "$OS" = "Linux" ]; then
+    local node
+    for node in /dev/video*; do
+      [ -e "$node" ] || continue
+      extra+=(--device "$node:$node")
+    done
+    # Microphones and speakers, the same way. ALSA is enough for getUserMedia;
+    # PulseAudio would want a socket from the host session and is not worth it.
+    [ -e /dev/snd ] && extra+=(--device /dev/snd)
+  fi
+  # Which host origins the browser in there should treat as secure. Left unset
+  # the image has its own list of the usual dev-server ports; this is the way to
+  # name one that is not on it.
+  [ -n "${INSECURE_ORIGINS:-}" ] && extra+=(-e "INSECURE_ORIGINS=$INSECURE_ORIGINS")
+
   for attempt in 1 2 3 4 5 6; do
     port="$(free_port "$floor")"
     if output="$(docker run -d --name "$container" --platform linux/amd64 \
@@ -318,6 +342,7 @@ start_container() {
         -v "$volume:/data" \
         --add-host "host.docker.internal:host-gateway" \
         --shm-size=1g \
+        ${extra[@]+"${extra[@]}"} \
         "$image" 2>&1)"; then
       CONTAINER_PORT="$port"
       return 0

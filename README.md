@@ -427,8 +427,25 @@ by side. Windows uses `.\engineshelf-docker.ps1` with the same commands.
 - **Copy and paste** work across the tab in both directions: your usual shortcut pastes into
   the container, and anything copied inside it lands on your own clipboard. On a Mac that
   means Cmd-C, Cmd-V and Cmd-X, which the desktop in there would otherwise never see.
+  Ctrl-V is caught on a Mac as well, since the desktop on the other side is Linux and that
+  is its paste — but macOS performs no paste for it, so it can only reach your clipboard if
+  the browser grants clipboard access; refused, it pastes the container's own clipboard and
+  says so. **Cmd-V is the one that always reaches this machine's clipboard.**
 - **Reaching your machine.** Inside the container, `localhost` is the container. Use
   **`http://host.docker.internal:4173`** to reach a server running on your own machine.
+  Those origins are handed to the browser as *secure* ones, which `localhost` gets for
+  free and a host name does not — without that, `navigator.mediaDevices`, service workers
+  and the rest of the secure-context APIs are simply absent on your dev server, and the
+  page reports the wrong fault. Every port on that host is covered; if you reach your
+  machine some other way — an IP on the LAN, say — name it in `INSECURE_ORIGINS` before
+  starting the container.
+- **Cameras and microphones.** No real one can reach a container on macOS or Windows:
+  Docker Desktop runs it inside a Linux VM with no USB passthrough, so there is nothing to
+  pass through and nothing that can be configured to change it. **Test a real camera on the
+  native launcher.** What the container does instead is stand in Chromium's fake camera —
+  a synthetic moving image and a tone — so `getUserMedia` resolves and the code under test
+  runs. On a **Linux host** the real devices are passed in when they exist (`/dev/video*`
+  and `/dev/snd`), and the fake one steps aside.
 - **On Apple Silicon** the container is emulated, so it is noticeably slower than the native
   launcher. Fine for a careful pass over a screen, tiring for a long session.
 - **Viewport.** The browser fills the virtual screen (1440×900 by default; change `SCREEN`

@@ -328,9 +328,17 @@ function Start-Container {
     $floor = $BasePort
     for ($attempt = 0; $attempt -lt 6; $attempt++) {
         $port = Get-FreePort $floor
+        # No device passthrough here on purpose: Docker Desktop on Windows runs
+        # this in a Linux VM with no USB behind it, so there is no camera to
+        # hand over and the image stands a fake one in. INSECURE_ORIGINS is the
+        # one thing worth forwarding - it names a dev-server origin the browser
+        # in there should treat as secure, for the ports the image does not
+        # already list.
+        $extra = @()
+        if ($env:INSECURE_ORIGINS) { $extra = @('-e', "INSECURE_ORIGINS=$($env:INSECURE_ORIGINS)") }
         $output = docker run -d --name $Container --platform linux/amd64 `
             -p "127.0.0.1:${port}:6080" -v "${Volume}:/data" `
-            --add-host 'host.docker.internal:host-gateway' --shm-size=1g $Image 2>&1
+            --add-host 'host.docker.internal:host-gateway' --shm-size=1g @extra $Image 2>&1
         if ($LASTEXITCODE -eq 0) { return $port }
         # A named container that failed to start still exists, and the next
         # attempt cannot reuse the name until it is gone.
